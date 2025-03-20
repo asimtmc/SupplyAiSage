@@ -5,17 +5,22 @@ from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.tsa.statespace.sarimax import SARIMAX
+from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from prophet import Prophet
 import warnings
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 import io
 import base64
+import json
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, LSTM, Dropout
 from tensorflow.keras.callbacks import EarlyStopping
 import tensorflow as tf
 import math
+
+# Import the database functionality
+from utils.database import save_forecast_result, get_forecast_history
 
 # Suppress warnings for cleaner output
 warnings.filterwarnings('ignore')
