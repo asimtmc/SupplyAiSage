@@ -495,6 +495,12 @@ def plot_what_if_comparison(base_scenario, what_if_scenario):
         Plotly figure object with the scenario comparison
     """
     # Extract data from scenarios
+    if 'production_plan' not in base_scenario or 'production_plan' not in what_if_scenario:
+        # Return empty figure if missing required data
+        fig = go.Figure()
+        fig.update_layout(title="Missing production plan data in scenarios")
+        return fig
+        
     base_prod = base_scenario['production_plan']
     what_if_prod = what_if_scenario['production_plan']
     
@@ -504,15 +510,51 @@ def plot_what_if_comparison(base_scenario, what_if_scenario):
         fig.update_layout(title="No scenario comparison data available")
         return fig
     
+    # Ensure date column is in datetime format
+    if 'date' in base_prod.columns and 'date' in what_if_prod.columns:
+        if not pd.api.types.is_datetime64_any_dtype(base_prod['date']):
+            try:
+                base_prod['date'] = pd.to_datetime(base_prod['date'])
+            except:
+                pass
+        if not pd.api.types.is_datetime64_any_dtype(what_if_prod['date']):
+            try:
+                what_if_prod['date'] = pd.to_datetime(what_if_prod['date'])
+            except:
+                pass
+    
+    # Ensure we have a 'period' column
+    if 'period' not in base_prod.columns and 'date' in base_prod.columns:
+        base_prod['period'] = base_prod['date'].dt.strftime('%B %Y')
+    
+    if 'period' not in what_if_prod.columns and 'date' in what_if_prod.columns:
+        what_if_prod['period'] = what_if_prod['date'].dt.strftime('%B %Y')
+    
     # Group by period
     base_summary = base_prod.groupby('period')['production_quantity'].sum().reset_index()
     what_if_summary = what_if_prod.groupby('period')['production_quantity'].sum().reset_index()
     
     # Merge the data
-    comparison = pd.merge(base_summary, what_if_summary, on='period', suffixes=('_base', '_what_if'))
+    comparison = pd.merge(base_summary, what_if_summary, on='period', suffixes=('_base', '_what_if'), how='outer').fillna(0)
     
-    # Calculate percentage change
-    comparison['percent_change'] = (comparison['production_quantity_what_if'] - comparison['production_quantity_base']) / comparison['production_quantity_base'] * 100
+    # Calculate percentage change (handle division by zero)
+    comparison['percent_change'] = comparison.apply(
+        lambda row: ((row['production_quantity_what_if'] - row['production_quantity_base']) / row['production_quantity_base'] * 100) 
+        if row['production_quantity_base'] > 0 else 
+        (100 if row['production_quantity_what_if'] > 0 else 0), 
+        axis=1
+    )
+    
+    # Sort by period chronologically if possible
+    try:
+        # Try to convert periods to datetime for sorting
+        temp_dates = pd.to_datetime(comparison['period'], format='%B %Y')
+        comparison['sort_key'] = temp_dates
+        comparison = comparison.sort_values('sort_key')
+        comparison = comparison.drop('sort_key', axis=1)
+    except:
+        # If conversion fails, keep original order
+        pass
     
     # Create figure
     fig = go.Figure()

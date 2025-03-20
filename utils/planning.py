@@ -195,7 +195,19 @@ def run_what_if_scenario(forecasts, bom_data, supplier_data, scenario):
     """
     # Make copies of the data to avoid modifying originals
     supplier_data_copy = supplier_data.copy()
-    forecasts_copy = {k: v.copy() for k, v in forecasts.items()}
+    
+    # Deep copy of forecasts dictionary including pandas Series objects
+    forecasts_copy = {}
+    for k, v in forecasts.items():
+        sku_forecast = v.copy()
+        # Create deep copies of the pandas Series objects
+        if 'forecast' in sku_forecast and hasattr(sku_forecast['forecast'], 'copy'):
+            sku_forecast['forecast'] = sku_forecast['forecast'].copy()
+        if 'upper_bound' in sku_forecast and hasattr(sku_forecast['upper_bound'], 'copy'):
+            sku_forecast['upper_bound'] = sku_forecast['upper_bound'].copy()
+        if 'lower_bound' in sku_forecast and hasattr(sku_forecast['lower_bound'], 'copy'):
+            sku_forecast['lower_bound'] = sku_forecast['lower_bound'].copy()
+        forecasts_copy[k] = sku_forecast
     
     # Apply scenario modifications
     if scenario.get('type') == 'supplier_delay':
@@ -218,15 +230,27 @@ def run_what_if_scenario(forecasts, bom_data, supplier_data, scenario):
         
         if sku and sku in forecasts_copy:
             # Apply to specific SKU
-            forecasts_copy[sku]['forecast'] *= (1 + increase_percent/100)
-            forecasts_copy[sku]['upper_bound'] *= (1 + increase_percent/100)
-            forecasts_copy[sku]['lower_bound'] *= (1 + increase_percent/100)
+            if hasattr(forecasts_copy[sku]['forecast'], 'multiply'):
+                forecasts_copy[sku]['forecast'] = forecasts_copy[sku]['forecast'].multiply(1 + increase_percent/100)
+                forecasts_copy[sku]['upper_bound'] = forecasts_copy[sku]['upper_bound'].multiply(1 + increase_percent/100)
+                forecasts_copy[sku]['lower_bound'] = forecasts_copy[sku]['lower_bound'].multiply(1 + increase_percent/100)
+            else:
+                # Fallback for non-Series objects
+                forecasts_copy[sku]['forecast'] = forecasts_copy[sku]['forecast'] * (1 + increase_percent/100)
+                forecasts_copy[sku]['upper_bound'] = forecasts_copy[sku]['upper_bound'] * (1 + increase_percent/100)
+                forecasts_copy[sku]['lower_bound'] = forecasts_copy[sku]['lower_bound'] * (1 + increase_percent/100)
         else:
             # Apply to all SKUs
-            for sku in forecasts_copy:
-                forecasts_copy[sku]['forecast'] *= (1 + increase_percent/100)
-                forecasts_copy[sku]['upper_bound'] *= (1 + increase_percent/100)
-                forecasts_copy[sku]['lower_bound'] *= (1 + increase_percent/100)
+            for sku_id in forecasts_copy:
+                if hasattr(forecasts_copy[sku_id]['forecast'], 'multiply'):
+                    forecasts_copy[sku_id]['forecast'] = forecasts_copy[sku_id]['forecast'].multiply(1 + increase_percent/100)
+                    forecasts_copy[sku_id]['upper_bound'] = forecasts_copy[sku_id]['upper_bound'].multiply(1 + increase_percent/100)
+                    forecasts_copy[sku_id]['lower_bound'] = forecasts_copy[sku_id]['lower_bound'].multiply(1 + increase_percent/100)
+                else:
+                    # Fallback for non-Series objects
+                    forecasts_copy[sku_id]['forecast'] = forecasts_copy[sku_id]['forecast'] * (1 + increase_percent/100)
+                    forecasts_copy[sku_id]['upper_bound'] = forecasts_copy[sku_id]['upper_bound'] * (1 + increase_percent/100)
+                    forecasts_copy[sku_id]['lower_bound'] = forecasts_copy[sku_id]['lower_bound'] * (1 + increase_percent/100)
     
     elif scenario.get('type') == 'material_shortage':
         # Simulate material shortage by reducing availability
@@ -237,11 +261,17 @@ def run_what_if_scenario(forecasts, bom_data, supplier_data, scenario):
             
             # Reduce forecasts for affected SKUs
             reduction_percent = scenario.get('reduction_percent', 50)  # Default 50%
-            for sku in affected_skus:
-                if sku in forecasts_copy:
-                    forecasts_copy[sku]['forecast'] *= (1 - reduction_percent/100)
-                    forecasts_copy[sku]['upper_bound'] *= (1 - reduction_percent/100)
-                    forecasts_copy[sku]['lower_bound'] *= (1 - reduction_percent/100)
+            for sku_id in affected_skus:
+                if sku_id in forecasts_copy:
+                    if hasattr(forecasts_copy[sku_id]['forecast'], 'multiply'):
+                        forecasts_copy[sku_id]['forecast'] = forecasts_copy[sku_id]['forecast'].multiply(1 - reduction_percent/100)
+                        forecasts_copy[sku_id]['upper_bound'] = forecasts_copy[sku_id]['upper_bound'].multiply(1 - reduction_percent/100)
+                        forecasts_copy[sku_id]['lower_bound'] = forecasts_copy[sku_id]['lower_bound'].multiply(1 - reduction_percent/100)
+                    else:
+                        # Fallback for non-Series objects
+                        forecasts_copy[sku_id]['forecast'] = forecasts_copy[sku_id]['forecast'] * (1 - reduction_percent/100)
+                        forecasts_copy[sku_id]['upper_bound'] = forecasts_copy[sku_id]['upper_bound'] * (1 - reduction_percent/100)
+                        forecasts_copy[sku_id]['lower_bound'] = forecasts_copy[sku_id]['lower_bound'] * (1 - reduction_percent/100)
     
     # Generate new production plan and material requirements
     new_prod_plan = generate_production_plan(forecasts_copy, bom_data, supplier_data_copy)
