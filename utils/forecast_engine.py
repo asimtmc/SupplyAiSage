@@ -1,7 +1,8 @@
 import pandas as pd
 import numpy as np
 from sklearn.cluster import KMeans
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.metrics import mean_absolute_error, mean_squared_error
 from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from prophet import Prophet
@@ -10,6 +11,11 @@ import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 import io
 import base64
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, LSTM, Dropout
+from tensorflow.keras.callbacks import EarlyStopping
+import tensorflow as tf
+import math
 
 # Suppress warnings for cleaner output
 warnings.filterwarnings('ignore')

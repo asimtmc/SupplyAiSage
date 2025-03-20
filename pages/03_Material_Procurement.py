@@ -141,14 +141,47 @@ if st.session_state.run_mrp and st.session_state.material_requirements is not No
     tab1, tab2 = st.tabs(["By Date", "By Material"])
     
     with tab1:
+        st.subheader("Day-wise Delivery Schedule")
+        
         # Sort by order date
         date_view = st.session_state.material_requirements.sort_values('order_date')
         
-        # Format the date column
-        date_view['order_date'] = date_view['order_date'].dt.strftime('%Y-%m-%d')
+        # Format the date column - make sure order_date is a datetime type first
+        date_view = date_view.copy()  # Create a copy to avoid modifying the original
+        if not pd.api.types.is_datetime64_any_dtype(date_view['order_date']):
+            date_view['order_date'] = pd.to_datetime(date_view['order_date'])
+            
+        date_view['order_date_str'] = date_view['order_date'].dt.strftime('%Y-%m-%d')
+        date_view['delivery_week'] = date_view['order_date'].dt.strftime('%Y-W%U')
+        date_view['day_of_week'] = date_view['order_date'].dt.day_name()
         
-        # Show table
-        st.dataframe(date_view, use_container_width=True)
+        # Adjust columns for display
+        display_cols = date_view.columns.tolist()
+        display_cols[display_cols.index('order_date_str')] = 'order_date'
+        date_view_display = date_view.copy()
+        date_view_display['order_date'] = date_view_display['order_date_str']
+        date_view_display = date_view_display.drop('order_date_str', axis=1)
+        
+        # Create a summary at day level for clarity
+        day_summary = date_view.groupby(['order_date', 'day_of_week', 'delivery_week']).agg({
+            'material_id': 'nunique',
+            'order_quantity': 'sum'
+        }).reset_index()
+        day_summary.rename(columns={
+            'material_id': 'unique_materials',
+            'order_quantity': 'total_quantity'
+        }, inplace=True)
+        
+        # Sort by delivery date
+        day_summary = day_summary.sort_values('order_date')
+        
+        # Display the daily summary
+        st.subheader("Daily Delivery Schedule Overview")
+        st.dataframe(day_summary, use_container_width=True)
+        
+        # Create detailed view
+        st.subheader("Detailed Material Delivery Schedule")
+        st.dataframe(date_view_display, use_container_width=True)
         
         # Create a calendar heatmap of orders
         if len(date_view) > 0:
@@ -177,8 +210,14 @@ if st.session_state.run_mrp and st.session_state.material_requirements is not No
             st.session_state.material_requirements['material_id'] == selected_material
         ].sort_values('order_date')
         
-        # Format the date column
-        material_view['order_date'] = material_view['order_date'].dt.strftime('%Y-%m-%d')
+        # Format the date column - make sure order_date is a datetime type first
+        material_view = material_view.copy()  # Create a copy to avoid modifying the original
+        if not pd.api.types.is_datetime64_any_dtype(material_view['order_date']):
+            material_view['order_date'] = pd.to_datetime(material_view['order_date'])
+            
+        material_view['order_date_str'] = material_view['order_date'].dt.strftime('%Y-%m-%d')
+        material_view['order_date'] = material_view['order_date_str']
+        material_view = material_view.drop('order_date_str', axis=1)
         
         # Show table
         st.dataframe(material_view, use_container_width=True)
