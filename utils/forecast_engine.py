@@ -378,7 +378,337 @@ def select_best_model(sku_data, forecast_periods=12):
     
     return result
 
-def generate_forecasts(sales_data, cluster_info, forecast_periods=12):
+def create_lstm_model(sequence_length):
+    """
+    Create and compile an LSTM model for time series forecasting
+    
+    Parameters:
+    -----------
+    sequence_length : int
+        Length of input sequences
+    
+    Returns:
+    --------
+    tensorflow.keras.models.Sequential
+        Compiled LSTM model
+    """
+    # Set random seeds for reproducibility
+    np.random.seed(42)
+    tf.random.set_seed(42)
+    
+    # Create model
+    model = Sequential()
+    model.add(LSTM(units=50, return_sequences=True, input_shape=(sequence_length, 1)))
+    model.add(Dropout(0.2))
+    model.add(LSTM(units=50))
+    model.add(Dropout(0.2))
+    model.add(Dense(units=1))
+    
+    # Compile model
+    model.compile(optimizer='adam', loss='mean_squared_error')
+    
+    return model
+
+def prepare_lstm_data(data, sequence_length=12):
+    """
+    Prepare data for LSTM model by creating sequences
+    
+    Parameters:
+    -----------
+    data : numpy.ndarray
+        Time series data
+    sequence_length : int, optional
+        Length of input sequences (default is 12)
+    
+    Returns:
+    --------
+    tuple
+        (X_train, y_train) where X_train contains sequences and y_train contains next values
+    """
+    X, y = [], []
+    
+    for i in range(len(data) - sequence_length):
+        X.append(data[i:i+sequence_length])
+        y.append(data[i+sequence_length])
+    
+    return np.array(X), np.array(y)
+
+def train_lstm_model(data, test_size=0.2, sequence_length=12, epochs=50):
+    """
+    Train an LSTM model on time series data
+    
+    Parameters:
+    -----------
+    data : numpy.ndarray
+        Time series data
+    test_size : float, optional
+        Proportion of data to use for testing (default is 0.2)
+    sequence_length : int, optional
+        Length of input sequences (default is 12)
+    epochs : int, optional
+        Number of training epochs (default is 50)
+    
+    Returns:
+    --------
+    tuple
+        (model, scaler, test_mape, test_rmse) where model is the trained LSTM model
+    """
+    # Normalize data
+    scaler = MinMaxScaler()
+    data_scaled = scaler.fit_transform(data.reshape(-1, 1))
+    
+    # Prepare data
+    X, y = prepare_lstm_data(data_scaled, sequence_length)
+    
+    # Split into train and test sets
+    train_size = int(len(X) * (1 - test_size))
+    X_train, X_test = X[:train_size], X[train_size:]
+    y_train, y_test = y[:train_size], y[train_size:]
+    
+    # Reshape for LSTM [samples, time steps, features]
+    X_train = X_train.reshape(X_train.shape[0], X_train.shape[1], 1)
+    X_test = X_test.reshape(X_test.shape[0], X_test.shape[1], 1)
+    
+    # Create and train model
+    model = create_lstm_model(sequence_length)
+    early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+    
+    model.fit(
+        X_train, y_train,
+        epochs=epochs,
+        batch_size=32,
+        validation_data=(X_test, y_test),
+        callbacks=[early_stopping],
+        verbose=0
+    )
+    
+    # Evaluate model
+    y_pred = model.predict(X_test, verbose=0)
+    
+    # Inverse transform predictions and actual values
+    y_test_inv = scaler.inverse_transform(y_test)
+    y_pred_inv = scaler.inverse_transform(y_pred)
+    
+    # Calculate metrics
+    test_rmse = math.sqrt(mean_squared_error(y_test_inv, y_pred_inv))
+    test_mape = np.mean(np.abs((y_test_inv - y_pred_inv) / y_test_inv)) * 100
+    
+    return model, scaler, test_mape, test_rmse
+
+def forecast_with_lstm(model, scaler, last_sequence, forecast_periods=12):
+    """
+    Generate forecasts using a trained LSTM model
+    
+    Parameters:
+    -----------
+    model : tensorflow.keras.models.Sequential
+        Trained LSTM model
+    scaler : sklearn.preprocessing.MinMaxScaler
+        Fitted scaler for data normalization
+    last_sequence : numpy.ndarray
+        Last sequence of values to use as input
+    forecast_periods : int, optional
+        Number of periods to forecast (default is 12)
+    
+    Returns:
+    --------
+    numpy.ndarray
+        Forecasted values
+    """
+    # Make a copy of the last sequence
+    curr_sequence = last_sequence.copy()
+    
+    # List to hold forecast
+    forecast = []
+    
+    # Generate forecasts
+    for _ in range(forecast_periods):
+        # Reshape for prediction
+        curr_sequence_reshaped = curr_sequence.reshape(1, curr_sequence.shape[0], 1)
+        
+        # Make prediction
+        pred = model.predict(curr_sequence_reshaped, verbose=0)[0]
+        
+        # Add prediction to forecast
+        forecast.append(pred[0])
+        
+        # Update sequence
+        curr_sequence = np.append(curr_sequence[1:], pred)
+    
+    # Inverse transform forecast
+    forecast = np.array(forecast).reshape(-1, 1)
+    forecast = scaler.inverse_transform(forecast).flatten()
+    
+    # Ensure non-negative values
+    forecast = np.maximum(0, forecast)
+    
+    return forecast
+
+def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_periods=12):
+    """
+    Evaluate multiple forecasting models on a test set and select the best one
+    
+    Parameters:
+    -----------
+    sku_data : pandas.DataFrame
+        Time series data for a specific SKU with date and quantity columns
+    models_to_evaluate : list, optional
+        List of model types to evaluate (default is None, which evaluates all models)
+    test_size : float, optional
+        Proportion of data to use for testing (default is 0.2)
+    forecast_periods : int, optional
+        Number of periods to forecast (default is 12)
+    
+    Returns:
+    --------
+    dict
+        Dictionary with best model information and metrics for all evaluated models
+    """
+    # Make a copy of the data
+    data = sku_data.copy()
+    
+    # Ensure we have enough data
+    if len(data) < 12:
+        return {"best_model": "moving_average", "metrics": {}}
+    
+    # Default models to evaluate if none specified
+    if models_to_evaluate is None:
+        models_to_evaluate = ["arima", "sarima", "prophet", "lstm"]
+    
+    # Split data into train and test
+    train_size = int(len(data) * (1 - test_size))
+    train_data = data.iloc[:train_size].copy()
+    test_data = data.iloc[train_size:].copy()
+    
+    # Metrics to store results
+    metrics = {}
+    
+    # Evaluate each model
+    for model_type in models_to_evaluate:
+        try:
+            if model_type == "arima":
+                # Train ARIMA model
+                model = ARIMA(train_data['quantity'], order=(1, 1, 1))
+                model_fit = model.fit()
+                
+                # Generate forecasts
+                forecast_obj = model_fit.get_forecast(steps=len(test_data))
+                y_pred = forecast_obj.predicted_mean.values
+                
+            elif model_type == "sarima":
+                # Check if we have enough data for seasonal component
+                if len(train_data) >= 24:
+                    # Train SARIMA model
+                    model = SARIMAX(
+                        train_data['quantity'],
+                        order=(1, 1, 1),
+                        seasonal_order=(1, 1, 1, 12),
+                        enforce_stationarity=False,
+                        enforce_invertibility=False
+                    )
+                    model_fit = model.fit(disp=False)
+                    
+                    # Generate forecasts
+                    forecast_obj = model_fit.get_forecast(steps=len(test_data))
+                    y_pred = forecast_obj.predicted_mean.values
+                else:
+                    # Skip if not enough data
+                    continue
+                
+            elif model_type == "prophet":
+                # Prepare data for Prophet
+                prophet_train = pd.DataFrame({
+                    'ds': train_data['date'],
+                    'y': train_data['quantity']
+                })
+                
+                # Train Prophet model
+                m = Prophet(
+                    changepoint_prior_scale=0.05,
+                    seasonality_prior_scale=0.1,
+                    yearly_seasonality=True if len(train_data) >= 24 else False,
+                    weekly_seasonality=False,
+                    daily_seasonality=False
+                )
+                m.fit(prophet_train)
+                
+                # Create future dataframe for test period
+                future = pd.DataFrame({'ds': test_data['date']})
+                
+                # Generate forecasts
+                forecast_df = m.predict(future)
+                y_pred = forecast_df['yhat'].values
+                
+            elif model_type == "lstm":
+                # Prepare data for LSTM
+                sequence_length = min(12, len(train_data) // 2)
+                
+                # Train LSTM model
+                model, scaler, _, _ = train_lstm_model(
+                    train_data['quantity'].values,
+                    test_size=0,  # Use all train data
+                    sequence_length=sequence_length,
+                    epochs=50
+                )
+                
+                # Prepare last sequence for forecasting
+                last_sequence = train_data['quantity'].values[-sequence_length:]
+                last_sequence = scaler.transform(last_sequence.reshape(-1, 1)).flatten()
+                
+                # Generate forecasts
+                y_pred = forecast_with_lstm(
+                    model,
+                    scaler,
+                    last_sequence,
+                    forecast_periods=len(test_data)
+                )
+                
+            else:
+                # Skip unknown model type
+                continue
+                
+            # Calculate metrics
+            y_true = test_data['quantity'].values
+            
+            # Ensure predictions are non-negative
+            y_pred = np.maximum(0, y_pred)
+            
+            # Calculate RMSE
+            rmse = math.sqrt(mean_squared_error(y_true, y_pred))
+            
+            # Calculate MAPE, handling zero values
+            mask = y_true > 0
+            if mask.sum() > 0:
+                mape = np.mean(np.abs((y_true[mask] - y_pred[mask]) / y_true[mask])) * 100
+            else:
+                mape = np.nan
+                
+            # Calculate MAE
+            mae = mean_absolute_error(y_true, y_pred)
+            
+            # Store metrics
+            metrics[model_type] = {
+                'rmse': rmse,
+                'mape': mape,
+                'mae': mae
+            }
+            
+        except Exception as e:
+            # Skip failed models
+            continue
+    
+    # Select best model based on RMSE
+    if metrics:
+        best_model = min(metrics.items(), key=lambda x: x[1]['rmse'])[0]
+    else:
+        best_model = "moving_average"
+    
+    return {
+        "best_model": best_model,
+        "metrics": metrics
+    }
+
+def generate_forecasts(sales_data, cluster_info, forecast_periods=12, evaluate_models_flag=False, models_to_evaluate=None):
     """
     Generate forecasts for all SKUs based on their clusters
     
@@ -390,6 +720,10 @@ def generate_forecasts(sales_data, cluster_info, forecast_periods=12):
         Information about SKU clusters
     forecast_periods : int, optional
         Number of periods to forecast (default is 12)
+    evaluate_models_flag : bool, optional
+        Whether to evaluate models on test data (default is False)
+    models_to_evaluate : list, optional
+        List of model types to evaluate (default is None, which evaluates all models)
     
     Returns:
     --------
@@ -421,13 +755,71 @@ def generate_forecasts(sales_data, cluster_info, forecast_periods=12):
             sku_cluster = -1
             sku_cluster_name = "Unclassified"
         
+        # Evaluate models if requested
+        model_evaluation = None
+        if evaluate_models_flag and len(sku_data) >= 12:
+            model_evaluation = evaluate_models(
+                sku_data,
+                models_to_evaluate=models_to_evaluate,
+                test_size=0.2,
+                forecast_periods=forecast_periods
+            )
+            
+            # Use best model for forecasting
+            best_model = model_evaluation["best_model"]
+        else:
+            best_model = None
+        
         # Select model and generate forecast
-        forecast_result = select_best_model(sku_data, forecast_periods)
+        if best_model == "lstm" and len(sku_data) >= 24:
+            # Train LSTM with full data
+            sequence_length = min(12, len(sku_data) // 2)
+            model, scaler, _, _ = train_lstm_model(
+                sku_data['quantity'].values,
+                test_size=0.1,  # Small validation set
+                sequence_length=sequence_length,
+                epochs=50
+            )
+            
+            # Prepare last sequence for forecasting
+            last_sequence = sku_data['quantity'].values[-sequence_length:]
+            last_sequence = scaler.transform(last_sequence.reshape(-1, 1)).flatten()
+            
+            # Generate forecasts
+            forecast_values = forecast_with_lstm(
+                model,
+                scaler,
+                last_sequence,
+                forecast_periods=forecast_periods
+            )
+            
+            # Create confidence intervals
+            lower_bound = forecast_values * 0.8
+            upper_bound = forecast_values * 1.2
+            
+            # Create dates for forecast periods
+            last_date = sku_data['date'].max()
+            forecast_dates = [last_date + timedelta(days=30*i) for i in range(1, forecast_periods+1)]
+            
+            # Create forecast result
+            forecast_result = {
+                "model": "lstm",
+                "forecast": pd.Series(forecast_values, index=forecast_dates),
+                "lower_bound": pd.Series(lower_bound, index=forecast_dates),
+                "upper_bound": pd.Series(upper_bound, index=forecast_dates)
+            }
+        else:
+            # Use select_best_model for other cases
+            forecast_result = select_best_model(sku_data, forecast_periods)
         
         # Add metadata to result
         forecast_result['sku'] = sku
         forecast_result['cluster'] = sku_cluster
         forecast_result['cluster_name'] = sku_cluster_name
+        
+        # Add model evaluation results if available
+        if model_evaluation:
+            forecast_result['model_evaluation'] = model_evaluation
         
         # Store in dictionary
         forecasts[sku] = forecast_result

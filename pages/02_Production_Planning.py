@@ -108,7 +108,7 @@ if st.session_state.run_production_planning and st.session_state.production_plan
     st.header("Production Schedule")
     
     # Create tabs for different views
-    tab1, tab2 = st.tabs(["By Period", "By SKU"])
+    tab1, tab2, tab3 = st.tabs(["By Period", "By SKU", "Daily Production Plan"])
     
     with tab1:
         # Group by period
@@ -165,6 +165,164 @@ if st.session_state.run_production_planning and st.session_state.production_plan
             hole=0.3
         )
         st.plotly_chart(fig, use_container_width=True)
+    
+    with tab3:
+        st.subheader("Daily Production Plan")
+        
+        # Allow selecting a specific period for the daily plan
+        selected_month = st.selectbox(
+            "Select Month for Daily Planning",
+            options=sorted(st.session_state.production_plan['period'].unique()),
+            key="daily_plan_month"
+        )
+        
+        # Filter the production plan for the selected month
+        month_plan = st.session_state.production_plan[
+            st.session_state.production_plan['period'] == selected_month
+        ].copy()
+        
+        if not month_plan.empty:
+            # Get the date range for this month
+            start_date = month_plan['date'].min()
+            end_date = month_plan['date'].max()
+            
+            # Create a daily date range
+            date_range = pd.date_range(start=start_date, end=end_date, freq='D')
+            
+            # Get unique SKUs
+            skus = sorted(month_plan['sku'].unique())
+            
+            # Create daily production data
+            # First, get the base monthly production
+            sku_monthly_production = month_plan.groupby('sku')['production_quantity'].sum()
+            
+            # Next, extract forecast data for the selected month to determine distribution
+            if 'forecasts' in st.session_state:
+                # Create a daily production plan
+                daily_data = []
+                
+                # Get the number of working days in the month (excluding weekends)
+                working_days = len([d for d in date_range if d.weekday() < 5])  # 0-4 are Monday-Friday
+                
+                for sku in skus:
+                    if sku in sku_monthly_production:
+                        # Get monthly production for this SKU
+                        total_production = sku_monthly_production[sku]
+                        
+                        # Calculate daily production (evenly distributed across working days)
+                        daily_prod = total_production / working_days
+                        
+                        # Get forecast for this SKU if available
+                        daily_forecast = 0
+                        if sku in st.session_state.forecasts:
+                            forecast_data = st.session_state.forecasts[sku]
+                            # Find forecast for this month
+                            for date, value in forecast_data['forecast'].items():
+                                if date.strftime('%Y-%m') == selected_month[:7]:
+                                    daily_forecast = value / 30  # Approximate daily forecast
+                                    break
+                        
+                        # Create initial inventory (use 2x daily production as a placeholder)
+                        initial_inventory = daily_prod * 2
+                        
+                        # Create records for each working day
+                        current_inventory = initial_inventory
+                        for date in date_range:
+                            if date.weekday() < 5:  # Monday-Friday
+                                # Create a record for this day
+                                row = {
+                                    'date': date,
+                                    'sku': sku,
+                                    'opening_stock': current_inventory,
+                                    'production': daily_prod,
+                                    'forecast_sales': daily_forecast,
+                                    'closing_stock': current_inventory + daily_prod - daily_forecast
+                                }
+                                daily_data.append(row)
+                                
+                                # Update inventory for next day
+                                current_inventory = row['closing_stock']
+                
+                # Convert to DataFrame
+                daily_df = pd.DataFrame(daily_data)
+                
+                # Show tables and charts by SKU
+                st.write("Daily Production and Inventory Plan")
+                
+                # Allow selecting a specific SKU to view
+                selected_sku = st.selectbox("Select SKU", options=skus)
+                
+                # Filter for selected SKU
+                sku_daily = daily_df[daily_df['sku'] == selected_sku].copy()
+                
+                # Format dates and round numbers for display
+                sku_daily['date'] = sku_daily['date'].dt.strftime('%Y-%m-%d')
+                for col in ['opening_stock', 'production', 'forecast_sales', 'closing_stock']:
+                    sku_daily[col] = sku_daily[col].round(0).astype(int)
+                
+                # Display table
+                st.dataframe(sku_daily, use_container_width=True)
+                
+                # Create chart
+                chart_data = daily_df[daily_df['sku'] == selected_sku].copy()
+                
+                fig = go.Figure()
+                
+                # Add opening stock line
+                fig.add_trace(go.Scatter(
+                    x=chart_data['date'],
+                    y=chart_data['opening_stock'],
+                    mode='lines+markers',
+                    name='Opening Stock',
+                    line=dict(color='blue')
+                ))
+                
+                # Add production as bars
+                fig.add_trace(go.Bar(
+                    x=chart_data['date'],
+                    y=chart_data['production'],
+                    name='Production',
+                    marker_color='green'
+                ))
+                
+                # Add forecast sales as bars
+                fig.add_trace(go.Bar(
+                    x=chart_data['date'],
+                    y=chart_data['forecast_sales'] * -1,  # Negative to show below axis
+                    name='Forecast Sales',
+                    marker_color='red'
+                ))
+                
+                # Add closing stock line
+                fig.add_trace(go.Scatter(
+                    x=chart_data['date'],
+                    y=chart_data['closing_stock'],
+                    mode='lines+markers',
+                    name='Closing Stock',
+                    line=dict(color='purple')
+                ))
+                
+                # Update layout
+                fig.update_layout(
+                    title=f'Daily Production Plan for {selected_sku}',
+                    barmode='relative',
+                    xaxis_title='Date',
+                    yaxis_title='Quantity',
+                    legend=dict(
+                        orientation="h",
+                        yanchor="bottom",
+                        y=1.02,
+                        xanchor="right",
+                        x=1
+                    )
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+            
+            else:
+                st.warning("Forecast data is not available to generate daily plans.")
+        else:
+            st.warning("No production plan data found for the selected month.")
     
     # Detailed view
     st.header("Detailed Production Schedule")

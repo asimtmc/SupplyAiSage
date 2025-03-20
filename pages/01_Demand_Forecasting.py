@@ -3,6 +3,8 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
+import io
+from datetime import datetime
 from utils.data_processor import process_sales_data
 from utils.forecast_engine import extract_features, cluster_skus, generate_forecasts
 from utils.visualization import plot_forecast, plot_cluster_summary
@@ -60,6 +62,28 @@ with st.sidebar:
         step=1
     )
     
+    # Model evaluation and selection
+    st.subheader("Model Selection")
+    
+    # Option to evaluate models on test data
+    evaluate_models_flag = st.checkbox("Evaluate models on test data", value=True,
+                                     help="Split data into training and test sets to evaluate model performance before forecasting")
+    
+    st.write("Select forecasting models to evaluate:")
+    models_to_evaluate = []
+    
+    if st.checkbox("ARIMA", value=True):
+        models_to_evaluate.append("arima")
+    
+    if st.checkbox("SARIMAX (Seasonal)", value=True):
+        models_to_evaluate.append("sarima")
+    
+    if st.checkbox("Prophet", value=True):
+        models_to_evaluate.append("prophet")
+    
+    if st.checkbox("LSTM Neural Network", value=True):
+        models_to_evaluate.append("lstm")
+    
     # Run forecast button
     if st.button("Run Forecast Analysis"):
         st.session_state.run_forecast = True
@@ -70,11 +94,13 @@ with st.sidebar:
             # Cluster SKUs
             st.session_state.clusters = cluster_skus(features_df, n_clusters=num_clusters)
             
-            # Generate forecasts
+            # Generate forecasts with model evaluation
             st.session_state.forecasts = generate_forecasts(
                 st.session_state.sales_data,
                 st.session_state.clusters,
-                forecast_periods=st.session_state.forecast_periods
+                forecast_periods=st.session_state.forecast_periods,
+                evaluate_models_flag=evaluate_models_flag,
+                models_to_evaluate=models_to_evaluate
             )
             
             st.success(f"Successfully generated forecasts for {len(st.session_state.forecasts)} SKUs!")
@@ -114,6 +140,62 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                 sku_clusters = st.session_state.clusters[['sku', 'cluster_name']].sort_values('cluster_name')
                 st.dataframe(sku_clusters, use_container_width=True)
     
+    # Show SKU-wise Model Selection Table
+    st.header("SKU-wise Model Selection")
+    
+    # Create a dataframe with SKU and model information
+    model_selection_data = []
+    
+    for sku, forecast_data in st.session_state.forecasts.items():
+        model_info = {
+            'SKU': sku,
+            'Selected Model': forecast_data['model'].upper(),
+            'Cluster': forecast_data['cluster_name']
+        }
+        
+        # Add model evaluation metrics if available
+        if 'model_evaluation' in forecast_data and forecast_data['model_evaluation']['metrics']:
+            best_model = forecast_data['model_evaluation']['best_model']
+            if best_model in forecast_data['model_evaluation']['metrics']:
+                metrics = forecast_data['model_evaluation']['metrics'][best_model]
+                model_info['RMSE'] = round(metrics['rmse'], 2)
+                model_info['MAPE (%)'] = round(metrics['mape'], 2) if not np.isnan(metrics['mape']) else None
+            
+            # Add reason for selection
+            model_info['Selection Reason'] = "Best performance on test data" if best_model == forecast_data['model'] else "Fallback choice"
+        
+        model_selection_data.append(model_info)
+    
+    # Create and display the dataframe
+    model_selection_df = pd.DataFrame(model_selection_data)
+    
+    # Add table filters
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Filter by model type
+        if 'Selected Model' in model_selection_df.columns:
+            unique_models = ['All'] + sorted(model_selection_df['Selected Model'].unique().tolist())
+            selected_model_filter = st.selectbox("Filter by Model Type", options=unique_models)
+    
+    with col2:
+        # Filter by cluster
+        if 'Cluster' in model_selection_df.columns:
+            unique_clusters = ['All'] + sorted(model_selection_df['Cluster'].unique().tolist())
+            selected_cluster_filter = st.selectbox("Filter by Cluster", options=unique_clusters)
+    
+    # Apply filters
+    filtered_df = model_selection_df.copy()
+    
+    if selected_model_filter != 'All':
+        filtered_df = filtered_df[filtered_df['Selected Model'] == selected_model_filter]
+    
+    if selected_cluster_filter != 'All':
+        filtered_df = filtered_df[filtered_df['Cluster'] == selected_cluster_filter]
+    
+    # Display the filtered table
+    st.dataframe(filtered_df, use_container_width=True)
+    
     # Forecast explorer
     st.header("Forecast Explorer")
     
@@ -136,6 +218,28 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
             # Display forecast chart
             forecast_fig = plot_forecast(st.session_state.sales_data, forecast_data, selected_sku)
             st.plotly_chart(forecast_fig, use_container_width=True)
+            
+            # If model evaluation results are available, show them
+            if 'model_evaluation' in forecast_data and forecast_data['model_evaluation']['metrics']:
+                st.subheader("Model Evaluation Results")
+                
+                # Create table of model evaluation metrics
+                metrics_data = []
+                for model_name, metrics in forecast_data['model_evaluation']['metrics'].items():
+                    metrics_data.append({
+                        'Model': model_name.upper(),
+                        'RMSE': round(metrics['rmse'], 2),
+                        'MAPE (%)': round(metrics['mape'], 2) if not np.isnan(metrics['mape']) else "N/A",
+                        'MAE': round(metrics['mae'], 2),
+                        'Best Model': '✓' if model_name == forecast_data['model_evaluation']['best_model'] else ''
+                    })
+                
+                # Create DataFrame and display
+                metrics_df = pd.DataFrame(metrics_data)
+                st.dataframe(metrics_df.sort_values('RMSE'), use_container_width=True)
+                
+                # Add explanation
+                st.info("The system evaluated all selected models on historical test data and automatically selected the best performing model for this SKU. Lower RMSE and MAPE values indicate better forecast accuracy.")
         
         with col2:
             # Show forecast details
