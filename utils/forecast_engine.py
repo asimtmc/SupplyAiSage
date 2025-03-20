@@ -232,6 +232,18 @@ def select_best_model(sku_data, forecast_periods=12):
     zero_ratio = (data['quantity'] == 0).mean()
     intermittent = zero_ratio > 0.3
     
+    # Calculate CV to determine if Holt-Winters is appropriate
+    cv = data['quantity'].std() / data['quantity'].mean() if data['quantity'].mean() > 0 else float('inf')
+    
+    # Check for trend
+    try:
+        data['trend_index'] = np.arange(len(data))
+        trend_model = np.polyfit(data['trend_index'], data['quantity'], 1)
+        trend_slope = trend_model[0]
+        has_trend = abs(trend_slope) > 0.1 * data['quantity'].mean()
+    except:
+        has_trend = False
+    
     # Set the model parameters
     if len(data) < 12:
         # For very short series, use simple methods
@@ -261,42 +273,70 @@ def select_best_model(sku_data, forecast_periods=12):
         upper_bound = [forecast * 1.4] * forecast_periods
         
     elif seasonality:
-        # For seasonal data, try SARIMA
-        model_type = "sarima"
+        # For seasonal data, try Holt-Winters first
+        model_type = "holtwinters"
         try:
-            # Simple SARIMA model
-            model = SARIMAX(
+            # Determine seasonal period based on data length
+            if len(data) >= 24:
+                seasonal_periods = 12  # Monthly data, annual seasonality
+            else:
+                seasonal_periods = 4   # Quarterly-like pattern for shorter data
+            
+            # Fit Holt-Winters model
+            model = ExponentialSmoothing(
                 data['quantity'],
-                order=(1, 1, 1),
-                seasonal_order=(1, 1, 1, 12),
-                enforce_stationarity=False,
-                enforce_invertibility=False
+                trend='add',               # Additive trend
+                seasonal='add',            # Additive seasonality
+                seasonal_periods=seasonal_periods,
+                damped=True                # Damped trend to avoid over-forecasting
             )
-            results = model.fit(disp=False)
-            forecast_obj = results.get_forecast(steps=forecast_periods)
-            forecast_values = forecast_obj.predicted_mean.values
-            conf_int = forecast_obj.conf_int(alpha=0.1)
-            lower_bound = conf_int.iloc[:, 0].values
-            upper_bound = conf_int.iloc[:, 1].values
+            results = model.fit(optimized=True, use_brute=False)
+            
+            # Generate forecasts
+            forecast_values = results.forecast(steps=forecast_periods).values
+            
+            # Create confidence intervals (80% by default)
+            forecast_std = np.std(data['quantity'])
+            z_value = 1.28  # Approximately 80% confidence interval
+            lower_bound = forecast_values - z_value * forecast_std
+            upper_bound = forecast_values + z_value * forecast_std
         except:
-            # Fall back to ARIMA if SARIMA fails
-            model_type = "arima"
+            # Fall back to SARIMA if Holt-Winters fails
+            model_type = "sarima"
             try:
-                model = ARIMA(data['quantity'], order=(1, 1, 1))
-                results = model.fit()
+                # Simple SARIMA model
+                model = SARIMAX(
+                    data['quantity'],
+                    order=(1, 1, 1),
+                    seasonal_order=(1, 1, 1, 12),
+                    enforce_stationarity=False,
+                    enforce_invertibility=False
+                )
+                results = model.fit(disp=False)
                 forecast_obj = results.get_forecast(steps=forecast_periods)
                 forecast_values = forecast_obj.predicted_mean.values
                 conf_int = forecast_obj.conf_int(alpha=0.1)
                 lower_bound = conf_int.iloc[:, 0].values
                 upper_bound = conf_int.iloc[:, 1].values
             except:
-                # Fall back to moving average if ARIMA fails
-                model_type = "moving_average"
-                window = min(6, len(data) - 1)
-                forecast = data['quantity'].rolling(window=window).mean().iloc[-1]
-                forecast_values = [forecast] * forecast_periods
-                lower_bound = [max(0, forecast * 0.7)] * forecast_periods
-                upper_bound = [forecast * 1.3] * forecast_periods
+                # Fall back to ARIMA if SARIMA fails
+                model_type = "arima"
+                try:
+                    model = ARIMA(data['quantity'], order=(1, 1, 1))
+                    results = model.fit()
+                    forecast_obj = results.get_forecast(steps=forecast_periods)
+                    forecast_values = forecast_obj.predicted_mean.values
+                    conf_int = forecast_obj.conf_int(alpha=0.1)
+                    lower_bound = conf_int.iloc[:, 0].values
+                    upper_bound = conf_int.iloc[:, 1].values
+                except:
+                    # Fall back to moving average if ARIMA fails
+                    model_type = "moving_average"
+                    window = min(6, len(data) - 1)
+                    forecast = data['quantity'].rolling(window=window).mean().iloc[-1]
+                    forecast_values = [forecast] * forecast_periods
+                    lower_bound = [max(0, forecast * 0.7)] * forecast_periods
+                    upper_bound = [forecast * 1.3] * forecast_periods
     else:
         # For non-seasonal data, try ARIMA or Prophet
         if len(data) >= 24:
@@ -578,7 +618,7 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
     
     # Default models to evaluate if none specified
     if models_to_evaluate is None:
-        models_to_evaluate = ["arima", "sarima", "prophet", "lstm"]
+        models_to_evaluate = ["arima", "sarima", "prophet", "lstm", "holtwinters"]
     
     # Split data into train and test
     train_size = int(len(data) * (1 - test_size))
@@ -667,6 +707,37 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                     last_sequence,
                     forecast_periods=len(test_data)
                 )
+            
+            elif model_type == "holtwinters":
+                # Check if we have enough data
+                if len(train_data) >= 12:
+                    # Determine seasonal period if possible
+                    if len(train_data) >= 24:
+                        seasonal_periods = 12  # Monthly data, annual seasonality
+                    else:
+                        seasonal_periods = 4   # Quarterly-like pattern for shorter data
+                    
+                    # Train Holt-Winters Exponential Smoothing model
+                    model = ExponentialSmoothing(
+                        train_data['quantity'],
+                        trend='add',               # Additive trend
+                        seasonal='add',            # Additive seasonality
+                        seasonal_periods=seasonal_periods,
+                        damped=True                # Damped trend to avoid over-forecasting
+                    )
+                    model_fit = model.fit(
+                        optimized=True,            # Find optimal parameters
+                        use_brute=False            # Use gradient descent for speed
+                    )
+                    
+                    # Generate forecasts
+                    y_pred = model_fit.forecast(steps=len(test_data))
+                    
+                    # Convert to NumPy array for consistency
+                    y_pred = y_pred.values
+                else:
+                    # Skip if not enough data
+                    continue
                 
             else:
                 # Skip unknown model type
