@@ -9,6 +9,7 @@ import numpy as np
 def plot_forecast(sales_data, forecast_data, sku):
     """
     Create a plotly figure showing historical sales and forecast for a specific SKU
+    with enhanced visualization and error metrics
     
     Parameters:
     -----------
@@ -50,7 +51,7 @@ def plot_forecast(sales_data, forecast_data, sku):
         y=sku_sales['quantity'],
         mode='lines+markers',
         name='Historical Sales',
-        line=dict(color='blue'),
+        line=dict(color='#1f77b4', width=2),
         marker=dict(size=6),
     ))
     
@@ -60,8 +61,8 @@ def plot_forecast(sales_data, forecast_data, sku):
         y=forecast.values,
         mode='lines+markers',
         name='Forecast',
-        line=dict(color='red'),
-        marker=dict(size=6),
+        line=dict(color='#d62728', width=2, dash='dash'),
+        marker=dict(size=8, symbol='diamond'),
     ))
     
     # Add confidence interval
@@ -69,15 +70,82 @@ def plot_forecast(sales_data, forecast_data, sku):
         x=list(upper_bound.index) + list(lower_bound.index)[::-1],
         y=list(upper_bound.values) + list(lower_bound.values)[::-1],
         fill='toself',
-        fillcolor='rgba(255, 0, 0, 0.2)',
-        line=dict(color='rgba(255, 0, 0, 0)'),
+        fillcolor='rgba(214, 39, 40, 0.2)',
+        line=dict(color='rgba(214, 39, 40, 0)'),
         name='95% Confidence Interval',
         showlegend=True
     ))
     
-    # Update layout
+    # Add test set data if it exists in forecast_data
+    if 'test_set' in forecast_data and 'test_predictions' in forecast_data:
+        test_dates = forecast_data['test_set'].index
+        test_values = forecast_data['test_set'].values
+        test_pred = forecast_data['test_predictions'].values
+        
+        # Add test set actuals
+        fig.add_trace(go.Scatter(
+            x=test_dates,
+            y=test_values,
+            mode='markers',
+            name='Test Set (Actual)',
+            marker=dict(size=10, color='#2ca02c', symbol='circle'),
+            showlegend=True
+        ))
+        
+        # Add test set predictions
+        fig.add_trace(go.Scatter(
+            x=test_dates,
+            y=test_pred,
+            mode='markers',
+            name='Test Set (Predicted)',
+            marker=dict(size=10, color='#ff7f0e', symbol='x'),
+            showlegend=True
+        ))
+    
+    # Add model performance summary if available
+    if 'model_evaluation' in forecast_data and forecast_data['model_evaluation'].get('metrics'):
+        model_name = forecast_data['model'].upper()
+        metrics = forecast_data['model_evaluation']['metrics'].get(forecast_data['model'], {})
+        
+        # Prepare annotation text
+        metrics_text = f"<b>Model: {model_name}</b><br>"
+        if 'rmse' in metrics:
+            metrics_text += f"RMSE: {metrics['rmse']:.2f}<br>"
+        if 'mape' in metrics and not np.isnan(metrics['mape']):
+            metrics_text += f"MAPE: {metrics['mape']:.2f}%<br>"
+        if 'mae' in metrics:
+            metrics_text += f"MAE: {metrics['mae']:.2f}<br>"
+        
+        # Add annotation
+        fig.add_annotation(
+            x=0.02,
+            y=0.98,
+            xref="paper",
+            yref="paper",
+            text=metrics_text,
+            showarrow=False,
+            font=dict(
+                family="Arial",
+                size=12,
+                color="#000000"
+            ),
+            align="left",
+            bgcolor="rgba(255, 255, 255, 0.8)",
+            bordercolor="#c7c7c7",
+            borderwidth=1,
+            borderpad=4
+        )
+    
+    # Update layout with more modern style
     fig.update_layout(
-        title=f"Sales Forecast for SKU: {sku}",
+        title={
+            'text': f"Sales Forecast for SKU: {sku}",
+            'y':0.95,
+            'x':0.5,
+            'xanchor': 'center',
+            'yanchor': 'top',
+            'font': dict(size=22)
+        },
         xaxis_title="Date",
         yaxis_title="Quantity",
         legend=dict(
@@ -87,7 +155,26 @@ def plot_forecast(sales_data, forecast_data, sku):
             xanchor="right",
             x=1
         ),
-        template="plotly_white"
+        template="plotly_white",
+        hoverlabel=dict(
+            bgcolor="white",
+            font_size=12,
+            font_family="Arial"
+        ),
+        margin=dict(l=50, r=50, t=80, b=50)
+    )
+    
+    # Add grid lines for better readability
+    fig.update_xaxes(
+        showgrid=True,
+        gridwidth=1,
+        gridcolor='rgba(211,211,211,0.5)'
+    )
+    
+    fig.update_yaxes(
+        showgrid=True,
+        gridwidth=1,
+        gridcolor='rgba(211,211,211,0.5)'
     )
     
     return fig
