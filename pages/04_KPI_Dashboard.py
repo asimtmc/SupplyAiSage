@@ -5,7 +5,12 @@ import plotly.express as px
 import plotly.graph_objects as go
 import io
 from datetime import datetime, timedelta
-from utils.visualization import plot_forecast_accuracy, plot_inventory_health
+from utils.visualization import (
+    plot_forecast_accuracy, 
+    plot_inventory_health, 
+    plot_forecast_accuracy_trend,
+    plot_inventory_risk_matrix
+)
 
 # Set page config
 st.set_page_config(
@@ -107,71 +112,144 @@ with tab1:
             st.write("Preview of actuals data:")
             st.dataframe(actuals_data.head(), use_container_width=True)
             
-            # Generate forecast accuracy chart
-            st.subheader("Forecast Accuracy by SKU")
-            accuracy_fig = plot_forecast_accuracy(actuals_data, st.session_state.forecasts)
-            st.plotly_chart(accuracy_fig, use_container_width=True)
+            # Create accuracy analysis tabs
+            acc_tab1, acc_tab2, acc_tab3 = st.tabs(["Accuracy by SKU", "Accuracy Trend", "Model Performance"])
             
-            # Calculate aggregate accuracy metrics
-            st.subheader("Accuracy Metrics")
-            
-            # Function to calculate MAPE
-            def calculate_mape(actuals, forecasts):
-                mape_sum = 0
-                count = 0
+            with acc_tab1:
+                # Generate forecast accuracy chart
+                st.subheader("Forecast Accuracy by SKU")
+                accuracy_fig = plot_forecast_accuracy(actuals_data, st.session_state.forecasts)
+                st.plotly_chart(accuracy_fig, use_container_width=True)
                 
-                for sku, forecast_data in forecasts.items():
-                    sku_actuals = actuals[actuals['sku'] == sku]
-                    if len(sku_actuals) == 0:
-                        continue
+                # Calculate aggregate accuracy metrics
+                st.subheader("Accuracy Metrics")
+                
+                # Function to calculate MAPE
+                def calculate_mape(actuals, forecasts):
+                    mape_sum = 0
+                    count = 0
                     
-                    forecast = forecast_data['forecast']
-                    
-                    # Find overlapping dates
-                    actual_dates = set(sku_actuals['date'])
-                    forecast_dates = set(forecast.index)
-                    common_dates = actual_dates.intersection(forecast_dates)
-                    
-                    for date in common_dates:
-                        actual = sku_actuals[sku_actuals['date'] == date]['quantity'].iloc[0]
-                        predicted = forecast.get(date, 0)
+                    for sku, forecast_data in forecasts.items():
+                        sku_actuals = actuals[actuals['sku'] == sku]
+                        if len(sku_actuals) == 0:
+                            continue
                         
-                        if actual > 0:  # Avoid division by zero
-                            mape_sum += abs(actual - predicted) / actual
-                            count += 1
+                        forecast = forecast_data['forecast']
+                        
+                        # Find overlapping dates
+                        actual_dates = set(sku_actuals['date'])
+                        forecast_dates = set(forecast.index)
+                        common_dates = actual_dates.intersection(forecast_dates)
+                        
+                        for date in common_dates:
+                            actual = sku_actuals[sku_actuals['date'] == date]['quantity'].iloc[0]
+                            predicted = forecast.get(date, 0)
+                            
+                            if actual > 0:  # Avoid division by zero
+                                mape_sum += abs(actual - predicted) / actual
+                                count += 1
+                    
+                    return (mape_sum / count) * 100 if count > 0 else 0
                 
-                return (mape_sum / count) * 100 if count > 0 else 0
+                mape = calculate_mape(actuals_data, st.session_state.forecasts)
+                accuracy = max(0, 100 - mape)  # Convert MAPE to accuracy percentage
+                
+                # Display metrics
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.metric(
+                        label="Average Forecast Accuracy",
+                        value=f"{accuracy:.1f}%",
+                        delta=f"{accuracy - 80:.1f}%" if accuracy > 80 else f"{accuracy - 80:.1f}%",
+                        delta_color="normal" if accuracy >= 80 else "inverse"
+                    )
+                
+                with col2:
+                    st.metric(
+                        label="MAPE (Mean Absolute Percentage Error)",
+                        value=f"{mape:.1f}%",
+                        delta=f"{20 - mape:.1f}%" if mape < 20 else f"{20 - mape:.1f}%",
+                        delta_color="normal" if mape <= 20 else "inverse"
+                    )
+                
+                with col3:
+                    # Count SKUs with good accuracy (>80%)
+                    accuracy_data = []
+                    for sku, forecast_data in st.session_state.forecasts.items():
+                        sku_actuals = actuals_data[actuals_data['sku'] == sku]
+                        if len(sku_actuals) == 0:
+                            continue
+                        
+                        forecast = forecast_data['forecast']
+                        
+                        # Find overlapping dates
+                        actual_dates = set(sku_actuals['date'])
+                        forecast_dates = set(forecast.index)
+                        common_dates = actual_dates.intersection(forecast_dates)
+                        
+                        if not common_dates:
+                            continue
+                        
+                        # Calculate accuracy for this SKU
+                        mape_sum = 0
+                        count = 0
+                        
+                        for date in common_dates:
+                            actual = sku_actuals[sku_actuals['date'] == date]['quantity'].iloc[0]
+                            predicted = forecast.get(date, 0)
+                            
+                            if actual > 0:  # Avoid division by zero
+                                mape_sum += abs(actual - predicted) / actual
+                                count += 1
+                        
+                        if count > 0:
+                            sku_mape = mape_sum / count
+                            sku_accuracy = max(0, 100 - sku_mape * 100)
+                            accuracy_data.append((sku, sku_accuracy))
+                    
+                    good_accuracy_count = sum(1 for _, acc in accuracy_data if acc >= 80)
+                    st.metric(
+                        label="SKUs with >80% Accuracy",
+                        value=f"{good_accuracy_count}",
+                        delta=f"{good_accuracy_count / len(accuracy_data) * 100:.1f}%" if accuracy_data else "N/A"
+                    )
             
-            mape = calculate_mape(actuals_data, st.session_state.forecasts)
-            accuracy = max(0, 100 - mape)  # Convert MAPE to accuracy percentage
+            with acc_tab2:
+                # Show accuracy trend over time
+                st.subheader("Forecast Accuracy Trend")
+                trend_fig = plot_forecast_accuracy_trend(actuals_data, st.session_state.forecasts)
+                st.plotly_chart(trend_fig, use_container_width=True)
+                
+                # Add explanation
+                st.markdown("""
+                **Understanding the Accuracy Trend:**
+                
+                - The green line shows forecast accuracy over time (higher is better)
+                - The red dotted line shows MAPE over time (lower is better)
+                - The horizontal green line indicates the target accuracy of 80%
+                
+                **Key Insights:**
+                - Consistent trends above the target line indicate reliable forecasts
+                - Downward trends may indicate changing market conditions
+                - Seasonal patterns in accuracy suggest the need for seasonal model adjustments
+                """)
             
-            # Display metrics
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                st.metric(
-                    label="Average Forecast Accuracy",
-                    value=f"{accuracy:.1f}%",
-                    delta=f"{accuracy - 80:.1f}%" if accuracy > 80 else f"{accuracy - 80:.1f}%",
-                    delta_color="normal" if accuracy >= 80 else "inverse"
-                )
-            
-            with col2:
-                st.metric(
-                    label="MAPE (Mean Absolute Percentage Error)",
-                    value=f"{mape:.1f}%",
-                    delta=f"{20 - mape:.1f}%" if mape < 20 else f"{20 - mape:.1f}%",
-                    delta_color="normal" if mape <= 20 else "inverse"
-                )
-            
-            with col3:
-                # Count SKUs with good accuracy (>80%)
-                accuracy_data = []
+            with acc_tab3:
+                # Show model performance comparison
+                st.subheader("Model Performance Comparison")
+                
+                # Calculate accuracy by model type
+                model_performance = []
+                model_types = set()
+                
                 for sku, forecast_data in st.session_state.forecasts.items():
                     sku_actuals = actuals_data[actuals_data['sku'] == sku]
                     if len(sku_actuals) == 0:
                         continue
                     
+                    model_type = forecast_data.get('model', 'unknown')
+                    model_types.add(model_type)
                     forecast = forecast_data['forecast']
                     
                     # Find overlapping dates
@@ -197,14 +275,63 @@ with tab1:
                     if count > 0:
                         sku_mape = mape_sum / count
                         sku_accuracy = max(0, 100 - sku_mape * 100)
-                        accuracy_data.append((sku, sku_accuracy))
+                        model_performance.append({
+                            'sku': sku,
+                            'model': model_type,
+                            'accuracy': sku_accuracy,
+                            'mape': sku_mape * 100
+                        })
                 
-                good_accuracy_count = sum(1 for _, acc in accuracy_data if acc >= 80)
-                st.metric(
-                    label="SKUs with >80% Accuracy",
-                    value=f"{good_accuracy_count}",
-                    delta=f"{good_accuracy_count / len(accuracy_data) * 100:.1f}%" if accuracy_data else "N/A"
-                )
+                if model_performance:
+                    # Convert to DataFrame
+                    model_perf_df = pd.DataFrame(model_performance)
+                    
+                    # Calculate average accuracy by model type
+                    model_avg = model_perf_df.groupby('model').agg({
+                        'accuracy': ['mean', 'min', 'max', 'count'],
+                        'mape': 'mean'
+                    }).reset_index()
+                    
+                    model_avg.columns = ['Model', 'Avg Accuracy', 'Min Accuracy', 'Max Accuracy', 'SKU Count', 'Avg MAPE']
+                    model_avg = model_avg.sort_values('Avg Accuracy', ascending=False)
+                    
+                    # Format percentages
+                    model_avg['Avg Accuracy'] = model_avg['Avg Accuracy'].round(1).astype(str) + '%'
+                    model_avg['Min Accuracy'] = model_avg['Min Accuracy'].round(1).astype(str) + '%'
+                    model_avg['Max Accuracy'] = model_avg['Max Accuracy'].round(1).astype(str) + '%'
+                    model_avg['Avg MAPE'] = model_avg['Avg MAPE'].round(1).astype(str) + '%'
+                    
+                    # Display table
+                    st.dataframe(model_avg, use_container_width=True)
+                    
+                    # Create accuracy distribution by model chart
+                    fig = px.box(
+                        model_perf_df,
+                        x='model',
+                        y='accuracy',
+                        color='model',
+                        title='Accuracy Distribution by Model Type',
+                        labels={
+                            'model': 'Forecasting Model',
+                            'accuracy': 'Accuracy (%)'
+                        }
+                    )
+                    
+                    # Add reference line at 80%
+                    fig.add_hline(y=80, line_dash="dash", line_color="green", annotation_text="Target Accuracy (80%)")
+                    
+                    # Update layout
+                    fig.update_layout(
+                        xaxis_title="Model Type",
+                        yaxis_title="Accuracy (%)",
+                        yaxis=dict(range=[0, 100]),
+                        template="plotly_white"
+                    )
+                    
+                    # Display chart
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("Not enough data to compare model performance")
                 
         except Exception as e:
             st.error(f"Error processing actuals data: {str(e)}")
@@ -226,29 +353,31 @@ with tab1:
 with tab2:
     st.header("Inventory Health Monitor")
     
-    # Show inventory health matrix
-    st.subheader("Inventory Health Matrix")
-    inventory_fig = plot_inventory_health(st.session_state.sales_data, st.session_state.forecasts)
-    st.plotly_chart(inventory_fig, use_container_width=True)
+    # Create inventory analysis tabs
+    inv_tab1, inv_tab2, inv_tab3 = st.tabs(["Inventory Status", "Risk Assessment", "Actionable Insights"])
     
-    # Add explanation of the chart
-    st.markdown("""
-    **Understanding the Inventory Health Matrix:**
-    
-    - **Horizontal Axis:** Demand Variability (CV) - Higher values mean less predictable demand
-    - **Vertical Axis:** Months of Supply - Inventory coverage based on forecasted demand
-    - **Bubble Size:** Average Monthly Sales Volume
-    - **Color:**
-        - 🟢 **Green:** Healthy inventory levels (0.5-3 months supply)
-        - 🔴 **Red:** Stockout Risk (< 0.5 months supply)
-        - 🟠 **Orange:** Overstocked (> 3 months supply)
-    """)
-    
-    # Calculate inventory metrics
-    if 'bom_data' in st.session_state and st.session_state.bom_data is not None:
-        st.subheader("Inventory Status Summary")
+    with inv_tab1:
+        # Show inventory health matrix
+        st.subheader("Inventory Health Matrix")
+        inventory_fig = plot_inventory_health(st.session_state.sales_data, st.session_state.forecasts)
+        st.plotly_chart(inventory_fig, use_container_width=True)
         
-        # Count SKUs in each status category
+        # Add explanation of the chart
+        st.markdown("""
+        **Understanding the Inventory Health Matrix:**
+        
+        - **Horizontal Axis:** Demand Variability (CV) - Higher values mean less predictable demand
+        - **Vertical Axis:** Months of Supply - Inventory coverage based on forecasted demand
+        - **Bubble Size:** Average Monthly Sales Volume
+        - **Color:**
+            - 🟢 **Green:** Healthy inventory levels (0.5-3 months supply)
+            - 🔴 **Red:** Stockout Risk (< 0.5 months supply)
+            - 🟠 **Orange:** Overstocked (> 3 months supply)
+        """)
+    
+    # Calculate detailed inventory metrics
+    if 'bom_data' in st.session_state and st.session_state.bom_data is not None:
+        # Prepare inventory data
         inventory_data = []
         
         for sku in st.session_state.sales_data['sku'].unique():
@@ -275,86 +404,259 @@ with tab2:
             # Calculate months of supply
             months_of_supply = next_month_forecast / avg_monthly_sales if avg_monthly_sales > 0 else float('inf')
             
+            # Calculate coefficient of variation (measure of demand variability)
+            cv = monthly_sales['quantity'].std() / monthly_sales['quantity'].mean() if monthly_sales['quantity'].mean() > 0 else 0
+            
+            # Calculate growth trend (comparing last 3 months to previous 3 months)
+            if len(monthly_sales) >= 6:
+                recent_avg = monthly_sales.iloc[-3:]['quantity'].mean()
+                previous_avg = monthly_sales.iloc[-6:-3]['quantity'].mean() if len(monthly_sales) >= 6 else avg_monthly_sales
+                growth_rate = ((recent_avg / previous_avg) - 1) * 100 if previous_avg > 0 else 0
+            else:
+                growth_rate = 0
+            
             # Determine inventory status
             if months_of_supply < 0.5:
                 status = "Stockout Risk"
+                color = "red"
             elif months_of_supply > 3:
                 status = "Overstocked"
+                color = "orange"
             else:
                 status = "Healthy"
+                color = "green"
             
+            # Calculate risk score based on:
+            # - Demand variability (higher = more risk)
+            # - Months of supply (extremes = more risk)
+            # - Growth rate (higher volatility = more risk)
+            supply_risk_factor = abs(months_of_supply - 1.75) / 1.75  # 1.75 months is ideal (0-3.5 range)
+            variability_risk_factor = min(cv, 1.0)  # Cap at 1.0
+            growth_risk_factor = min(abs(growth_rate) / 50, 1.0)  # Cap at 1.0, 50% growth is high volatility
+            
+            risk_score = (0.4 * supply_risk_factor + 0.4 * variability_risk_factor + 0.2 * growth_risk_factor) * 100
+            risk_score = min(max(risk_score, 0), 100)  # Ensure between 0-100
+            
+            # Calculate importance score based on volume and value
+            importance_score = avg_monthly_sales
+            
+            # Add to data
             inventory_data.append({
                 'sku': sku,
                 'status': status,
                 'months_of_supply': months_of_supply,
-                'avg_monthly_sales': avg_monthly_sales
+                'avg_monthly_sales': avg_monthly_sales,
+                'demand_variability': cv,
+                'growth_rate': growth_rate,
+                'risk_score': risk_score,
+                'importance': importance_score
             })
         
         # Convert to DataFrame
         if inventory_data:
             inventory_df = pd.DataFrame(inventory_data)
             
-            # Get counts by status
-            status_counts = inventory_df['status'].value_counts().reset_index()
-            status_counts.columns = ['Status', 'Count']
-            
-            # Calculate percentages
-            total = status_counts['Count'].sum()
-            status_counts['Percentage'] = (status_counts['Count'] / total * 100).round(1)
-            status_counts['Percentage'] = status_counts['Percentage'].astype(str) + '%'
-            
-            # Display metrics
-            col1, col2, col3 = st.columns(3)
-            
-            healthy_count = status_counts[status_counts['Status'] == 'Healthy']['Count'].iloc[0] if 'Healthy' in status_counts['Status'].values else 0
-            stockout_count = status_counts[status_counts['Status'] == 'Stockout Risk']['Count'].iloc[0] if 'Stockout Risk' in status_counts['Status'].values else 0
-            overstock_count = status_counts[status_counts['Status'] == 'Overstocked']['Count'].iloc[0] if 'Overstocked' in status_counts['Status'].values else 0
-            
-            with col1:
-                st.metric(
-                    label="Healthy Inventory Items",
-                    value=healthy_count,
-                    delta=f"{(healthy_count / total * 100):.1f}%"
+            with inv_tab1:
+                st.subheader("Inventory Status Summary")
+                
+                # Get counts by status
+                status_counts = inventory_df['status'].value_counts().reset_index()
+                status_counts.columns = ['Status', 'Count']
+                
+                # Calculate percentages
+                total = status_counts['Count'].sum()
+                status_counts['Percentage'] = (status_counts['Count'] / total * 100).round(1)
+                status_counts['Percentage'] = status_counts['Percentage'].astype(str) + '%'
+                
+                # Display metrics
+                col1, col2, col3 = st.columns(3)
+                
+                healthy_count = status_counts[status_counts['Status'] == 'Healthy']['Count'].iloc[0] if 'Healthy' in status_counts['Status'].values else 0
+                stockout_count = status_counts[status_counts['Status'] == 'Stockout Risk']['Count'].iloc[0] if 'Stockout Risk' in status_counts['Status'].values else 0
+                overstock_count = status_counts[status_counts['Status'] == 'Overstocked']['Count'].iloc[0] if 'Overstocked' in status_counts['Status'].values else 0
+                
+                with col1:
+                    st.metric(
+                        label="Healthy Inventory Items",
+                        value=healthy_count,
+                        delta=f"{(healthy_count / total * 100):.1f}%"
+                    )
+                
+                with col2:
+                    st.metric(
+                        label="Stockout Risk Items",
+                        value=stockout_count,
+                        delta=f"{(stockout_count / total * 100):.1f}%",
+                        delta_color="inverse"
+                    )
+                
+                with col3:
+                    st.metric(
+                        label="Overstocked Items",
+                        value=overstock_count,
+                        delta=f"{(overstock_count / total * 100):.1f}%",
+                        delta_color="inverse"
+                    )
+                
+                # Display chart
+                fig = px.pie(
+                    status_counts,
+                    values='Count',
+                    names='Status',
+                    title='Inventory Status Distribution',
+                    color='Status',
+                    color_discrete_map={'Healthy': 'green', 'Stockout Risk': 'red', 'Overstocked': 'orange'},
+                    hole=0.4
                 )
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Display items at risk
+                st.subheader("Items at Risk")
+                at_risk = inventory_df[inventory_df['status'] == 'Stockout Risk'].sort_values('avg_monthly_sales', ascending=False)
+                
+                if len(at_risk) > 0:
+                    st.dataframe(at_risk[['sku', 'months_of_supply', 'avg_monthly_sales']], use_container_width=True)
+                else:
+                    st.info("No items at stockout risk detected")
             
-            with col2:
-                st.metric(
-                    label="Stockout Risk Items",
-                    value=stockout_count,
-                    delta=f"{(stockout_count / total * 100):.1f}%",
-                    delta_color="inverse"
-                )
+            with inv_tab2:
+                st.subheader("Inventory Risk-Impact Matrix")
+                
+                # Create risk-impact matrix
+                risk_fig = plot_inventory_risk_matrix(inventory_df)
+                st.plotly_chart(risk_fig, use_container_width=True)
+                
+                # Add explanation
+                st.markdown("""
+                **Understanding the Risk-Impact Matrix:**
+                
+                This matrix helps prioritize inventory management actions based on risk and business impact:
+                
+                - **Horizontal Axis:** Risk Score - Based on demand variability, supply levels, and growth volatility
+                - **Vertical Axis:** Business Impact - Based on sales volume and value
+                - **Bubble Size:** Average Monthly Sales Volume
+                - **Quadrants:**
+                    - 🔴 **Critical Focus:** High risk and high impact items require immediate attention
+                    - 🔶 **Proactive Monitor:** High risk but lower impact items need regular monitoring
+                    - 🔵 **Active Manage:** Lower risk but high impact items should be actively managed
+                    - 🟢 **Routine Review:** Lower risk and lower impact items need only routine oversight
+                """)
+                
+                # Show high risk items
+                st.subheader("High Risk Items")
+                high_risk = inventory_df.sort_values('risk_score', ascending=False).head(10)
+                
+                if not high_risk.empty:
+                    # Format for display
+                    display_cols = ['sku', 'status', 'risk_score', 'months_of_supply', 'avg_monthly_sales', 'growth_rate']
+                    high_risk_display = high_risk[display_cols].copy()
+                    high_risk_display['risk_score'] = high_risk_display['risk_score'].round(1)
+                    high_risk_display['months_of_supply'] = high_risk_display['months_of_supply'].round(2)
+                    high_risk_display['growth_rate'] = high_risk_display['growth_rate'].round(1).astype(str) + '%'
+                    
+                    st.dataframe(high_risk_display, use_container_width=True)
+                    
+                    # Risk statistics
+                    avg_risk = inventory_df['risk_score'].mean()
+                    high_risk_pct = (len(inventory_df[inventory_df['risk_score'] > 50]) / len(inventory_df) * 100)
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.metric(
+                            label="Average Risk Score",
+                            value=f"{avg_risk:.1f}/100",
+                            delta=f"{avg_risk - 50:.1f}" if avg_risk <= 50 else f"{avg_risk - 50:.1f}",
+                            delta_color="normal" if avg_risk <= 50 else "inverse"
+                        )
+                    
+                    with col2:
+                        st.metric(
+                            label="Items with High Risk (>50)",
+                            value=f"{high_risk_pct:.1f}%",
+                            delta=None
+                        )
+                else:
+                    st.info("No high risk items found")
             
-            with col3:
-                st.metric(
-                    label="Overstocked Items",
-                    value=overstock_count,
-                    delta=f"{(overstock_count / total * 100):.1f}%",
-                    delta_color="inverse"
-                )
+            with inv_tab3:
+                st.subheader("Actionable Inventory Insights")
+                
+                # Generate actionable insights
+                st.markdown("### Recommended Actions")
+                
+                # For stockout risk items
+                stockout_items = inventory_df[inventory_df['status'] == 'Stockout Risk'].sort_values('importance', ascending=False)
+                if len(stockout_items) > 0:
+                    st.markdown("#### 🔴 Stockout Risk Items")
+                    st.markdown(f"**{len(stockout_items)}** items are at risk of stockout. Immediate action is needed:")
+                    
+                    # Create markdown bullets for top 5 items
+                    top_stockout = stockout_items.head(5)
+                    for _, item in top_stockout.iterrows():
+                        st.markdown(f"- **{item['sku']}**: Increase inventory immediately. Current supply: **{item['months_of_supply']:.2f}** months, Sales: **{item['avg_monthly_sales']:.0f}** units/month")
+                    
+                    if len(stockout_items) > 5:
+                        st.markdown(f"*... and {len(stockout_items) - 5} more items*")
+                
+                # For overstocked items
+                overstock_items = inventory_df[inventory_df['status'] == 'Overstocked'].sort_values(['months_of_supply', 'importance'], ascending=[False, False])
+                if len(overstock_items) > 0:
+                    st.markdown("#### 🟠 Overstocked Items")
+                    st.markdown(f"**{len(overstock_items)}** items are overstocked. Consider reducing inventory:")
+                    
+                    # Create markdown bullets for top 5 items
+                    top_overstock = overstock_items.head(5)
+                    for _, item in top_overstock.iterrows():
+                        st.markdown(f"- **{item['sku']}**: Reduce replenishment. Current supply: **{item['months_of_supply']:.2f}** months, Sales: **{item['avg_monthly_sales']:.0f}** units/month")
+                    
+                    if len(overstock_items) > 5:
+                        st.markdown(f"*... and {len(overstock_items) - 5} more items*")
+                
+                # Items with high variability
+                high_var_items = inventory_df[inventory_df['demand_variability'] > 0.5].sort_values('importance', ascending=False)
+                if len(high_var_items) > 0:
+                    st.markdown("#### 🔄 High Variability Items")
+                    st.markdown(f"**{len(high_var_items)}** items have highly variable demand. Consider safety stock adjustments:")
+                    
+                    # Create markdown bullets for top 5 items
+                    top_var = high_var_items.head(5)
+                    for _, item in top_var.iterrows():
+                        st.markdown(f"- **{item['sku']}**: Implement safety stock. Variability: **{item['demand_variability']:.2f}** CV, Sales: **{item['avg_monthly_sales']:.0f}** units/month")
+                    
+                    if len(high_var_items) > 5:
+                        st.markdown(f"*... and {len(high_var_items) - 5} more items*")
+                
+                # Growing items
+                growing_items = inventory_df[inventory_df['growth_rate'] > 20].sort_values('growth_rate', ascending=False)
+                if len(growing_items) > 0:
+                    st.markdown("#### 📈 High Growth Items")
+                    st.markdown(f"**{len(growing_items)}** items are showing strong growth. Plan for increased demand:")
+                    
+                    # Create markdown bullets for top 5 items
+                    top_growing = growing_items.head(5)
+                    for _, item in top_growing.iterrows():
+                        st.markdown(f"- **{item['sku']}**: Plan for growth. Rate: **{item['growth_rate']:.1f}%**, Current sales: **{item['avg_monthly_sales']:.0f}** units/month")
+                    
+                    if len(growing_items) > 5:
+                        st.markdown(f"*... and {len(growing_items) - 5} more items*")
+        else:
+            with inv_tab1:
+                st.info("No inventory data available for analysis")
             
-            # Display chart
-            fig = px.pie(
-                status_counts,
-                values='Count',
-                names='Status',
-                title='Inventory Status Distribution',
-                color='Status',
-                color_discrete_map={'Healthy': 'green', 'Stockout Risk': 'red', 'Overstocked': 'orange'},
-                hole=0.4
-            )
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Display items at risk
-            st.subheader("Items at Risk")
-            at_risk = inventory_df[inventory_df['status'] == 'Stockout Risk'].sort_values('avg_monthly_sales', ascending=False)
-            
-            if len(at_risk) > 0:
-                st.dataframe(at_risk[['sku', 'months_of_supply', 'avg_monthly_sales']], use_container_width=True)
-            else:
-                st.info("No items at stockout risk detected")
+            with inv_tab2:
+                st.info("No inventory data available for risk assessment")
+                
+            with inv_tab3:
+                st.info("No inventory data available for actionable insights")
     else:
-        st.info("Please upload BOM data to calculate detailed inventory metrics")
+        with inv_tab1:
+            st.info("Please upload BOM data to calculate detailed inventory metrics")
+        
+        with inv_tab2:
+            st.info("Please upload BOM data to perform risk assessment")
+            
+        with inv_tab3:
+            st.info("Please upload BOM data to generate actionable insights")
 
 with tab3:
     st.header("Supplier Performance Scorecard")
