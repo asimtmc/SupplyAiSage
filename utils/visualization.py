@@ -420,6 +420,14 @@ def plot_inventory_health(sales_data, forecast_data):
         # Calculate coefficient of variation (measure of demand variability)
         cv = monthly_sales['quantity'].std() / monthly_sales['quantity'].mean() if monthly_sales['quantity'].mean() > 0 else 0
         
+        # Calculate growth trend (comparing last 3 months to previous 3 months)
+        if len(monthly_sales) >= 6:
+            recent_avg = monthly_sales.iloc[-3:]['quantity'].mean()
+            previous_avg = monthly_sales.iloc[-6:-3]['quantity'].mean() if len(monthly_sales) >= 6 else avg_monthly_sales
+            growth_rate = ((recent_avg / previous_avg) - 1) * 100 if previous_avg > 0 else 0
+        else:
+            growth_rate = 0
+        
         # Determine inventory status
         if months_of_supply < 0.5:
             status = "Stockout Risk"
@@ -431,6 +439,20 @@ def plot_inventory_health(sales_data, forecast_data):
             status = "Healthy"
             color = "green"
         
+        # Calculate risk score based on:
+        # - Demand variability (higher = more risk)
+        # - Months of supply (extremes = more risk)
+        # - Growth rate (higher volatility = more risk)
+        supply_risk_factor = abs(months_of_supply - 1.75) / 1.75  # 1.75 months is ideal (0-3.5 range)
+        variability_risk_factor = min(cv, 1.0)  # Cap at 1.0
+        growth_risk_factor = min(abs(growth_rate) / 50, 1.0)  # Cap at 1.0, 50% growth is high volatility
+        
+        risk_score = (0.4 * supply_risk_factor + 0.4 * variability_risk_factor + 0.2 * growth_risk_factor) * 100
+        risk_score = min(max(risk_score, 0), 100)  # Ensure between 0-100
+        
+        # Calculate importance score based on volume and value
+        importance_score = avg_monthly_sales
+        
         # Add to data
         inventory_data.append({
             'sku': sku,
@@ -439,7 +461,10 @@ def plot_inventory_health(sales_data, forecast_data):
             'months_of_supply': min(months_of_supply, 12),  # Cap at 12 months for visualization
             'status': status,
             'color': color,
-            'demand_variability': cv
+            'demand_variability': cv,
+            'growth_rate': growth_rate,
+            'risk_score': risk_score,
+            'importance': importance_score
         })
     
     # If no inventory data could be calculated
@@ -459,6 +484,7 @@ def plot_inventory_health(sales_data, forecast_data):
         color='status',
         size='avg_monthly_sales',
         hover_name='sku',
+        hover_data=['growth_rate', 'risk_score'],
         title="Inventory Health Matrix",
         color_discrete_map={"Stockout Risk": "red", "Overstocked": "orange", "Healthy": "green"}
     )
@@ -468,12 +494,243 @@ def plot_inventory_health(sales_data, forecast_data):
     fig.add_hrect(y0=0.5, y1=3, fillcolor="green", opacity=0.1, line_width=0)
     fig.add_hrect(y0=3, y1=12, fillcolor="orange", opacity=0.1, line_width=0)
     
+    # Update hover template
+    fig.update_traces(
+        hovertemplate="<b>%{hovertext}</b><br><br>" +
+                      "Months of Supply: %{y:.1f}<br>" +
+                      "Demand Variability (CV): %{x:.2f}<br>" +
+                      "Average Monthly Sales: %{marker.size:.0f}<br>" +
+                      "Growth Rate: %{customdata[0]:.1f}%<br>" +
+                      "Risk Score: %{customdata[1]:.0f}/100<br>" +
+                      "<extra></extra>"
+    )
+    
     # Update layout
     fig.update_layout(
         xaxis_title="Demand Variability (CV)",
         yaxis_title="Months of Supply",
         template="plotly_white",
         yaxis=dict(range=[0, 12])  # Set y-axis range from 0 to 12 months
+    )
+    
+    return fig
+
+def plot_forecast_accuracy_trend(actuals, forecasts, periods=6):
+    """
+    Create a plotly figure showing forecast accuracy trend over time
+    
+    Parameters:
+    -----------
+    actuals : pandas.DataFrame
+        Actual sales data
+    forecasts : dict
+        Dictionary of forecast results
+    periods : int, optional
+        Number of periods to analyze (default is 6)
+    
+    Returns:
+    --------
+    plotly.graph_objects.Figure
+        Plotly figure object with the forecast accuracy trend
+    """
+    if len(actuals) == 0 or len(forecasts) == 0:
+        # Return empty figure if no data
+        fig = go.Figure()
+        fig.update_layout(title="No forecast accuracy data available")
+        return fig
+        
+    # Get all dates in chronological order
+    all_dates = sorted(actuals['date'].unique())
+    
+    # Limit to the most recent periods
+    if len(all_dates) > periods:
+        analysis_dates = all_dates[-periods:]
+    else:
+        analysis_dates = all_dates
+    
+    # Create data structure to store accuracy by period
+    period_accuracy = []
+    
+    # For each period
+    for date in analysis_dates:
+        period_name = date.strftime('%b %Y')
+        
+        # Calculate accuracy for this period across all SKUs
+        total_mape = 0
+        count = 0
+        
+        for sku, forecast_data in forecasts.items():
+            # Get actual data for this SKU and period
+            sku_actuals = actuals[(actuals['sku'] == sku) & (actuals['date'] == date)]
+            
+            if len(sku_actuals) == 0:
+                continue
+            
+            # Get forecast for this period
+            if date not in forecast_data['forecast'].index:
+                continue
+                
+            actual = sku_actuals['quantity'].iloc[0]
+            predicted = forecast_data['forecast'].get(date, 0)
+            
+            if actual > 0:  # Avoid division by zero
+                mape = abs(actual - predicted) / actual
+                total_mape += mape
+                count += 1
+        
+        # Calculate average accuracy for this period
+        if count > 0:
+            period_mape = total_mape / count
+            period_accuracy.append({
+                'period': period_name,
+                'date': date,
+                'mape': period_mape * 100,
+                'accuracy': max(0, 100 - period_mape * 100)
+            })
+    
+    # If no accuracy data could be calculated
+    if not period_accuracy:
+        fig = go.Figure()
+        fig.update_layout(title="No forecast accuracy trend data available")
+        return fig
+    
+    # Convert to DataFrame and sort chronologically
+    accuracy_df = pd.DataFrame(period_accuracy)
+    accuracy_df = accuracy_df.sort_values('date')
+    
+    # Create figure
+    fig = go.Figure()
+    
+    # Add accuracy line
+    fig.add_trace(go.Scatter(
+        x=accuracy_df['period'],
+        y=accuracy_df['accuracy'],
+        mode='lines+markers',
+        name='Accuracy',
+        line=dict(color='green', width=3),
+        marker=dict(size=10)
+    ))
+    
+    # Add MAPE line on secondary y-axis
+    fig.add_trace(go.Scatter(
+        x=accuracy_df['period'],
+        y=accuracy_df['mape'],
+        mode='lines+markers',
+        name='MAPE',
+        yaxis='y2',
+        line=dict(color='red', width=2, dash='dot'),
+        marker=dict(size=8)
+    ))
+    
+    # Add target line at 80% accuracy
+    fig.add_hline(y=80, line_dash="dash", line_color="green", opacity=0.5, annotation_text="Target Accuracy (80%)")
+    
+    # Update layout with dual y-axis
+    fig.update_layout(
+        title="Forecast Accuracy Trend Over Time",
+        xaxis_title="Period",
+        yaxis=dict(
+            title="Accuracy (%)",
+            range=[0, 100]
+        ),
+        yaxis2=dict(
+            title="MAPE (%)",
+            overlaying="y",
+            side="right",
+            range=[0, 100]
+        ),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        ),
+        template="plotly_white"
+    )
+    
+    return fig
+
+def plot_inventory_risk_matrix(inventory_data):
+    """
+    Create a risk-impact matrix for inventory management
+    
+    Parameters:
+    -----------
+    inventory_data : pandas.DataFrame
+        Dataframe with inventory metrics including risk_score and importance
+    
+    Returns:
+    --------
+    plotly.graph_objects.Figure
+        Plotly figure object with the risk-impact matrix
+    """
+    if len(inventory_data) == 0:
+        # Return empty figure if no data
+        fig = go.Figure()
+        fig.update_layout(title="No inventory risk data available")
+        return fig
+    
+    # Normalize importance to 0-100 scale for visualization
+    max_importance = inventory_data['importance'].max()
+    inventory_data = inventory_data.copy()
+    if max_importance > 0:
+        inventory_data['importance_norm'] = inventory_data['importance'] / max_importance * 100
+    else:
+        inventory_data['importance_norm'] = 0
+    
+    # Create labels for quadrants
+    def risk_label(row):
+        if row['risk_score'] >= 50 and row['importance_norm'] >= 50:
+            return "Critical Focus"
+        elif row['risk_score'] >= 50 and row['importance_norm'] < 50:
+            return "Proactive Monitor"
+        elif row['risk_score'] < 50 and row['importance_norm'] >= 50:
+            return "Active Manage"
+        else:
+            return "Routine Review"
+            
+    inventory_data['risk_category'] = inventory_data.apply(risk_label, axis=1)
+    
+    # Create color map
+    color_map = {
+        "Critical Focus": "red",
+        "Proactive Monitor": "orange",
+        "Active Manage": "blue",
+        "Routine Review": "green"
+    }
+    
+    # Create figure
+    fig = px.scatter(
+        inventory_data,
+        x='risk_score',
+        y='importance_norm',
+        color='risk_category',
+        hover_name='sku',
+        size='avg_monthly_sales',
+        title="Inventory Risk-Impact Matrix",
+        labels={
+            'risk_score': 'Risk Score (0-100)',
+            'importance_norm': 'Business Impact (0-100)'
+        },
+        color_discrete_map=color_map
+    )
+    
+    # Add quadrant lines
+    fig.add_hline(y=50, line_dash="dash", line_color="gray")
+    fig.add_vline(x=50, line_dash="dash", line_color="gray")
+    
+    # Add quadrant labels
+    fig.add_annotation(x=75, y=75, text="Critical Focus", showarrow=False, font=dict(size=14, color="red"))
+    fig.add_annotation(x=75, y=25, text="Proactive Monitor", showarrow=False, font=dict(size=14, color="orange"))
+    fig.add_annotation(x=25, y=75, text="Active Manage", showarrow=False, font=dict(size=14, color="blue"))
+    fig.add_annotation(x=25, y=25, text="Routine Review", showarrow=False, font=dict(size=14, color="green"))
+    
+    # Update layout
+    fig.update_layout(
+        xaxis=dict(range=[0, 100]),
+        yaxis=dict(range=[0, 100]),
+        template="plotly_white"
     )
     
     return fig
