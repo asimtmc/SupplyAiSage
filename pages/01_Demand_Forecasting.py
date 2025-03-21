@@ -56,19 +56,30 @@ with st.sidebar:
         # Get available SKUs from the sales data
         available_skus = sorted(st.session_state.sales_data['sku'].unique().tolist())
         
-        # If we have forecasts, use those SKUs instead
-        if st.session_state.run_forecast and 'forecasts' in st.session_state and st.session_state.forecasts:
-            sku_list = sorted(list(st.session_state.forecasts.keys()))
-        else:
-            sku_list = available_skus
+        # Always use all available SKUs for selection
+        sku_list = available_skus
             
-        st.session_state.sku_options = sku_list
+        # If we have forecasts, maintain the forecasted SKUs for dropdown
+        if st.session_state.run_forecast and 'forecasts' in st.session_state and st.session_state.forecasts:
+            forecasted_skus = sorted(list(st.session_state.forecasts.keys()))
+            st.session_state.sku_options = forecasted_skus
+        else:
+            # If no forecasts yet, all SKUs are available for the dropdown
+            st.session_state.sku_options = sku_list
         
         # Select SKUs (multi-select if multiple SKUs should be shown)
+        default_value = []
+        if st.session_state.selected_skus and any(sku in sku_list for sku in st.session_state.selected_skus):
+            # Use existing selection if valid
+            default_value = [sku for sku in st.session_state.selected_skus if sku in sku_list]
+        elif sku_list:
+            # Otherwise select first SKU as default if list has items
+            default_value = [sku_list[0]]
+            
         selected_skus = st.multiselect(
             "Select SKUs to Analyze",
             options=sku_list,
-            default=st.session_state.selected_sku if st.session_state.selected_sku in sku_list else sku_list[0] if sku_list else None,
+            default=default_value,
             help="Select one or more SKUs to analyze or forecast"
         )
         

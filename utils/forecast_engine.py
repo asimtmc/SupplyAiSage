@@ -692,13 +692,26 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                 all_models_forecasts[model_type] = pd.Series(future_values, index=future_dates)
                 
             elif model_type == "sarima":
-                # Check if we have enough data for seasonal component
+                # Adjust seasonal period based on data length
+                seasonal_period = 12  # Default for annual seasonality
+                
+                # For shorter data series, use a smaller seasonal period or no seasonality
                 if len(train_data) >= 24:
-                    # Train SARIMA model
+                    # Full annual seasonality for data with 2+ years
+                    seasonal_order = (1, 1, 1, 12)
+                elif len(train_data) >= 12:
+                    # Reduced seasonal component for data with 1+ year
+                    seasonal_order = (1, 1, 0, 4)  # Quarterly-like pattern
+                else:
+                    # No seasonality for short data
+                    seasonal_order = (0, 0, 0, 0)
+                
+                try:
+                    # Train SARIMA model with adjusted seasonality
                     model = SARIMAX(
                         train_data['quantity'],
                         order=(1, 1, 1),
-                        seasonal_order=(1, 1, 1, 12),
+                        seasonal_order=seasonal_order,
                         enforce_stationarity=False,
                         enforce_invertibility=False
                     )
@@ -715,7 +728,7 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                     full_model = SARIMAX(
                         data['quantity'],
                         order=(1, 1, 1),
-                        seasonal_order=(1, 1, 1, 12),
+                        seasonal_order=seasonal_order,
                         enforce_stationarity=False,
                         enforce_invertibility=False
                     )
@@ -727,8 +740,8 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                     
                     # Store future forecasts
                     all_models_forecasts[model_type] = pd.Series(future_values, index=future_dates)
-                else:
-                    # Skip if not enough data
+                except Exception as e:
+                    print(f"SARIMA model failed: {str(e)}")
                     continue
                 
             elif model_type == "prophet":
