@@ -946,9 +946,9 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
         "all_models_test_pred": all_models_test_pred
     }
 
-def generate_forecasts(sales_data, cluster_info, forecast_periods=12, evaluate_models_flag=False, models_to_evaluate=None):
+def generate_forecasts(sales_data, cluster_info, forecast_periods=12, evaluate_models_flag=False, models_to_evaluate=None, selected_skus=None):
     """
-    Generate forecasts for all SKUs based on their clusters
+    Generate forecasts for SKUs based on their clusters
     
     Parameters:
     -----------
@@ -962,6 +962,8 @@ def generate_forecasts(sales_data, cluster_info, forecast_periods=12, evaluate_m
         Whether to evaluate models on test data (default is False)
     models_to_evaluate : list, optional
         List of model types to evaluate (default is None, which evaluates all models)
+    selected_skus : list, optional
+        List of specific SKUs to forecast. If None, forecasts all SKUs (default is None)
     
     Returns:
     --------
@@ -974,8 +976,11 @@ def generate_forecasts(sales_data, cluster_info, forecast_periods=12, evaluate_m
     # List to hold forecast results
     forecasts = {}
     
-    # Get unique SKUs
-    skus = sales_data['sku'].unique()
+    # Get unique SKUs, filtered by selected_skus if provided
+    if selected_skus is not None and len(selected_skus) > 0:
+        skus = [sku for sku in selected_skus if sku in sales_data['sku'].unique()]
+    else:
+        skus = sales_data['sku'].unique()
     
     for sku in skus:
         # Filter data for this SKU

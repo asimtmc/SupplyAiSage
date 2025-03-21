@@ -70,7 +70,10 @@ with st.sidebar:
             help="Select one or more SKUs to analyze or forecast"
         )
         
-        # Update selected SKU in session state if selection changed
+        # Store all selected SKUs in session state
+        st.session_state.selected_skus = selected_skus
+        
+        # Update selected primary SKU in session state if selection changed
         if selected_skus:
             st.session_state.selected_sku = selected_skus[0]  # Keep first as primary
     
@@ -121,8 +124,33 @@ with st.sidebar:
     # Store selected models for visualization
     st.session_state.selected_models = models_to_evaluate
     
+    # Add option to forecast all or selected SKUs
+    st.subheader("Forecast Scope")
+    
+    # Determine which SKUs to forecast
+    forecast_scope = st.radio(
+        "Choose SKUs to analyze",
+        ["Selected SKUs Only", "All SKUs"],
+        index=1,  # Default to All SKUs
+        horizontal=True
+    )
+    
+    # Extract selected SKUs from the multiselect
+    selected_skus_to_forecast = []
+    if 'selected_skus' in locals() and selected_skus:
+        selected_skus_to_forecast = selected_skus
+    
     # Run forecast button
-    if st.button("Run Forecast Analysis"):
+    forecast_button_text = "Run Forecast Analysis"
+    if forecast_scope == "Selected SKUs Only" and selected_skus_to_forecast:
+        forecast_button_text = f"Run Forecast for {len(selected_skus_to_forecast)} Selected SKUs"
+    elif forecast_scope == "Selected SKUs Only" and not selected_skus_to_forecast:
+        st.warning("Please select at least one SKU to analyze.")
+        
+    # Only show the button if we have valid SKUs to forecast
+    should_show_button = not (forecast_scope == "Selected SKUs Only" and not selected_skus_to_forecast)
+    
+    if should_show_button and st.button(forecast_button_text):
         st.session_state.run_forecast = True
         with st.spinner("Running forecast analysis..."):
             # Extract time series features for clustering
@@ -131,13 +159,19 @@ with st.sidebar:
             # Cluster SKUs
             st.session_state.clusters = cluster_skus(features_df, n_clusters=num_clusters)
             
+            # Determine which SKUs to forecast
+            skus_to_forecast = None
+            if forecast_scope == "Selected SKUs Only" and selected_skus_to_forecast:
+                skus_to_forecast = selected_skus_to_forecast
+                
             # Generate forecasts with model evaluation
             st.session_state.forecasts = generate_forecasts(
                 st.session_state.sales_data,
                 st.session_state.clusters,
                 forecast_periods=st.session_state.forecast_periods,
                 evaluate_models_flag=evaluate_models_flag,
-                models_to_evaluate=models_to_evaluate
+                models_to_evaluate=models_to_evaluate,
+                selected_skus=skus_to_forecast
             )
             
             # If forecasts were generated, set default selected SKU
@@ -147,7 +181,11 @@ with st.sidebar:
                 if sku_list and not st.session_state.selected_sku in sku_list:
                     st.session_state.selected_sku = sku_list[0]
             
-            st.success(f"Successfully generated forecasts for {len(st.session_state.forecasts)} SKUs!")
+            num_skus = len(st.session_state.forecasts)
+            if num_skus > 0:
+                st.success(f"Successfully generated forecasts for {num_skus} SKUs!")
+            else:
+                st.error("No forecasts were generated. Please check your data and selected SKUs.")
 
 # Main content
 if st.session_state.run_forecast and 'forecasts' in st.session_state and st.session_state.forecasts:
