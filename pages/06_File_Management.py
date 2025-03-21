@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import io
@@ -110,13 +111,15 @@ with tab1:
                 file_grid = grid(3, vertical_align="top")
                 
                 # Add cards for each file
-                for file in type_files:
+                for i, file in enumerate(type_files):
                     with file_grid.container():
                         # Format the date
                         date_obj = datetime.strptime(file['created_at'], '%Y-%m-%d %H:%M:%S')
                         formatted_date = date_obj.strftime('%b %d, %Y')
                         
-                        # Create a card for the file
+                        # Create a card for the file with a unique key
+                        # Fix: Add unique key to avoid duplicate component instance error
+                        card_key = f"{file_type}_{i}_{file['id']}"
                         clicked = card(
                             title=file['filename'],
                             text=[
@@ -125,6 +128,7 @@ with tab1:
                             ],
                             image=None,
                             url=None,
+                            key=card_key,  # Add unique key here
                             on_click=lambda f_id=file['id']: st.session_state.update({'selected_file_id': f_id})
                         )
                         
