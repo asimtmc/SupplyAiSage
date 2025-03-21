@@ -249,14 +249,121 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
     if selected_sku:
         forecast_data = st.session_state.forecasts[selected_sku]
         
-        col1, col2 = st.columns([3, 1])
+        # Tab section for forecast views
+        forecast_tabs = st.tabs(["Forecast Chart", "Model Comparison", "Forecast Metrics"])
         
-        with col1:
-            # Display forecast chart
-            forecast_fig = plot_forecast(st.session_state.sales_data, forecast_data, selected_sku)
-            st.plotly_chart(forecast_fig, use_container_width=True)
+        with forecast_tabs[0]:
+            # Forecast visualization section
+            col1, col2 = st.columns([3, 1])
             
-            # If model evaluation results are available, show them
+            with col1:
+                # Get list of models to display
+                # If we have multiple models selected, use them for visualization
+                available_models = []
+                selected_models_for_viz = []
+                
+                if 'model_evaluation' in forecast_data and 'all_models_forecasts' in forecast_data['model_evaluation']:
+                    available_models = list(forecast_data['model_evaluation']['all_models_forecasts'].keys())
+                    
+                    # Create multi-select for choosing models to display
+                    display_options = ["Best Model Only", "All Selected Models", "Custom Selection"]
+                    display_choice = st.radio(
+                        "Display Options", 
+                        display_options,
+                        horizontal=True
+                    )
+                    
+                    if display_choice == "Best Model Only":
+                        selected_models_for_viz = [forecast_data['model']]
+                    elif display_choice == "All Selected Models":
+                        # Use the models selected in the sidebar
+                        selected_models_for_viz = [m for m in st.session_state.selected_models if m in available_models]
+                    else:  # Custom Selection
+                        model_options = [model.upper() for model in available_models]
+                        selected_model_names = st.multiselect(
+                            "Select models to display on chart",
+                            options=model_options,
+                            default=[forecast_data['model'].upper()],
+                            help="Select one or more forecasting models to visualize"
+                        )
+                        # Convert back to lowercase for internal processing
+                        selected_models_for_viz = [model.lower() for model in selected_model_names]
+                
+                # Display forecast chart with selected models
+                forecast_fig = plot_forecast(st.session_state.sales_data, forecast_data, selected_sku, selected_models_for_viz)
+                st.plotly_chart(forecast_fig, use_container_width=True)
+                
+                # Show training/test split information if available
+                if 'train_set' in forecast_data and 'test_set' in forecast_data:
+                    train_count = len(forecast_data['train_set'])
+                    test_count = len(forecast_data['test_set'])
+                    total_points = train_count + test_count
+                    train_pct = int((train_count / total_points) * 100)
+                    test_pct = int((test_count / total_points) * 100)
+                    
+                    st.caption(f"Data split: {train_count} training points ({train_pct}%) and {test_count} test points ({test_pct}%)")
+            
+            with col2:
+                # Show forecast details (same as before)
+                st.subheader("Forecast Details")
+                
+                st.markdown(f"**SKU:** {selected_sku}")
+                st.markdown(f"**Cluster:** {forecast_data['cluster_name']}")
+                st.markdown(f"**Model Used:** {forecast_data['model'].upper()}")
+                
+                # Forecast confidence
+                confidence_color = "green" if forecast_data['model'] != 'moving_average' else "orange"
+                confidence_text = "High" if forecast_data['model'] != 'moving_average' else "Medium"
+                st.markdown(f"**Forecast Confidence:** <span style='color:{confidence_color}'>{confidence_text}</span>", unsafe_allow_html=True)
+                
+                # Forecast table
+                forecast_table = pd.DataFrame({
+                    'Date': forecast_data['forecast'].index,
+                    'Forecast': forecast_data['forecast'].values.round(0),
+                    'Lower Bound': forecast_data['lower_bound'].values.round(0),
+                    'Upper Bound': forecast_data['upper_bound'].values.round(0)
+                })
+                
+                st.dataframe(forecast_table, use_container_width=True)
+    
+        with forecast_tabs[1]:
+            # Model comparison visualization
+            if 'model_evaluation' in forecast_data and forecast_data['model_evaluation']['metrics']:
+                # Visual comparison of models
+                st.subheader("Model Performance Comparison")
+                
+                # Use plot_model_comparison
+                model_comparison_fig = plot_model_comparison(selected_sku, forecast_data)
+                st.plotly_chart(model_comparison_fig, use_container_width=True)
+                
+                # Add explanation of the evaluation process
+                st.info("The system evaluates each selected forecasting model on historical test data. " +
+                       "The model with the lowest error metrics is automatically selected as the best model.")
+                
+                # Show training and test data details if available
+                if 'train_set' in forecast_data and 'test_set' in forecast_data:
+                    st.subheader("Training and Test Data")
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        train_start = forecast_data['train_set'].index.min().strftime('%Y-%m-%d')
+                        train_end = forecast_data['train_set'].index.max().strftime('%Y-%m-%d')
+                        train_count = len(forecast_data['train_set'])
+                        
+                        st.metric("Training Period", f"{train_start} to {train_end}")
+                        st.metric("Training Data Points", train_count)
+                        
+                    with col2:
+                        test_start = forecast_data['test_set'].index.min().strftime('%Y-%m-%d')
+                        test_end = forecast_data['test_set'].index.max().strftime('%Y-%m-%d')
+                        test_count = len(forecast_data['test_set'])
+                        
+                        st.metric("Test Period", f"{test_start} to {test_end}")
+                        st.metric("Test Data Points", test_count)
+        
+        with forecast_tabs[2]:
+            # Detailed metrics and accuracy information
             if 'model_evaluation' in forecast_data and forecast_data['model_evaluation']['metrics']:
                 st.subheader("Model Evaluation Results")
                 
@@ -273,33 +380,18 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                 
                 # Create DataFrame and display
                 metrics_df = pd.DataFrame(metrics_data)
-                st.dataframe(metrics_df.sort_values('RMSE'), use_container_width=True)
+                st.dataframe(metrics_df.sort_values('RMSE'), use_container_width=True, height=350)
                 
-                # Add explanation
-                st.info("The system evaluated all selected models on historical test data and automatically selected the best performing model for this SKU. Lower RMSE and MAPE values indicate better forecast accuracy.")
-        
-        with col2:
-            # Show forecast details
-            st.subheader("Forecast Details")
-            
-            st.markdown(f"**SKU:** {selected_sku}")
-            st.markdown(f"**Cluster:** {forecast_data['cluster_name']}")
-            st.markdown(f"**Model Used:** {forecast_data['model'].upper()}")
-            
-            # Forecast confidence
-            confidence_color = "green" if forecast_data['model'] != 'moving_average' else "orange"
-            confidence_text = "High" if forecast_data['model'] != 'moving_average' else "Medium"
-            st.markdown(f"**Forecast Confidence:** <span style='color:{confidence_color}'>{confidence_text}</span>", unsafe_allow_html=True)
-            
-            # Forecast table
-            forecast_table = pd.DataFrame({
-                'Date': forecast_data['forecast'].index,
-                'Forecast': forecast_data['forecast'].values.round(0),
-                'Lower Bound': forecast_data['lower_bound'].values.round(0),
-                'Upper Bound': forecast_data['upper_bound'].values.round(0)
-            })
-            
-            st.dataframe(forecast_table, use_container_width=True)
+                # Add explanation about metrics
+                st.markdown("""
+                **Metrics Explanation:**
+                * **RMSE (Root Mean Square Error)**: Measures the square root of the average squared difference between predicted and actual values. Lower values are better.
+                * **MAPE (Mean Absolute Percentage Error)**: Measures the average percentage difference between predicted and actual values. Lower values are better.
+                * **MAE (Mean Absolute Error)**: Measures the average absolute difference between predicted and actual values. Lower values are better.
+                """)
+                
+                # Add explanation about model selection
+                st.info("The system selected the model with the lowest RMSE as the best model for forecasting this SKU.")
     
     # Forecast export
     st.header("Export Forecasts")
