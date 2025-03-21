@@ -627,18 +627,42 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
     
     # Metrics to store results
     metrics = {}
+    all_models_test_pred = {}  # Store test predictions for visualization
+    all_models_forecasts = {}  # Store future forecasts for visualization
+    
+    # Create date range for future forecasting (after the last data point)
+    last_date = data['date'].iloc[-1]
+    future_dates = pd.date_range(
+        start=last_date + pd.Timedelta(days=30),  # Assuming monthly data
+        periods=forecast_periods,
+        freq='MS'  # Month start frequency
+    )
     
     # Evaluate each model
     for model_type in models_to_evaluate:
         try:
             if model_type == "arima":
-                # Train ARIMA model
+                # Train ARIMA model on training data
                 model = ARIMA(train_data['quantity'], order=(1, 1, 1))
                 model_fit = model.fit()
                 
-                # Generate forecasts
+                # Generate test forecasts
                 forecast_obj = model_fit.get_forecast(steps=len(test_data))
                 y_pred = forecast_obj.predicted_mean.values
+                
+                # Store test predictions
+                all_models_test_pred[model_type] = pd.Series(y_pred, index=test_data['date'])
+                
+                # Train on all data for future forecast
+                full_model = ARIMA(data['quantity'], order=(1, 1, 1))
+                full_model_fit = full_model.fit()
+                
+                # Generate future forecasts
+                future_forecast = full_model_fit.get_forecast(steps=forecast_periods)
+                future_values = future_forecast.predicted_mean.values
+                
+                # Store future forecasts
+                all_models_forecasts[model_type] = pd.Series(future_values, index=future_dates)
                 
             elif model_type == "sarima":
                 # Check if we have enough data for seasonal component
@@ -653,9 +677,29 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                     )
                     model_fit = model.fit(disp=False)
                     
-                    # Generate forecasts
+                    # Generate test forecasts
                     forecast_obj = model_fit.get_forecast(steps=len(test_data))
                     y_pred = forecast_obj.predicted_mean.values
+                    
+                    # Store test predictions
+                    all_models_test_pred[model_type] = pd.Series(y_pred, index=test_data['date'])
+                    
+                    # Train on all data for future forecast
+                    full_model = SARIMAX(
+                        data['quantity'],
+                        order=(1, 1, 1),
+                        seasonal_order=(1, 1, 1, 12),
+                        enforce_stationarity=False,
+                        enforce_invertibility=False
+                    )
+                    full_model_fit = full_model.fit(disp=False)
+                    
+                    # Generate future forecasts
+                    future_forecast = full_model_fit.get_forecast(steps=forecast_periods)
+                    future_values = future_forecast.predicted_mean.values
+                    
+                    # Store future forecasts
+                    all_models_forecasts[model_type] = pd.Series(future_values, index=future_dates)
                 else:
                     # Skip if not enough data
                     continue
@@ -678,11 +722,39 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                 m.fit(prophet_train)
                 
                 # Create future dataframe for test period
-                future = pd.DataFrame({'ds': test_data['date']})
+                test_future = pd.DataFrame({'ds': test_data['date']})
                 
-                # Generate forecasts
-                forecast_df = m.predict(future)
-                y_pred = forecast_df['yhat'].values
+                # Generate test forecasts
+                test_forecast = m.predict(test_future)
+                y_pred = test_forecast['yhat'].values
+                
+                # Store test predictions
+                all_models_test_pred[model_type] = pd.Series(y_pred, index=test_data['date'])
+                
+                # Train on all data for future forecast
+                prophet_full = pd.DataFrame({
+                    'ds': data['date'],
+                    'y': data['quantity']
+                })
+                
+                full_m = Prophet(
+                    changepoint_prior_scale=0.05,
+                    seasonality_prior_scale=0.1,
+                    yearly_seasonality=True if len(data) >= 24 else False,
+                    weekly_seasonality=False,
+                    daily_seasonality=False
+                )
+                full_m.fit(prophet_full)
+                
+                # Create future dataframe for forecast period
+                future = pd.DataFrame({'ds': future_dates})
+                
+                # Generate future forecasts
+                future_forecast = full_m.predict(future)
+                future_values = future_forecast['yhat'].values
+                
+                # Store future forecasts
+                all_models_forecasts[model_type] = pd.Series(future_values, index=future_dates)
                 
             elif model_type == "lstm":
                 # Prepare data for LSTM
@@ -698,15 +770,41 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                 
                 # Prepare last sequence for forecasting
                 last_sequence = train_data['quantity'].values[-sequence_length:]
-                last_sequence = scaler.transform(last_sequence.reshape(-1, 1)).flatten()
+                last_sequence_scaled = scaler.transform(last_sequence.reshape(-1, 1)).flatten()
                 
-                # Generate forecasts
+                # Generate test forecasts
                 y_pred = forecast_with_lstm(
                     model,
                     scaler,
-                    last_sequence,
+                    last_sequence_scaled,
                     forecast_periods=len(test_data)
                 )
+                
+                # Store test predictions
+                all_models_test_pred[model_type] = pd.Series(y_pred, index=test_data['date'])
+                
+                # Train on all data for future forecast
+                full_model, full_scaler, _, _ = train_lstm_model(
+                    data['quantity'].values,
+                    test_size=0,  # Use all data
+                    sequence_length=sequence_length,
+                    epochs=50
+                )
+                
+                # Prepare last sequence for future forecasting
+                full_last_sequence = data['quantity'].values[-sequence_length:]
+                full_last_sequence_scaled = full_scaler.transform(full_last_sequence.reshape(-1, 1)).flatten()
+                
+                # Generate future forecasts
+                future_values = forecast_with_lstm(
+                    full_model,
+                    full_scaler,
+                    full_last_sequence_scaled,
+                    forecast_periods=forecast_periods
+                )
+                
+                # Store future forecasts
+                all_models_forecasts[model_type] = pd.Series(future_values, index=future_dates)
             
             elif model_type == "holtwinters":
                 # Check if we have enough data
@@ -730,11 +828,33 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                         use_brute=False            # Use gradient descent for speed
                     )
                     
-                    # Generate forecasts
+                    # Generate test forecasts
                     y_pred = model_fit.forecast(steps=len(test_data))
                     
                     # Convert to NumPy array for consistency
                     y_pred = y_pred.values
+                    
+                    # Store test predictions
+                    all_models_test_pred[model_type] = pd.Series(y_pred, index=test_data['date'])
+                    
+                    # Train on all data for future forecast
+                    full_model = ExponentialSmoothing(
+                        data['quantity'],
+                        trend='add',
+                        seasonal='add',
+                        seasonal_periods=seasonal_periods,
+                        damped=True
+                    )
+                    full_model_fit = full_model.fit(
+                        optimized=True,
+                        use_brute=False
+                    )
+                    
+                    # Generate future forecasts
+                    future_values = full_model_fit.forecast(steps=forecast_periods)
+                    
+                    # Store future forecasts
+                    all_models_forecasts[model_type] = pd.Series(future_values, index=future_dates)
                 else:
                     # Skip if not enough data
                     continue
@@ -771,6 +891,7 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
             
         except Exception as e:
             # Skip failed models
+            print(f"Model {model_type} failed: {str(e)}")
             continue
     
     # Select best model based on RMSE
@@ -778,10 +899,51 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
         best_model = min(metrics.items(), key=lambda x: x[1]['rmse'])[0]
     else:
         best_model = "moving_average"
+        # Add moving average as fallback
+        window = min(3, len(data) // 2)
+        
+        # Calculate moving average for test period
+        ma_pred = np.array([train_data['quantity'].rolling(window=window).mean().iloc[-1]] * len(test_data))
+        all_models_test_pred["moving_average"] = pd.Series(ma_pred, index=test_data['date'])
+        
+        # Calculate moving average for future
+        ma_future = np.array([data['quantity'].rolling(window=window).mean().iloc[-1]] * forecast_periods)
+        all_models_forecasts["moving_average"] = pd.Series(ma_future, index=future_dates)
+        
+        # Calculate basic metrics for moving average
+        y_true = test_data['quantity'].values
+        
+        # Avoid errors if we have no test data
+        if len(y_true) > 0:
+            rmse = math.sqrt(mean_squared_error(y_true, ma_pred))
+            mae = mean_absolute_error(y_true, ma_pred)
+            
+            # Calculate MAPE, handling zero values
+            mask = y_true > 0
+            if mask.sum() > 0:
+                mape = np.mean(np.abs((y_true[mask] - ma_pred[mask]) / y_true[mask])) * 100
+            else:
+                mape = np.nan
+        else:
+            rmse = np.nan
+            mae = np.nan
+            mape = np.nan
+            
+        metrics["moving_average"] = {
+            'rmse': rmse,
+            'mape': mape,
+            'mae': mae
+        }
     
+    # Return complete evaluation results
     return {
         "best_model": best_model,
-        "metrics": metrics
+        "metrics": metrics,
+        "train_set": pd.Series(train_data['quantity'].values, index=train_data['date']),
+        "test_set": pd.Series(test_data['quantity'].values, index=test_data['date']),
+        "test_predictions": all_models_test_pred.get(best_model, pd.Series([])),
+        "all_models_forecasts": all_models_forecasts,
+        "all_models_test_pred": all_models_test_pred
     }
 
 def generate_forecasts(sales_data, cluster_info, forecast_periods=12, evaluate_models_flag=False, models_to_evaluate=None):

@@ -7,7 +7,7 @@ import io
 from datetime import datetime
 from utils.data_processor import process_sales_data
 from utils.forecast_engine import extract_features, cluster_skus, generate_forecasts
-from utils.visualization import plot_forecast, plot_cluster_summary
+from utils.visualization import plot_forecast, plot_cluster_summary, plot_model_comparison
 
 # Set page config
 st.set_page_config(
@@ -38,10 +38,34 @@ if 'selected_sku' not in st.session_state:
     st.session_state.selected_sku = None
 if 'show_all_clusters' not in st.session_state:
     st.session_state.show_all_clusters = False
+if 'selected_models' not in st.session_state:
+    st.session_state.selected_models = []
+if 'sku_options' not in st.session_state:
+    st.session_state.sku_options = []
 
 # Create sidebar for settings
 with st.sidebar:
     st.header("Forecast Settings")
+    
+    # SKU Selection (only shown when forecasts are available)
+    if st.session_state.run_forecast and 'forecasts' in st.session_state and st.session_state.forecasts:
+        st.subheader("SKU Selection")
+        
+        # Get available SKUs from the forecasts
+        sku_list = sorted(list(st.session_state.forecasts.keys()))
+        st.session_state.sku_options = sku_list
+        
+        # Select SKUs (multi-select if multiple SKUs should be shown)
+        selected_skus = st.multiselect(
+            "Select SKUs to Forecast",
+            options=sku_list,
+            default=st.session_state.selected_sku if st.session_state.selected_sku in sku_list else sku_list[0] if sku_list else None,
+            help="Select one or more SKUs to view their forecasts"
+        )
+        
+        # Update selected SKU in session state if selection changed
+        if selected_skus:
+            st.session_state.selected_sku = selected_skus[0]  # Keep first as primary
     
     # Forecast horizon slider
     forecast_periods = st.slider(
@@ -83,6 +107,12 @@ with st.sidebar:
     
     if st.checkbox("LSTM Neural Network", value=True):
         models_to_evaluate.append("lstm")
+        
+    if st.checkbox("Holt-Winters", value=True):
+        models_to_evaluate.append("holtwinters")
+    
+    # Store selected models for visualization
+    st.session_state.selected_models = models_to_evaluate
     
     # Run forecast button
     if st.button("Run Forecast Analysis"):
@@ -102,6 +132,13 @@ with st.sidebar:
                 evaluate_models_flag=evaluate_models_flag,
                 models_to_evaluate=models_to_evaluate
             )
+            
+            # If forecasts were generated, set default selected SKU
+            if st.session_state.forecasts:
+                sku_list = sorted(list(st.session_state.forecasts.keys()))
+                st.session_state.sku_options = sku_list
+                if sku_list and not st.session_state.selected_sku in sku_list:
+                    st.session_state.selected_sku = sku_list[0]
             
             st.success(f"Successfully generated forecasts for {len(st.session_state.forecasts)} SKUs!")
 

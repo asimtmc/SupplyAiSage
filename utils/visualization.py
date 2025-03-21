@@ -6,10 +6,10 @@ import base64
 from datetime import datetime, timedelta
 import numpy as np
 
-def plot_forecast(sales_data, forecast_data, sku):
+def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
     """
     Create a plotly figure showing historical sales and forecast for a specific SKU
-    with enhanced visualization and error metrics
+    with enhanced visualization and error metrics. Can show multiple models if selected.
     
     Parameters:
     -----------
@@ -19,6 +19,8 @@ def plot_forecast(sales_data, forecast_data, sku):
         Forecast information for the SKU
     sku : str
         SKU identifier
+    selected_models : list, optional
+        List of model names to include in the plot. If None, only the best model is shown.
     
     Returns:
     --------
@@ -37,67 +39,132 @@ def plot_forecast(sales_data, forecast_data, sku):
     # Ensure data is sorted by date
     sku_sales = sku_sales.sort_values('date')
     
-    # Get forecast data
-    forecast = forecast_data['forecast']
-    lower_bound = forecast_data['lower_bound']
-    upper_bound = forecast_data['upper_bound']
-    
     # Create figure
     fig = go.Figure()
     
-    # Add historical data
-    fig.add_trace(go.Scatter(
-        x=sku_sales['date'],
-        y=sku_sales['quantity'],
-        mode='lines+markers',
-        name='Historical Sales',
-        line=dict(color='#1f77b4', width=2),
-        marker=dict(size=6),
-    ))
+    # Check if training and test data are separated
+    has_train_test_split = 'train_set' in forecast_data and 'test_set' in forecast_data
     
-    # Add forecast
-    fig.add_trace(go.Scatter(
-        x=forecast.index,
-        y=forecast.values,
-        mode='lines+markers',
-        name='Forecast',
-        line=dict(color='#d62728', width=2, dash='dash'),
-        marker=dict(size=8, symbol='diamond'),
-    ))
-    
-    # Add confidence interval
-    fig.add_trace(go.Scatter(
-        x=list(upper_bound.index) + list(lower_bound.index)[::-1],
-        y=list(upper_bound.values) + list(lower_bound.values)[::-1],
-        fill='toself',
-        fillcolor='rgba(214, 39, 40, 0.2)',
-        line=dict(color='rgba(214, 39, 40, 0)'),
-        name='95% Confidence Interval',
-        showlegend=True
-    ))
-    
-    # Add test set data if it exists in forecast_data
-    if 'test_set' in forecast_data and 'test_predictions' in forecast_data:
+    if has_train_test_split:
+        # Add training data with distinct color
+        train_dates = forecast_data['train_set'].index
+        train_values = forecast_data['train_set'].values
+        
+        fig.add_trace(go.Scatter(
+            x=train_dates,
+            y=train_values,
+            mode='lines+markers',
+            name='Training Data',
+            line=dict(color='#1f77b4', width=2),
+            marker=dict(size=6),
+        ))
+        
+        # Add test data with distinct color
         test_dates = forecast_data['test_set'].index
         test_values = forecast_data['test_set'].values
-        test_pred = forecast_data['test_predictions'].values
         
-        # Add test set actuals
         fig.add_trace(go.Scatter(
             x=test_dates,
             y=test_values,
             mode='markers',
-            name='Test Set (Actual)',
-            marker=dict(size=10, color='#2ca02c', symbol='circle'),
+            name='Test Data (Actual)',
+            marker=dict(size=8, color='#2ca02c', symbol='circle'),
             showlegend=True
         ))
+    else:
+        # Add all historical data
+        fig.add_trace(go.Scatter(
+            x=sku_sales['date'],
+            y=sku_sales['quantity'],
+            mode='lines+markers',
+            name='Historical Sales',
+            line=dict(color='#1f77b4', width=2),
+            marker=dict(size=6),
+        ))
+    
+    # Define a list of colors for multiple models
+    model_colors = ['#d62728', '#ff7f0e', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+    
+    # If no models selected, use the best model
+    if selected_models is None or len(selected_models) == 0:
+        selected_models = [forecast_data['model']]
+    
+    # Get forecast data for the primary (best) model
+    primary_model = forecast_data['model']
+    forecast = forecast_data['forecast']
+    lower_bound = forecast_data['lower_bound']
+    upper_bound = forecast_data['upper_bound']
+    
+    # Check if we should show multiple models
+    show_multiple_models = (selected_models is not None and 
+                           len(selected_models) > 1 and 
+                           'model_evaluation' in forecast_data and 
+                           'all_models_forecasts' in forecast_data['model_evaluation'])
+    
+    if show_multiple_models:
+        # Add each selected model's forecast
+        for i, model_name in enumerate(selected_models):
+            if model_name in forecast_data['model_evaluation']['all_models_forecasts']:
+                model_forecast = forecast_data['model_evaluation']['all_models_forecasts'][model_name]
+                
+                # Choose color - primary model gets red, others get different colors
+                color_idx = 0 if model_name == primary_model else (i % (len(model_colors) - 1) + 1)
+                
+                fig.add_trace(go.Scatter(
+                    x=model_forecast.index,
+                    y=model_forecast.values,
+                    mode='lines+markers' if model_name == primary_model else 'lines',
+                    name=f'{model_name.upper()} Forecast',
+                    line=dict(
+                        color=model_colors[color_idx], 
+                        width=3 if model_name == primary_model else 2,
+                        dash='dash' if model_name == primary_model else 'dot'
+                    ),
+                    marker=dict(size=8 if model_name == primary_model else 6, symbol='diamond'),
+                ))
+                
+                # Only add confidence interval for primary model
+                if model_name == primary_model:
+                    fig.add_trace(go.Scatter(
+                        x=list(upper_bound.index) + list(lower_bound.index)[::-1],
+                        y=list(upper_bound.values) + list(lower_bound.values)[::-1],
+                        fill='toself',
+                        fillcolor='rgba(214, 39, 40, 0.2)',
+                        line=dict(color='rgba(214, 39, 40, 0)'),
+                        name='95% Confidence Interval',
+                        showlegend=True
+                    ))
+    else:
+        # Only add the primary model forecast
+        fig.add_trace(go.Scatter(
+            x=forecast.index,
+            y=forecast.values,
+            mode='lines+markers',
+            name=f'{primary_model.upper()} Forecast',
+            line=dict(color='#d62728', width=2, dash='dash'),
+            marker=dict(size=8, symbol='diamond'),
+        ))
         
-        # Add test set predictions
+        # Add confidence interval
+        fig.add_trace(go.Scatter(
+            x=list(upper_bound.index) + list(lower_bound.index)[::-1],
+            y=list(upper_bound.values) + list(lower_bound.values)[::-1],
+            fill='toself',
+            fillcolor='rgba(214, 39, 40, 0.2)',
+            line=dict(color='rgba(214, 39, 40, 0)'),
+            name='95% Confidence Interval',
+            showlegend=True
+        ))
+    
+    # Add test predictions if available
+    if has_train_test_split and 'test_predictions' in forecast_data:
+        test_pred = forecast_data['test_predictions'].values
+        
         fig.add_trace(go.Scatter(
             x=test_dates,
             y=test_pred,
             mode='markers',
-            name='Test Set (Predicted)',
+            name='Test Data (Predicted)',
             marker=dict(size=10, color='#ff7f0e', symbol='x'),
             showlegend=True
         ))
