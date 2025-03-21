@@ -602,6 +602,296 @@ def plot_inventory_health(sales_data, forecast_data):
     
     return fig
 
+def plot_model_comparison(sku, forecast_data):
+    """
+    Create a plotly figure comparing different forecasting models for a specific SKU
+    with detailed error metrics visualization
+    
+    Parameters:
+    -----------
+    sku : str
+        SKU identifier
+    forecast_data : dict
+        Forecast information for the SKU containing model evaluation data
+        
+    Returns:
+    --------
+    plotly.graph_objects.Figure
+        Plotly figure object with the model comparison
+    """
+    # Check if model evaluation data exists
+    if 'model_evaluation' not in forecast_data or not forecast_data['model_evaluation'].get('metrics'):
+        fig = go.Figure()
+        fig.update_layout(title=f"No model comparison data available for SKU: {sku}")
+        return fig
+    
+    # Get model evaluation metrics
+    metrics = forecast_data['model_evaluation']['metrics']
+    best_model = forecast_data['model_evaluation']['best_model']
+    
+    # Create data for bar chart
+    models = list(metrics.keys())
+    rmse_values = [metrics[m].get('rmse', 0) for m in models]
+    mape_values = [metrics[m].get('mape', 0) if not np.isnan(metrics[m].get('mape', 0)) else 0 for m in models]
+    mae_values = [metrics[m].get('mae', 0) for m in models]
+    
+    # Create figure with multiple traces
+    fig = go.Figure()
+    
+    # Add RMSE bars
+    fig.add_trace(go.Bar(
+        x=models,
+        y=rmse_values,
+        name='RMSE',
+        marker_color='#1f77b4',
+        text=rmse_values,
+        textposition='auto',
+    ))
+    
+    # Add MAPE bars (using secondary y-axis)
+    fig.add_trace(go.Bar(
+        x=models,
+        y=mape_values,
+        name='MAPE (%)',
+        marker_color='#ff7f0e',
+        text=mape_values,
+        textposition='auto',
+        yaxis='y2'
+    ))
+    
+    # Add MAE bars
+    fig.add_trace(go.Bar(
+        x=models,
+        y=mae_values,
+        name='MAE',
+        marker_color='#2ca02c',
+        text=mae_values,
+        textposition='auto',
+        visible='legendonly'  # Initially hidden, can be shown via legend
+    ))
+    
+    # Highlight the best model
+    for i, model in enumerate(models):
+        if model == best_model:
+            fig.add_annotation(
+                x=model,
+                y=max(rmse_values) * 1.1,
+                text="Best Model",
+                showarrow=True,
+                arrowhead=1,
+                arrowsize=1,
+                arrowwidth=2,
+                arrowcolor="#d62728",
+                font=dict(
+                    family="Arial",
+                    size=12,
+                    color="#d62728"
+                ),
+                bordercolor="#d62728",
+                borderwidth=2,
+                borderpad=4,
+                bgcolor="white",
+                opacity=0.8
+            )
+    
+    # Update layout with dual y-axis
+    fig.update_layout(
+        title={
+            'text': f"Model Comparison for SKU: {sku}",
+            'y':0.95,
+            'x':0.5,
+            'xanchor': 'center',
+            'yanchor': 'top',
+            'font': dict(size=18)
+        },
+        barmode='group',
+        xaxis=dict(
+            title="Model",
+            tickangle=-45,
+            categoryorder='total descending'
+        ),
+        yaxis=dict(
+            title="RMSE / MAE",
+            side='left',
+            showgrid=True,
+            gridwidth=1,
+            gridcolor='rgba(211,211,211,0.5)'
+        ),
+        yaxis2=dict(
+            title="MAPE (%)",
+            side='right',
+            overlaying='y',
+            showgrid=False,
+            rangemode='nonnegative'
+        ),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        ),
+        template="plotly_white",
+        hoverlabel=dict(
+            bgcolor="white",
+            font_size=12,
+            font_family="Arial"
+        ),
+        margin=dict(l=50, r=100, t=80, b=100)
+    )
+    
+    # Add explanation of metrics
+    fig.add_annotation(
+        x=0.02,
+        y=0.02,
+        xref="paper",
+        yref="paper",
+        text="<b>Lower values indicate better model performance</b>",
+        showarrow=False,
+        font=dict(
+            family="Arial",
+            size=10,
+            color="#666666"
+        ),
+        align="left",
+        bgcolor="rgba(255, 255, 255, 0.8)",
+        bordercolor="#c7c7c7",
+        borderwidth=1,
+        borderpad=4
+    )
+    
+    return fig
+
+def plot_forecast_error_distribution(sku, forecast_data):
+    """
+    Create a plotly figure showing the distribution of forecast errors for a specific SKU
+    
+    Parameters:
+    -----------
+    sku : str
+        SKU identifier
+    forecast_data : dict
+        Forecast information for the SKU containing test data or forecast errors
+        
+    Returns:
+    --------
+    plotly.graph_objects.Figure
+        Plotly figure object with the error distribution
+    """
+    # Check if test data exists
+    if ('test_set' not in forecast_data or 
+        'test_predictions' not in forecast_data or 
+        len(forecast_data['test_set']) == 0):
+        fig = go.Figure()
+        fig.update_layout(title=f"No test data available for error analysis on SKU: {sku}")
+        return fig
+    
+    # Get test data and predictions
+    actuals = forecast_data['test_set'].values
+    predictions = forecast_data['test_predictions'].values
+    
+    # Calculate errors
+    errors = actuals - predictions
+    percentage_errors = np.where(actuals > 0, (errors / actuals) * 100, 0)
+    
+    # Create figure with two subplots: histogram and QQ plot
+    fig = go.Figure()
+    
+    # Add histogram of errors
+    fig.add_trace(go.Histogram(
+        x=errors,
+        name='Error Distribution',
+        marker_color='#1f77b4',
+        opacity=0.7,
+        nbinsx=20,
+        histnorm='probability'
+    ))
+    
+    # Calculate descriptive statistics
+    mean_error = np.mean(errors)
+    median_error = np.median(errors)
+    std_error = np.std(errors)
+    
+    # Add vertical lines for mean and median
+    fig.add_vline(x=mean_error, line_dash="solid", line_color="#d62728", 
+                  annotation_text=f"Mean: {mean_error:.2f}", 
+                  annotation_position="top right")
+    
+    fig.add_vline(x=median_error, line_dash="dash", line_color="#2ca02c", 
+                  annotation_text=f"Median: {median_error:.2f}", 
+                  annotation_position="top left")
+    
+    # Add normal distribution curve
+    x = np.linspace(min(errors), max(errors), 100)
+    y = (1 / (std_error * np.sqrt(2 * np.pi))) * np.exp(-0.5 * ((x - mean_error) / std_error) ** 2)
+    
+    fig.add_trace(go.Scatter(
+        x=x,
+        y=y,
+        mode='lines',
+        name='Normal Distribution',
+        line=dict(color='#ff7f0e', width=2)
+    ))
+    
+    # Update layout
+    fig.update_layout(
+        title={
+            'text': f"Forecast Error Distribution for SKU: {sku}",
+            'y':0.95,
+            'x':0.5,
+            'xanchor': 'center',
+            'yanchor': 'top',
+            'font': dict(size=18)
+        },
+        xaxis_title="Forecast Error (Actual - Predicted)",
+        yaxis_title="Probability",
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        ),
+        template="plotly_white",
+        hoverlabel=dict(
+            bgcolor="white",
+            font_size=12,
+            font_family="Arial"
+        ),
+        margin=dict(l=50, r=50, t=80, b=50)
+    )
+    
+    # Add annotation with error statistics
+    stats_text = f"""
+    <b>Error Statistics:</b><br>
+    Mean Error: {mean_error:.2f}<br>
+    Median Error: {median_error:.2f}<br>
+    Std Dev: {std_error:.2f}<br>
+    Min Error: {min(errors):.2f}<br>
+    Max Error: {max(errors):.2f}<br>
+    """
+    
+    fig.add_annotation(
+        x=0.98,
+        y=0.98,
+        xref="paper",
+        yref="paper",
+        text=stats_text,
+        showarrow=False,
+        font=dict(
+            family="Arial",
+            size=12,
+            color="#000000"
+        ),
+        align="right",
+        bgcolor="rgba(255, 255, 255, 0.8)",
+        bordercolor="#c7c7c7",
+        borderwidth=1,
+        borderpad=4
+    )
+    
+    return fig
+
 def plot_forecast_accuracy_trend(actuals, forecasts, periods=6):
     """
     Create a plotly figure showing forecast accuracy trend over time
