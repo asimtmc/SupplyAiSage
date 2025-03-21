@@ -498,45 +498,68 @@ def train_lstm_model(data, test_size=0.2, sequence_length=12, epochs=50):
     tuple
         (model, scaler, test_mape, test_rmse) where model is the trained LSTM model
     """
+    # Check if data is sufficient
+    if len(data) <= sequence_length:
+        raise ValueError(f"Data length ({len(data)}) must be greater than sequence_length ({sequence_length})")
+    
     # Normalize data
     scaler = MinMaxScaler()
-    data_scaled = scaler.fit_transform(data.reshape(-1, 1))
+    data_scaled = scaler.fit_transform(data.reshape(-1, 1)).flatten()
     
     # Prepare data
     X, y = prepare_lstm_data(data_scaled, sequence_length)
     
-    # Split into train and test sets
-    train_size = int(len(X) * (1 - test_size))
-    X_train, X_test = X[:train_size], X[train_size:]
-    y_train, y_test = y[:train_size], y[train_size:]
+    # If no test data requested, use all data for training
+    if test_size == 0 or len(X) < 3:  # Ensure we have enough data to split
+        X_train, y_train = X, y
+        X_test, y_test = np.array([]), np.array([])
+    else:
+        # Split into train and test sets
+        train_size = int(len(X) * (1 - test_size))
+        X_train, X_test = X[:train_size], X[train_size:]
+        y_train, y_test = y[:train_size], y[train_size:]
     
     # Reshape for LSTM [samples, time steps, features]
     X_train = X_train.reshape(X_train.shape[0], X_train.shape[1], 1)
-    X_test = X_test.reshape(X_test.shape[0], X_test.shape[1], 1)
     
     # Create and train model
     model = create_lstm_model(sequence_length)
-    early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
     
-    model.fit(
-        X_train, y_train,
-        epochs=epochs,
-        batch_size=32,
-        validation_data=(X_test, y_test),
-        callbacks=[early_stopping],
-        verbose=0
-    )
+    # Training parameters
+    fit_params = {
+        'epochs': epochs,
+        'batch_size': min(32, len(X_train)),
+        'verbose': 0
+    }
     
-    # Evaluate model
-    y_pred = model.predict(X_test, verbose=0)
+    # Add validation data if available
+    if len(X_test) > 0:
+        X_test = X_test.reshape(X_test.shape[0], X_test.shape[1], 1)
+        early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+        fit_params['validation_data'] = (X_test, y_test)
+        fit_params['callbacks'] = [early_stopping]
     
-    # Inverse transform predictions and actual values
-    y_test_inv = scaler.inverse_transform(y_test)
-    y_pred_inv = scaler.inverse_transform(y_pred)
+    # Train the model
+    model.fit(X_train, y_train, **fit_params)
     
-    # Calculate metrics
-    test_rmse = math.sqrt(mean_squared_error(y_test_inv, y_pred_inv))
-    test_mape = np.mean(np.abs((y_test_inv - y_pred_inv) / y_test_inv)) * 100
+    # Calculate metrics if we have test data
+    test_rmse = float('nan')
+    test_mape = float('nan')
+    
+    if len(X_test) > 0:
+        # Evaluate model
+        y_pred = model.predict(X_test, verbose=0)
+        
+        # Inverse transform predictions and actual values
+        y_test_inv = scaler.inverse_transform(y_test.reshape(-1, 1)).flatten()
+        y_pred_inv = scaler.inverse_transform(y_pred).flatten()
+        
+        # Calculate metrics
+        test_rmse = math.sqrt(mean_squared_error(y_test_inv, y_pred_inv))
+        # Avoid division by zero in MAPE calculation
+        valid_indices = y_test_inv > 0
+        if np.any(valid_indices):
+            test_mape = np.mean(np.abs((y_test_inv[valid_indices] - y_pred_inv[valid_indices]) / y_test_inv[valid_indices])) * 100
     
     return model, scaler, test_mape, test_rmse
 
@@ -568,17 +591,18 @@ def forecast_with_lstm(model, scaler, last_sequence, forecast_periods=12):
     
     # Generate forecasts
     for _ in range(forecast_periods):
-        # Reshape for prediction
+        # Reshape for prediction [samples, time steps, features]
         curr_sequence_reshaped = curr_sequence.reshape(1, curr_sequence.shape[0], 1)
         
         # Make prediction
-        pred = model.predict(curr_sequence_reshaped, verbose=0)[0]
+        pred = model.predict(curr_sequence_reshaped, verbose=0)
+        pred_value = pred[0][0]  # Extract the predicted value (single scalar)
         
         # Add prediction to forecast
-        forecast.append(pred[0])
+        forecast.append(pred_value)
         
-        # Update sequence
-        curr_sequence = np.append(curr_sequence[1:], pred)
+        # Update sequence: remove first element and add prediction at the end
+        curr_sequence = np.append(curr_sequence[1:], pred_value)
     
     # Inverse transform forecast
     forecast = np.array(forecast).reshape(-1, 1)
@@ -1015,42 +1039,53 @@ def generate_forecasts(sales_data, cluster_info, forecast_periods=12, evaluate_m
         
         # Select model and generate forecast
         if best_model == "lstm" and len(sku_data) >= 24:
-            # Train LSTM with full data
-            sequence_length = min(12, len(sku_data) // 2)
-            model, scaler, _, _ = train_lstm_model(
-                sku_data['quantity'].values,
-                test_size=0.1,  # Small validation set
-                sequence_length=sequence_length,
-                epochs=50
-            )
-            
-            # Prepare last sequence for forecasting
-            last_sequence = sku_data['quantity'].values[-sequence_length:]
-            last_sequence = scaler.transform(last_sequence.reshape(-1, 1)).flatten()
-            
-            # Generate forecasts
-            forecast_values = forecast_with_lstm(
-                model,
-                scaler,
-                last_sequence,
-                forecast_periods=forecast_periods
-            )
-            
-            # Create confidence intervals
-            lower_bound = forecast_values * 0.8
-            upper_bound = forecast_values * 1.2
-            
-            # Create dates for forecast periods
-            last_date = sku_data['date'].max()
-            forecast_dates = [last_date + timedelta(days=30*i) for i in range(1, forecast_periods+1)]
-            
-            # Create forecast result
-            forecast_result = {
-                "model": "lstm",
-                "forecast": pd.Series(forecast_values, index=forecast_dates),
-                "lower_bound": pd.Series(lower_bound, index=forecast_dates),
-                "upper_bound": pd.Series(upper_bound, index=forecast_dates)
-            }
+            try:
+                # Train LSTM with full data
+                sequence_length = min(12, len(sku_data) // 3)  # Reduce sequence length to ensure enough training samples
+                
+                # Ensure we have enough data points for the LSTM sequence
+                if len(sku_data) > sequence_length + 2:
+                    model, scaler, _, _ = train_lstm_model(
+                        sku_data['quantity'].values,
+                        test_size=0.1,  # Small validation set
+                        sequence_length=sequence_length,
+                        epochs=50
+                    )
+                    
+                    # Prepare last sequence for forecasting
+                    last_sequence = sku_data['quantity'].values[-sequence_length:]
+                    last_sequence = scaler.transform(last_sequence.reshape(-1, 1)).flatten()
+                    
+                    # Generate forecasts
+                    forecast_values = forecast_with_lstm(
+                        model,
+                        scaler,
+                        last_sequence,
+                        forecast_periods=forecast_periods
+                    )
+                    
+                    # Create confidence intervals (wider for LSTM to reflect uncertainty)
+                    lower_bound = forecast_values * 0.75
+                    upper_bound = forecast_values * 1.25
+                    
+                    # Create dates for forecast periods
+                    last_date = sku_data['date'].max()
+                    forecast_dates = [last_date + timedelta(days=30*i) for i in range(1, forecast_periods+1)]
+                    
+                    # Create forecast result
+                    forecast_result = {
+                        "model": "lstm",
+                        "forecast": pd.Series(forecast_values, index=forecast_dates),
+                        "lower_bound": pd.Series(lower_bound, index=forecast_dates),
+                        "upper_bound": pd.Series(upper_bound, index=forecast_dates)
+                    }
+                else:
+                    # Fall back to another model if sequence length doesn't work
+                    forecast_result = select_best_model(sku_data, forecast_periods)
+            except Exception as e:
+                # If LSTM fails, fall back to another model
+                print(f"LSTM failed for SKU {sku}: {str(e)}")
+                forecast_result = select_best_model(sku_data, forecast_periods)
         else:
             # Use select_best_model for other cases
             forecast_result = select_best_model(sku_data, forecast_periods)
