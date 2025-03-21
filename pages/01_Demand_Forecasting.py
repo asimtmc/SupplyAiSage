@@ -304,10 +304,20 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
     with col1:
         # Allow user to select a SKU to view detailed forecast
         sku_list = list(st.session_state.forecasts.keys())
+        
+        # Safely get an index for the selected SKU
+        if st.session_state.selected_sku is None or st.session_state.selected_sku not in sku_list:
+            default_index = 0
+        else:
+            try:
+                default_index = sku_list.index(st.session_state.selected_sku)
+            except (ValueError, IndexError):
+                default_index = 0
+                
         selected_sku = st.selectbox(
             "Select a SKU to view forecast details",
             options=sku_list,
-            index=0 if st.session_state.selected_sku is None else sku_list.index(st.session_state.selected_sku)
+            index=default_index
         )
         st.session_state.selected_sku = selected_sku
     
@@ -537,11 +547,19 @@ else:
         
         with col1:
             # Select SKU to display
+            # Safely calculate the default index
+            if st.session_state.selected_sku is None or st.session_state.selected_sku not in all_skus:
+                default_index = 0
+            else:
+                try:
+                    default_index = all_skus.index(st.session_state.selected_sku)
+                except (ValueError, IndexError):
+                    default_index = 0
+                    
             selected_sku_preview = st.selectbox(
                 "Select a SKU to view historical sales data",
                 options=all_skus,
-                index=0 if st.session_state.selected_sku is None else 
-                       all_skus.index(st.session_state.selected_sku) if st.session_state.selected_sku in all_skus else 0
+                index=default_index
             )
             
             # Update session state
