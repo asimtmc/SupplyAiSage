@@ -47,20 +47,27 @@ if 'sku_options' not in st.session_state:
 with st.sidebar:
     st.header("Forecast Settings")
     
-    # SKU Selection (only shown when forecasts are available)
-    if st.session_state.run_forecast and 'forecasts' in st.session_state and st.session_state.forecasts:
+    # Get available SKUs from sales data (always available)
+    if 'sales_data' in st.session_state and st.session_state.sales_data is not None:
         st.subheader("SKU Selection")
         
-        # Get available SKUs from the forecasts
-        sku_list = sorted(list(st.session_state.forecasts.keys()))
+        # Get available SKUs from the sales data
+        available_skus = sorted(st.session_state.sales_data['sku'].unique().tolist())
+        
+        # If we have forecasts, use those SKUs instead
+        if st.session_state.run_forecast and 'forecasts' in st.session_state and st.session_state.forecasts:
+            sku_list = sorted(list(st.session_state.forecasts.keys()))
+        else:
+            sku_list = available_skus
+            
         st.session_state.sku_options = sku_list
         
         # Select SKUs (multi-select if multiple SKUs should be shown)
         selected_skus = st.multiselect(
-            "Select SKUs to Forecast",
+            "Select SKUs to Analyze",
             options=sku_list,
             default=st.session_state.selected_sku if st.session_state.selected_sku in sku_list else sku_list[0] if sku_list else None,
-            help="Select one or more SKUs to view their forecasts"
+            help="Select one or more SKUs to analyze or forecast"
         )
         
         # Update selected SKU in session state if selection changed
@@ -206,6 +213,10 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
     # Create and display the dataframe
     model_selection_df = pd.DataFrame(model_selection_data)
     
+    # Set default filter values
+    selected_model_filter = 'All'
+    selected_cluster_filter = 'All'
+    
     # Add table filters
     col1, col2 = st.columns(2)
     
@@ -236,14 +247,36 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
     # Forecast explorer
     st.header("Forecast Explorer")
     
-    # Allow user to select a SKU to view detailed forecast
-    sku_list = list(st.session_state.forecasts.keys())
-    selected_sku = st.selectbox(
-        "Select a SKU to view forecast details",
-        options=sku_list,
-        index=0 if st.session_state.selected_sku is None else sku_list.index(st.session_state.selected_sku)
-    )
-    st.session_state.selected_sku = selected_sku
+    # Create a more prominent SKU selection area with columns
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        # Allow user to select a SKU to view detailed forecast
+        sku_list = list(st.session_state.forecasts.keys())
+        selected_sku = st.selectbox(
+            "Select a SKU to view forecast details",
+            options=sku_list,
+            index=0 if st.session_state.selected_sku is None else sku_list.index(st.session_state.selected_sku)
+        )
+        st.session_state.selected_sku = selected_sku
+    
+    with col2:
+        # Show basic info about the selected SKU
+        if selected_sku and selected_sku in st.session_state.forecasts:
+            forecast_data = st.session_state.forecasts[selected_sku]
+            model_name = forecast_data['model'].upper()
+            cluster_name = forecast_data['cluster_name']
+            
+            st.write(f"**Model:** {model_name}")
+            st.write(f"**Cluster:** {cluster_name}")
+            
+            # Show a quick metric if available
+            if 'model_evaluation' in forecast_data and 'metrics' in forecast_data['model_evaluation']:
+                best_model = forecast_data['model_evaluation']['best_model']
+                if best_model in forecast_data['model_evaluation']['metrics']:
+                    metrics = forecast_data['model_evaluation']['metrics'][best_model]
+                    if 'mape' in metrics and not np.isnan(metrics['mape']):
+                        st.metric("Forecast Accuracy", f"{(100-metrics['mape']):.1f}%", help="Based on test data evaluation")
     
     # Show forecast details for selected SKU
     if selected_sku:
@@ -437,10 +470,103 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
             )
 
 else:
-    # Show instructions when no forecast has been run
-    st.info("👈 Please configure and run the forecast analysis using the sidebar.")
+    # When no forecast has been run yet, but data is available
+    st.header("Sales Data Analysis")
     
-    # Show a preview of the sales data
+    # Show instructions
+    st.info("👈 Please configure and run the forecast analysis using the sidebar to get detailed forecasts.")
+    
+    # Allow SKU selection in main area
+    if 'sales_data' in st.session_state and st.session_state.sales_data is not None:
+        # Get list of SKUs from sales data
+        all_skus = sorted(st.session_state.sales_data['sku'].unique().tolist())
+        
+        # Add a prominent SKU selector
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            # Select SKU to display
+            selected_sku_preview = st.selectbox(
+                "Select a SKU to view historical sales data",
+                options=all_skus,
+                index=0 if st.session_state.selected_sku is None else 
+                       all_skus.index(st.session_state.selected_sku) if st.session_state.selected_sku in all_skus else 0
+            )
+            
+            # Update session state
+            st.session_state.selected_sku = selected_sku_preview
+            
+        with col2:
+            # Show basic summary for the selected SKU
+            sku_data = st.session_state.sales_data[st.session_state.sales_data['sku'] == selected_sku_preview]
+            
+            if not sku_data.empty:
+                data_points = len(sku_data)
+                avg_sales = round(sku_data['quantity'].mean(), 2)
+                st.metric("Data Points", data_points)
+                st.metric("Avg. Monthly Sales", avg_sales)
+        
+        # Show historical data chart for selected SKU
+        if st.session_state.selected_sku:
+            st.subheader(f"Historical Sales for {st.session_state.selected_sku}")
+            
+            # Filter data for the selected SKU
+            sku_data = st.session_state.sales_data[st.session_state.sales_data['sku'] == st.session_state.selected_sku]
+            
+            # Create a simple plotly chart for historical data
+            if not sku_data.empty:
+                import plotly.express as px
+                
+                # Ensure data is sorted by date
+                sku_data = sku_data.sort_values('date')
+                
+                # Create the chart
+                fig = px.line(
+                    sku_data, 
+                    x='date', 
+                    y='quantity',
+                    title=f'Historical Sales for {st.session_state.selected_sku}',
+                    labels={'quantity': 'Units Sold', 'date': 'Date'}
+                )
+                
+                # Update layout
+                fig.update_layout(
+                    xaxis_title='Date',
+                    yaxis_title='Units Sold',
+                    template='plotly_white'
+                )
+                
+                # Display the chart
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Show a small table with yearly or quarterly totals
+                st.subheader("Sales Summary")
+                
+                # Add year and quarter columns
+                sku_data['year'] = sku_data['date'].dt.year
+                sku_data['quarter'] = sku_data['date'].dt.quarter
+                
+                # Create summary tables
+                yearly_summary = sku_data.groupby('year')['quantity'].sum().reset_index()
+                yearly_summary.columns = ['Year', 'Total Sales']
+                
+                quarterly_summary = sku_data.groupby(['year', 'quarter'])['quantity'].sum().reset_index()
+                quarterly_summary.columns = ['Year', 'Quarter', 'Total Sales']
+                quarterly_summary['Period'] = quarterly_summary['Year'].astype(str) + '-Q' + quarterly_summary['Quarter'].astype(str)
+                quarterly_summary = quarterly_summary[['Period', 'Total Sales']]
+                
+                # Show summary tables in columns
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.write("Yearly Summary")
+                    st.dataframe(yearly_summary, use_container_width=True)
+                    
+                with col2:
+                    st.write("Quarterly Summary")
+                    st.dataframe(quarterly_summary, use_container_width=True)
+    
+    # Show a preview of the overall sales data
     st.subheader("Sales Data Preview")
     st.dataframe(st.session_state.sales_data.head(10), use_container_width=True)
     
