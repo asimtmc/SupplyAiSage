@@ -641,8 +641,11 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
         return {"best_model": "moving_average", "metrics": {}}
     
     # Default models to evaluate if none specified
-    if models_to_evaluate is None:
+    if models_to_evaluate is None or len(models_to_evaluate) == 0:
         models_to_evaluate = ["arima", "sarima", "prophet", "lstm", "holtwinters"]
+    
+    # Print list of models being evaluated (for debugging)
+    print(f"Evaluating models: {models_to_evaluate}")
     
     # Split data into train and test
     train_size = int(len(data) * (1 - test_size))
