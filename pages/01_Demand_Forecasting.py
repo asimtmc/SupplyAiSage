@@ -36,6 +36,8 @@ if 'run_forecast' not in st.session_state:
     st.session_state.run_forecast = False
 if 'selected_sku' not in st.session_state:
     st.session_state.selected_sku = None
+if 'selected_skus' not in st.session_state:
+    st.session_state.selected_skus = []
 if 'show_all_clusters' not in st.session_state:
     st.session_state.show_all_clusters = False
 if 'selected_models' not in st.session_state:
@@ -135,10 +137,10 @@ with st.sidebar:
         horizontal=True
     )
     
-    # Extract selected SKUs from the multiselect
+    # Get selected SKUs from session state
     selected_skus_to_forecast = []
-    if 'selected_skus' in locals() and selected_skus:
-        selected_skus_to_forecast = selected_skus
+    if 'selected_skus' in st.session_state and st.session_state.selected_skus:
+        selected_skus_to_forecast = st.session_state.selected_skus
     
     # Run forecast button
     forecast_button_text = "Run Forecast Analysis"
