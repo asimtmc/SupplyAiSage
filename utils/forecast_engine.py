@@ -1045,12 +1045,12 @@ def generate_forecasts(sales_data, cluster_info, forecast_periods=12, evaluate_m
                 
             # Filter data for this SKU
             sku_data = sales_data[sales_data['sku'] == sku].copy()
-        
-        # Ensure we have enough data points
-        if len(sku_data) < 3:
-            continue
-        
-        # Get cluster for this SKU if available
+            
+            # Ensure we have enough data points
+            if len(sku_data) < 3:
+                continue
+            
+            # Get cluster for this SKU if available
         if sku in cluster_info['sku'].values:
             sku_cluster = cluster_info[cluster_info['sku'] == sku]['cluster'].iloc[0]
             sku_cluster_name = cluster_info[cluster_info['sku'] == sku]['cluster_name'].iloc[0]
