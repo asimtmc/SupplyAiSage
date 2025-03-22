@@ -518,13 +518,16 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                         if not show_all_models and len(available_models) > 1:
                             # Get model options capitalized
                             model_options = [model.upper() for model in available_models]
-                            # Default to the best model
+                            # Default to the best model and ensure it's in the options list
                             default_model = forecast_data['model'].upper()
+                            if default_model not in model_options:
+                                model_options.append(default_model)
+                                
                             # Create multiselect for custom model selection
                             custom_models = st.multiselect(
                                 "Select Models to Display",
                                 options=model_options,
-                                default=[default_model],
+                                default=[default_model] if default_model in model_options else [],
                                 help="Select one or more models to display on chart"
                             )
                             # Convert back to lowercase
