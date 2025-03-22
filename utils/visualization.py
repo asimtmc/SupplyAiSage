@@ -255,43 +255,51 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
         # Get the primary model color for consistency
         test_pred_color = '#ff7f0e'  # Default orange
         
-        # Create hover text for test predictions
-        test_pred_hover = [f"<b>Test Prediction</b><br>" +
-                         f"<b>Date:</b> {date.strftime('%Y-%m-%d')}<br>" +
-                         f"<b>Predicted:</b> {int(value) if not np.isnan(value) else 'N/A'}" 
-                         for date, value in zip(test_dates, test_pred)]
+        # Create hover text for test predictions - only if test_dates exists
+        test_pred_hover = []
+        if test_dates is not None and len(test_dates) > 0 and len(test_pred) > 0:
+            test_pred_hover = [f"<b>Test Prediction</b><br>" +
+                             f"<b>Date:</b> {date.strftime('%Y-%m-%d')}<br>" +
+                             f"<b>Predicted:</b> {int(value) if not np.isnan(value) else 'N/A'}" 
+                             for date, value in zip(test_dates, test_pred)]
         
-        # Add test predictions with better styling
-        fig.add_trace(go.Scatter(
-            x=test_dates,
-            y=test_pred,
-            mode='lines+markers',
-            name='Test Period Forecast',
-            line=dict(
-                color=test_pred_color, 
-                width=3, 
-                dash='dot'
-            ),
-            marker=dict(
-                size=8, 
-                color=test_pred_color, 
-                symbol='star',
-                line=dict(color='#ffffff', width=1)  # Add white border to markers
-            ),
-            hoverinfo='text',
-            hovertext=test_pred_hover,
-            hoverlabel=dict(bgcolor=test_pred_color, font=dict(color='white')),
-            showlegend=True
-        ))
+        # Add test predictions with better styling - ensuring test_dates is valid first
+        if test_dates is not None and len(test_dates) > 0 and len(test_pred) > 0:
+            fig.add_trace(go.Scatter(
+                x=test_dates,
+                y=test_pred,
+                mode='lines+markers',
+                name='Test Period Forecast',
+                line=dict(
+                    color=test_pred_color, 
+                    width=3, 
+                    dash='dot'
+                ),
+                marker=dict(
+                    size=8, 
+                    color=test_pred_color, 
+                    symbol='star',
+                    line=dict(color='#ffffff', width=1)  # Add white border to markers
+                ),
+                hoverinfo='text',
+                hovertext=test_pred_hover,
+                hoverlabel=dict(bgcolor=test_pred_color, font=dict(color='white')),
+                showlegend=True
+            ))
         
         # Add area between actual and predicted for test period to highlight error
-        if len(test_dates) == len(test_pred) and len(test_pred) > 0:
+        if test_dates is not None and len(test_dates) > 0 and len(test_pred) > 0 and len(test_dates) == len(test_pred):
             test_actual = forecast_data['test_set'].values
+            
+            # Convert to lists to ensure we can concatenate even if different types
+            test_dates_list = test_dates.tolist() if hasattr(test_dates, 'tolist') else list(test_dates)
+            test_pred_list = test_pred.tolist() if hasattr(test_pred, 'tolist') else list(test_pred)
+            test_actual_list = test_actual.tolist() if hasattr(test_actual, 'tolist') else list(test_actual)
             
             # Create a filled area between actual and predicted
             fig.add_trace(go.Scatter(
-                x=test_dates.tolist() + test_dates.tolist()[::-1],
-                y=test_pred.tolist() + test_actual.tolist()[::-1],
+                x=test_dates_list + test_dates_list[::-1],
+                y=test_pred_list + test_actual_list[::-1],
                 fill='toself',
                 fillcolor='rgba(255, 127, 14, 0.1)',  # Light orange fill
                 line=dict(color='rgba(255, 127, 14, 0)'),  # Transparent line
@@ -300,11 +308,15 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
             ))
             
             # Annotate the test period
-            if len(test_dates) > 0:
+            if len(test_dates) > 1:  # Need at least 2 points to safely get midpoint
                 mid_point_idx = len(test_dates) // 2
+                max_pred = max(test_pred_list) if test_pred_list else 0
+                max_actual = max(test_actual_list) if test_actual_list else 0
+                max_y = max(max_pred, max_actual)
+                
                 fig.add_annotation(
-                    x=test_dates[mid_point_idx],
-                    y=max(max(test_pred), max(test_actual)) * 1.05,
+                    x=test_dates_list[mid_point_idx],
+                    y=max_y * 1.05,
                     text="Test Period",
                     showarrow=True,
                     arrowhead=1,
