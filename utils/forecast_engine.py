@@ -647,10 +647,20 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
     # Print list of models being evaluated (for debugging)
     print(f"Evaluating models: {models_to_evaluate}")
     
-    # Split data into train and test
-    train_size = int(len(data) * (1 - test_size))
+    # Always use the last 6 months as test data regardless of test_size parameter
+    if len(data) <= 6:
+        # If we have 6 or fewer data points, use at least one for testing
+        test_size = 1 / len(data)
+        train_size = int(len(data) * (1 - test_size))
+    else:
+        # Use last 6 months for testing
+        train_size = len(data) - 6
+    
     train_data = data.iloc[:train_size].copy()
     test_data = data.iloc[train_size:].copy()
+    
+    # Print information about the split
+    print(f"Training data: {len(train_data)} points, Test data: {len(test_data)} points (last 6 months)")
     
     # Metrics to store results
     metrics = {}
@@ -986,7 +996,7 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
         "all_models_test_pred": all_models_test_pred
     }
 
-def generate_forecasts(sales_data, cluster_info, forecast_periods=12, evaluate_models_flag=False, models_to_evaluate=None, selected_skus=None):
+def generate_forecasts(sales_data, cluster_info, forecast_periods=12, evaluate_models_flag=False, models_to_evaluate=None, selected_skus=None, progress_callback=None):
     """
     Generate forecasts for SKUs based on their clusters
     
@@ -1004,6 +1014,8 @@ def generate_forecasts(sales_data, cluster_info, forecast_periods=12, evaluate_m
         List of model types to evaluate (default is None, which evaluates all models)
     selected_skus : list, optional
         List of specific SKUs to forecast. If None, forecasts all SKUs (default is None)
+    progress_callback : function, optional
+        Callback function to report progress (current_index, current_sku, total_skus)
     
     Returns:
     --------
@@ -1022,7 +1034,14 @@ def generate_forecasts(sales_data, cluster_info, forecast_periods=12, evaluate_m
     else:
         skus = sales_data['sku'].unique()
     
-    for sku in skus:
+    # Track progress for the callback
+    total_skus = len(skus)
+    
+    for i, sku in enumerate(skus):
+        # Update progress if callback is provided
+        if progress_callback:
+            progress_callback(i+1, sku, total_skus)
+            
         # Filter data for this SKU
         sku_data = sales_data[sales_data['sku'] == sku].copy()
         

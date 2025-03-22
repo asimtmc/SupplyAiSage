@@ -83,8 +83,11 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
             marker=dict(size=6),
         ))
     
-    # Define a list of colors for multiple models
-    model_colors = ['#d62728', '#ff7f0e', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+    # Define a list of colors with better contrast for multiple models
+    model_colors = ['#d62728', '#0099ff', '#9467bd', '#02bc77', '#e377c2', '#ffb74d', '#4d4dff', '#17becf']
+    
+    # Define line styles for better differentiation
+    line_styles = ['solid', 'dash', 'dot', 'dashdot', 'longdash', 'longdashdot']
     
     # If no models selected, use the best model
     if selected_models is None or len(selected_models) == 0:
@@ -112,6 +115,14 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
                 # Choose color - primary model gets red, others get different colors
                 color_idx = 0 if model_name == primary_model else (i % (len(model_colors) - 1) + 1)
                 
+                # Calculate dash pattern index (use different patterns for different models)
+                dash_idx = i % len(line_styles)
+                dash_pattern = line_styles[dash_idx]
+                
+                # Different marker symbols for different models
+                marker_symbols = ['diamond', 'circle', 'square', 'triangle-up', 'star', 'x']
+                marker_symbol = marker_symbols[i % len(marker_symbols)]
+                
                 fig.add_trace(go.Scatter(
                     x=model_forecast.index,
                     y=model_forecast.values,
@@ -120,9 +131,13 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
                     line=dict(
                         color=model_colors[color_idx], 
                         width=3 if model_name == primary_model else 2,
-                        dash='dash'
+                        dash=dash_pattern
                     ),
-                    marker=dict(size=8 if model_name == primary_model else 6, symbol='diamond'),
+                    marker=dict(
+                        size=8 if model_name == primary_model else 6, 
+                        symbol=marker_symbol,
+                        color=model_colors[color_idx]
+                    ),
                 ))
                 
                 # Only add confidence interval for primary model
@@ -189,15 +204,59 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
     if show_test_predictions and 'test_predictions' in forecast_data and len(forecast_data['test_predictions']) > 0:
         test_pred = forecast_data['test_predictions'].values
         
+        # Get the primary model color for consistency
+        test_pred_color = '#ff7f0e'  # Default orange
+        
+        # Add test predictions with better styling
         fig.add_trace(go.Scatter(
             x=test_dates,
             y=test_pred,
             mode='lines+markers',
-            name='Test Data (Predicted)',
-            line=dict(color='#ff7f0e', width=2, dash='dot'),
-            marker=dict(size=10, color='#ff7f0e', symbol='x'),
+            name='Test Period Forecast',
+            line=dict(
+                color=test_pred_color, 
+                width=3, 
+                dash='dot'
+            ),
+            marker=dict(
+                size=8, 
+                color=test_pred_color, 
+                symbol='star',
+                line=dict(color='#ffffff', width=1)  # Add white border to markers
+            ),
             showlegend=True
         ))
+        
+        # Add area between actual and predicted for test period to highlight error
+        if len(test_dates) == len(test_pred) and len(test_pred) > 0:
+            test_actual = forecast_data['test_set'].values
+            
+            # Create a filled area between actual and predicted
+            fig.add_trace(go.Scatter(
+                x=test_dates.tolist() + test_dates.tolist()[::-1],
+                y=test_pred.tolist() + test_actual.tolist()[::-1],
+                fill='toself',
+                fillcolor='rgba(255, 127, 14, 0.1)',  # Light orange fill
+                line=dict(color='rgba(255, 127, 14, 0)'),  # Transparent line
+                name='Forecast Error',
+                showlegend=True
+            ))
+            
+            # Annotate the test period
+            if len(test_dates) > 0:
+                mid_point_idx = len(test_dates) // 2
+                fig.add_annotation(
+                    x=test_dates[mid_point_idx],
+                    y=max(max(test_pred), max(test_actual)) * 1.05,
+                    text="Test Period",
+                    showarrow=True,
+                    arrowhead=1,
+                    arrowsize=1,
+                    arrowwidth=2,
+                    arrowcolor="#888888",
+                    font=dict(size=10, color="#888888"),
+                    align="center"
+                )
     
     # Add model performance summary if available
     if 'model_evaluation' in forecast_data and forecast_data['model_evaluation'].get('metrics'):
