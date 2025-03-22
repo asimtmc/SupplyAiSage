@@ -175,126 +175,143 @@ def plot_forecast(sales_data, forecast_data, sku_or_skus, selected_models=None):
                     hoverlabel=dict(bgcolor=train_color, font=dict(color='white')),
                 ))
     
-    # Define a list of colors with better contrast for multiple models
-    model_colors = ['#d62728', '#0099ff', '#9467bd', '#02bc77', '#e377c2', '#ffb74d', '#4d4dff', '#17becf']
+    # Now add forecast lines for each SKU
+    for idx, sku in enumerate(skus):
+        # Skip if no data for this SKU
+        if sku not in st.session_state.forecasts:
+            continue
+            
+        # Get this SKU's forecast data
+        current_forecast_data = st.session_state.forecasts[sku]
+        
+        # Add SKU name prefix for multi-SKU display
+        name_prefix = f"{sku} - " if is_multi_sku else ""
+        
+        # Define a list of colors with better contrast for multiple models
+        model_colors = ['#d62728', '#0099ff', '#9467bd', '#02bc77', '#e377c2', '#ffb74d', '#4d4dff', '#17becf']
+        
+        # Define line styles for better differentiation
+        line_styles = ['solid', 'dash', 'dot', 'dashdot', 'longdash', 'longdashdot']
+        
+        # If no models selected, use the best model
+        if selected_models is None or len(selected_models) == 0:
+            current_selected_models = [current_forecast_data['model']]
+        else:
+            current_selected_models = selected_models
+        
+        # Get forecast data for the primary (best) model
+        primary_model = current_forecast_data['model']
+        forecast = current_forecast_data['forecast']
+        
+        # Get lower/upper bounds if they exist
+        lower_bound = current_forecast_data.get('lower_bound', None)
+        upper_bound = current_forecast_data.get('upper_bound', None)
     
-    # Define line styles for better differentiation
-    line_styles = ['solid', 'dash', 'dot', 'dashdot', 'longdash', 'longdashdot']
-    
-    # If no models selected, use the best model
-    if selected_models is None or len(selected_models) == 0:
-        selected_models = [forecast_data['model']]
-    
-    # Get forecast data for the primary (best) model
-    primary_model = forecast_data['model']
-    forecast = forecast_data['forecast']
-    lower_bound = forecast_data['lower_bound']
-    upper_bound = forecast_data['upper_bound']
-    
-    # Check if we should show multiple models
-    show_multiple_models = (selected_models is not None and 
-                           len(selected_models) > 1 and 
-                           'model_evaluation' in forecast_data and 
-                           'all_models_forecasts' in forecast_data['model_evaluation'])
-    
-    if show_multiple_models:
-        # Add each selected model's forecast
-        for i, model_name in enumerate(selected_models):
-            # Check if the model exists in model_evaluation
-            if 'model_evaluation' in forecast_data and 'all_models_forecasts' in forecast_data['model_evaluation'] and model_name in forecast_data['model_evaluation']['all_models_forecasts']:
-                model_forecast = forecast_data['model_evaluation']['all_models_forecasts'][model_name]
-                
-                # Choose color - primary model gets red, others get different colors
-                color_idx = 0 if model_name == primary_model else (i % (len(model_colors) - 1) + 1)
-                
-                # Calculate dash pattern index (use different patterns for different models)
-                dash_idx = i % len(line_styles)
-                dash_pattern = line_styles[dash_idx]
-                
-                # Different marker symbols for different models
-                marker_symbols = ['diamond', 'circle', 'square', 'triangle-up', 'star', 'x']
-                marker_symbol = marker_symbols[i % len(marker_symbols)]
-                
-                # Create hover text with model name and exact values
-                hover_text = [f"<b>Model:</b> {model_name.upper()}<br>" +
-                             f"<b>Date:</b> {date.strftime('%Y-%m-%d')}<br>" +
-                             f"<b>Value:</b> {int(value) if not np.isnan(value) else 'N/A'}" 
-                             for date, value in zip(model_forecast.index, model_forecast.values)]
-                
-                fig.add_trace(go.Scatter(
-                    x=model_forecast.index,
-                    y=model_forecast.values,
-                    mode='lines+markers',
-                    name=f'{model_name.upper()} Forecast',
-                    line=dict(
-                        color=model_colors[color_idx], 
-                        width=3 if model_name == primary_model else 2,
-                        dash=dash_pattern
-                    ),
-                    marker=dict(
-                        size=8 if model_name == primary_model else 6, 
-                        symbol=marker_symbol,
-                        color=model_colors[color_idx]
-                    ),
-                    hoverinfo='text',
-                    hovertext=hover_text,
-                    hoverlabel=dict(bgcolor=model_colors[color_idx], font=dict(color='white')),
-                ))
-                
-                # Only add confidence interval for primary model
-                if model_name == primary_model:
+        # Check if we should show multiple models for this SKU
+        show_multiple_models = (current_selected_models is not None and 
+                               len(current_selected_models) > 1 and 
+                               'model_evaluation' in current_forecast_data and 
+                               'all_models_forecasts' in current_forecast_data['model_evaluation'])
+        
+        # Select a base forecast color for this SKU - different for each SKU
+        base_forecast_color = model_colors[idx % len(model_colors)]
+        
+        if show_multiple_models:
+            # Add each selected model's forecast for this SKU
+            for i, model_name in enumerate(current_selected_models):
+                # Check if the model exists in model_evaluation
+                if ('model_evaluation' in current_forecast_data and 
+                    'all_models_forecasts' in current_forecast_data['model_evaluation'] and 
+                    model_name in current_forecast_data['model_evaluation']['all_models_forecasts']):
+                    
+                    model_forecast = current_forecast_data['model_evaluation']['all_models_forecasts'][model_name]
+                    
+                    # Choose color - primary model gets SKU color, others get variations
+                    color_idx = idx % len(model_colors) if model_name == primary_model else ((idx + i) % len(model_colors))
+                    
+                    # Calculate dash pattern index (use different patterns for different models)
+                    dash_idx = i % len(line_styles)
+                    dash_pattern = line_styles[dash_idx]
+                    
+                    # Different marker symbols for different models
+                    marker_symbols = ['diamond', 'circle', 'square', 'triangle-up', 'star', 'x']
+                    marker_symbol = marker_symbols[i % len(marker_symbols)]
+                    
+                    # Create hover text with SKU, model name and exact values
+                    hover_text = [f"<b>SKU:</b> {sku}<br><b>Model:</b> {model_name.upper()}<br>" +
+                                 f"<b>Date:</b> {date.strftime('%Y-%m-%d')}<br>" +
+                                 f"<b>Value:</b> {int(value) if not np.isnan(value) else 'N/A'}" 
+                                 for date, value in zip(model_forecast.index, model_forecast.values)]
+                    
                     fig.add_trace(go.Scatter(
-                        x=list(upper_bound.index) + list(lower_bound.index)[::-1],
-                        y=list(upper_bound.values) + list(lower_bound.values)[::-1],
-                        fill='toself',
-                        fillcolor='rgba(214, 39, 40, 0.2)',
-                        line=dict(color='rgba(214, 39, 40, 0)'),
-                        name='95% Confidence Interval',
-                        showlegend=True
+                        x=model_forecast.index,
+                        y=model_forecast.values,
+                        mode='lines+markers',
+                        name=f"{name_prefix}{model_name.upper()} Forecast",
+                        line=dict(
+                            color=model_colors[color_idx], 
+                            width=3 if model_name == primary_model else 2,
+                            dash=dash_pattern
+                        ),
+                        marker=dict(
+                            size=8 if model_name == primary_model else 6, 
+                            symbol=marker_symbol,
+                            color=model_colors[color_idx]
+                        ),
+                        hoverinfo='text',
+                        hovertext=hover_text,
+                        hoverlabel=dict(bgcolor=model_colors[color_idx], font=dict(color='white')),
                     ))
-            elif model_name == primary_model:
-                # If primary model isn't in all_models_forecasts, still show it
-                fig.add_trace(go.Scatter(
-                    x=forecast.index,
-                    y=forecast.values,
-                    mode='lines+markers',
-                    name=f'{primary_model.upper()} Forecast',
-                    line=dict(color='#d62728', width=3, dash='dash'),
-                    marker=dict(size=8, symbol='diamond'),
-                ))
-                
-                # Confidence interval removed as requested
-    else:
-        # Only add the primary model forecast
-        # Create hover text with model name and exact values
-        hover_text = [f"<b>Model:</b> {primary_model.upper()}<br>" +
-                     f"<b>Date:</b> {date.strftime('%Y-%m-%d')}<br>" +
-                     f"<b>Value:</b> {int(value) if not np.isnan(value) else 'N/A'}" 
-                     for date, value in zip(forecast.index, forecast.values)]
-                
-        fig.add_trace(go.Scatter(
-            x=forecast.index,
-            y=forecast.values,
-            mode='lines+markers',
-            name=f'{primary_model.upper()} Forecast',
-            line=dict(color='#d62728', width=2, dash='dash'),
-            marker=dict(size=8, symbol='diamond'),
-            hoverinfo='text',
-            hovertext=hover_text,
-            hoverlabel=dict(bgcolor='#d62728', font=dict(color='white')),
-        ))
+                    
+                    # Confidence intervals removed as requested
+                elif model_name == primary_model:
+                    # If primary model isn't in all_models_forecasts, still show it
+                    fig.add_trace(go.Scatter(
+                        x=forecast.index,
+                        y=forecast.values,
+                        mode='lines+markers',
+                        name=f"{name_prefix}{primary_model.upper()} Forecast",
+                        line=dict(color=base_forecast_color, width=3, dash='dash'),
+                        marker=dict(size=8, symbol='diamond'),
+                    ))
+        else:
+            # Only add the primary model forecast for this SKU
+            # Create hover text with SKU, model name and exact values
+            hover_text = [f"<b>SKU:</b> {sku}<br><b>Model:</b> {primary_model.upper()}<br>" +
+                         f"<b>Date:</b> {date.strftime('%Y-%m-%d')}<br>" +
+                         f"<b>Value:</b> {int(value) if not np.isnan(value) else 'N/A'}" 
+                         for date, value in zip(forecast.index, forecast.values)]
+                    
+            fig.add_trace(go.Scatter(
+                x=forecast.index,
+                y=forecast.values,
+                mode='lines+markers',
+                name=f"{name_prefix}{primary_model.upper()} Forecast",
+                line=dict(color=base_forecast_color, width=2, dash='dash'),
+                marker=dict(size=8, symbol='diamond'),
+                hoverinfo='text',
+                hovertext=hover_text,
+                hoverlabel=dict(bgcolor=base_forecast_color, font=dict(color='white')),
+            ))
         
         # Confidence interval removed as requested
     
-    # Add test predictions if available
-    # Show test predictions if explicitly requested or if in test prediction mode
-    show_test_predictions = has_train_test_split and (
-        'show_test_predictions' in forecast_data or 
-        ('test_predictions' in forecast_data and len(forecast_data['test_predictions']) > 0)
-    )
-    
-    if show_test_predictions and 'test_predictions' in forecast_data and len(forecast_data['test_predictions']) > 0 and test_dates is not None:
-        test_pred = forecast_data['test_predictions'].values
+    # We'll omit test predictions for multi-SKU view since they would make the chart too cluttered
+    # For single SKU view, show test predictions if available 
+    if not is_multi_sku and len(skus) == 1 and skus[0] in st.session_state.forecasts:
+        current_data = st.session_state.forecasts[skus[0]]
+        
+        # Check if we should show test predictions
+        has_train_test_split = 'train_set' in current_data and 'test_set' in current_data
+        show_test_predictions = has_train_test_split and (
+            'show_test_predictions' in current_data or 
+            ('test_predictions' in current_data and len(current_data['test_predictions']) > 0)
+        )
+        
+        if show_test_predictions and 'test_predictions' in current_data and 'test_set' in current_data:
+            test_dates = current_data['test_set'].index if 'test_set' in current_data else None
+            if test_dates is not None and len(test_dates) > 0:
+                test_pred = current_data['test_predictions'].values
         
         # Get the primary model color for consistency
         test_pred_color = '#ff7f0e'  # Default orange
@@ -333,7 +350,7 @@ def plot_forecast(sales_data, forecast_data, sku_or_skus, selected_models=None):
         
         # Add area between actual and predicted for test period to highlight error
         if test_dates is not None and len(test_dates) > 0 and len(test_pred) > 0 and len(test_dates) == len(test_pred):
-            test_actual = forecast_data['test_set'].values
+            test_actual = current_data['test_set'].values
             
             # Convert to lists to ensure we can concatenate even if different types
             test_dates_list = test_dates.tolist() if hasattr(test_dates, 'tolist') else list(test_dates)
@@ -372,43 +389,49 @@ def plot_forecast(sales_data, forecast_data, sku_or_skus, selected_models=None):
                 )
     
     # Add model performance summary if available
-    if 'model_evaluation' in forecast_data and forecast_data['model_evaluation'].get('metrics'):
-        model_name = forecast_data['model'].upper()
-        metrics = forecast_data['model_evaluation']['metrics'].get(forecast_data['model'], {})
-        
-        # Prepare annotation text
-        metrics_text = f"<b>Model: {model_name}</b><br>"
-        if 'rmse' in metrics:
-            metrics_text += f"RMSE: {metrics['rmse']:.2f}<br>"
-        if 'mape' in metrics and not np.isnan(metrics['mape']):
-            metrics_text += f"MAPE: {metrics['mape']:.2f}%<br>"
-        if 'mae' in metrics:
-            metrics_text += f"MAE: {metrics['mae']:.2f}<br>"
-        
-        # Add annotation
-        fig.add_annotation(
-            x=0.02,
-            y=0.98,
-            xref="paper",
-            yref="paper",
-            text=metrics_text,
-            showarrow=False,
-            font=dict(
-                family="Arial",
-                size=12,
-                color="#000000"
-            ),
-            align="left",
-            bgcolor="rgba(255, 255, 255, 0.8)",
-            bordercolor="#c7c7c7",
-            borderwidth=1,
-            borderpad=4
-        )
+    # For multi-SKU view, we'll skip this to avoid clutter
+    if not is_multi_sku and len(skus) == 1 and skus[0] in st.session_state.forecasts:
+        current_data = st.session_state.forecasts[skus[0]]
+        if 'model_evaluation' in current_data and current_data['model_evaluation'].get('metrics'):
+            model_name = current_data['model'].upper()
+            metrics = current_data['model_evaluation']['metrics'].get(current_data['model'], {})
+            
+            # Prepare annotation text
+            metrics_text = f"<b>Model: {model_name}</b><br>"
+            if 'rmse' in metrics:
+                metrics_text += f"RMSE: {metrics['rmse']:.2f}<br>"
+            if 'mape' in metrics and not np.isnan(metrics['mape']):
+                metrics_text += f"MAPE: {metrics['mape']:.2f}%<br>"
+            if 'mae' in metrics:
+                metrics_text += f"MAE: {metrics['mae']:.2f}<br>"
+            
+            # Add annotation
+            fig.add_annotation(
+                x=0.02,
+                y=0.98,
+                xref="paper",
+                yref="paper",
+                text=metrics_text,
+                showarrow=False,
+                font=dict(
+                    family="Arial",
+                    size=12,
+                    color="#000000"
+                ),
+                align="left",
+                bgcolor="rgba(255, 255, 255, 0.8)",
+                bordercolor="#c7c7c7",
+                borderwidth=1,
+                borderpad=4
+            )
     
     # Update layout with more modern style
+    # Different title for multi-SKU vs single SKU
+    title_text = f"Sales Forecast Comparison for Multiple SKUs" if is_multi_sku else f"Sales Forecast for SKU: {skus[0]}"
+    
     fig.update_layout(
         title={
-            'text': f"Sales Forecast for SKU: {sku}",
+            'text': title_text,
             'y':0.95,
             'x':0.5,
             'xanchor': 'center',
