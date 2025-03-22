@@ -471,160 +471,143 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                     metrics = forecast_data['model_evaluation']['metrics'][best_model]
                     if 'mape' in metrics and not np.isnan(metrics['mape']):
                         st.metric("Forecast Accuracy", f"{(100-metrics['mape']):.1f}%", help="Based on test data evaluation")
-        
-    # Add option to select multiple SKUs for table view
-    st.write("")
-    use_selected_skus = st.checkbox("Use all selected SKUs for table view", value=True)
 
     # Show forecast details for selected SKU
     if selected_sku:
         forecast_data = st.session_state.forecasts[selected_sku]
 
         # Tab section for forecast views
-        forecast_tabs = st.tabs(["Forecast Chart", "Model Comparison", "Forecast Metrics", "Enhanced Data Table"])
+        forecast_tabs = st.tabs(["Forecast Chart", "Model Comparison", "Forecast Metrics", "All SKUs Data Table"])
 
         with forecast_tabs[0]:
-            # Forecast visualization section - use full width for chart
-            # Get list of models to display
-            available_models = []
-            selected_models_for_viz = []
+            # Forecast visualization section
+            col1, col2 = st.columns([3, 1])
 
-            if 'model_evaluation' in forecast_data and 'all_models_forecasts' in forecast_data['model_evaluation']:
-                available_models = list(forecast_data['model_evaluation']['all_models_forecasts'].keys())
-
-                # Create display options in a single row
-                st.subheader("Display Options")
-                
-                col_options1, col_options2, col_options3 = st.columns(3)
-
-                with col_options1:
-                    # Option to show test predictions
-                    show_test_predictions = st.checkbox(
-                        "Show Test Predictions", 
-                        value=False,
-                        help="Display forecast line for test data period"
-                    )
-
-                with col_options2:
-                    # Option to show all models or best model
-                    show_all_models = st.checkbox(
-                        "Show All Selected Models", 
-                        value=False,
-                        help="Show forecasts from all selected models"
-                    )
-
-                with col_options3:
-                    # Custom model selection (only show if not showing all models)
-                    if not show_all_models and len(available_models) > 1:
-                        # Get model options capitalized
-                        model_options = [model.upper() for model in available_models]
-                        # Default to the best model
-                        default_model = forecast_data['model'].upper()
-                        # Create multiselect for custom model selection
-                        custom_models = st.multiselect(
-                            "Select Models to Display",
-                            options=model_options,
-                            default=[default_model],
-                            help="Select one or more models to display on chart"
-                        )
-                        # Convert back to lowercase
-                        custom_models_lower = [model.lower() for model in custom_models]
-                    else:
-                        custom_models_lower = []
-
-                # Determine which models to display based on selections
-                if show_all_models:
-                    # Use all selected models from sidebar
-                    selected_models_for_viz = [m for m in st.session_state.selected_models if m in available_models]
-                elif custom_models_lower:
-                    # Use custom selection
-                    selected_models_for_viz = custom_models_lower
-                else:
-                    # Default to best model only
-                    selected_models_for_viz = [forecast_data['model']]
-
-                # Set test prediction flag based on checkbox
-                if show_test_predictions:
-                    forecast_data['show_test_predictions'] = True
-
-            # Display forecast chart with selected models (full width)
-            forecast_fig = plot_forecast(st.session_state.sales_data, forecast_data, selected_sku, selected_models_for_viz)
-            st.plotly_chart(forecast_fig, use_container_width=True)
-
-            # Show training/test split information if available
-            if 'train_set' in forecast_data and 'test_set' in forecast_data:
-                train_count = len(forecast_data['train_set'])
-                test_count = len(forecast_data['test_set'])
-                total_points = train_count + test_count
-                train_pct = int((train_count / total_points) * 100)
-                test_pct = int((test_count / total_points) * 100)
-
-                st.caption(f"Data split: {train_count} training points ({train_pct}%) and {test_count} test points ({test_pct}%)")
-
-            # Basic details about the forecast below the chart
-            col1, col2, col3, col4 = st.columns(4)
-            
             with col1:
-                st.markdown(f"**SKU:** {selected_sku}")
-            
+                # Get list of models to display
+                # If we have multiple models selected, use them for visualization
+                available_models = []
+                selected_models_for_viz = []
+
+                if 'model_evaluation' in forecast_data and 'all_models_forecasts' in forecast_data['model_evaluation']:
+                    available_models = list(forecast_data['model_evaluation']['all_models_forecasts'].keys())
+
+                    # Create checkboxes for display options
+                    st.subheader("Display Options")
+
+                    # Create columns for the checkboxes
+                    col_options1, col_options2 = st.columns(2)
+
+                    with col_options1:
+                        # Option to show test predictions
+                        show_test_predictions = st.checkbox(
+                            "Show Test Predictions", 
+                            value=False,
+                            help="Display forecast line for test data period"
+                        )
+
+                        # Option to show all models or best model
+                        show_all_models = st.checkbox(
+                            "Show All Selected Models", 
+                            value=False,
+                            help="Show forecasts from all selected models"
+                        )
+
+                    with col_options2:
+                        # Custom model selection (only show if not showing all models)
+                        if not show_all_models and len(available_models) > 1:
+                            # Get model options capitalized
+                            model_options = [model.upper() for model in available_models]
+                            # Default to the best model
+                            default_model = forecast_data['model'].upper()
+                            # Create multiselect for custom model selection
+                            custom_models = st.multiselect(
+                                "Select Models to Display",
+                                options=model_options,
+                                default=[default_model],
+                                help="Select one or more models to display on chart"
+                            )
+                            # Convert back to lowercase
+                            custom_models_lower = [model.lower() for model in custom_models]
+                        else:
+                            custom_models_lower = []
+
+                    # Determine which models to display based on selections
+                    if show_all_models:
+                        # Use all selected models from sidebar
+                        selected_models_for_viz = [m for m in st.session_state.selected_models if m in available_models]
+                    elif custom_models_lower:
+                        # Use custom selection
+                        selected_models_for_viz = custom_models_lower
+                    else:
+                        # Default to best model only
+                        selected_models_for_viz = [forecast_data['model']]
+
+                    # Set test prediction flag based on checkbox
+                    if show_test_predictions:
+                        forecast_data['show_test_predictions'] = True
+
+                # Display forecast chart with selected models
+                forecast_fig = plot_forecast(st.session_state.sales_data, forecast_data, selected_sku, selected_models_for_viz)
+                st.plotly_chart(forecast_fig, use_container_width=True)
+
+                # Show training/test split information if available
+                if 'train_set' in forecast_data and 'test_set' in forecast_data:
+                    train_count = len(forecast_data['train_set'])
+                    test_count = len(forecast_data['test_set'])
+                    total_points = train_count + test_count
+                    train_pct = int((train_count / total_points) * 100)
+                    test_pct = int((test_count / total_points) * 100)
+
+                    st.caption(f"Data split: {train_count} training points ({train_pct}%) and {test_count} test points ({test_pct}%)")
+
             with col2:
+                # Show forecast details (same as before)
+                st.subheader("Forecast Details")
+
+                st.markdown(f"**SKU:** {selected_sku}")
                 st.markdown(f"**Cluster:** {forecast_data['cluster_name']}")
-            
-            with col3:
                 st.markdown(f"**Model Used:** {forecast_data['model'].upper()}")
-            
-            with col4:
+
                 # Forecast confidence
                 confidence_color = "green" if forecast_data['model'] != 'moving_average' else "orange"
                 confidence_text = "High" if forecast_data['model'] != 'moving_average' else "Medium"
                 st.markdown(f"**Forecast Confidence:** <span style='color:{confidence_color}'>{confidence_text}</span>", unsafe_allow_html=True)
-            
-            # Enhanced forecast table with additional details - moved below chart
-            st.subheader("Forecast Data Table")
 
-            # Create basic forecast table - without confidence intervals as requested
-            forecast_table = pd.DataFrame({
-                'Date': forecast_data['forecast'].index,
-                'Forecast': forecast_data['forecast'].values.round(0).astype(int)
-            })
+                # Enhanced forecast table with additional details
+                st.subheader("Forecast Data Table")
 
-            # If we have model evaluation data for multiple models, show them side by side in the table
-            if (show_all_models or len(custom_models_lower) > 0) and 'model_evaluation' in forecast_data and 'all_models_forecasts' in forecast_data['model_evaluation']:
-                model_forecasts = forecast_data['model_evaluation']['all_models_forecasts']
+                # Create basic forecast table - without confidence intervals as requested
+                forecast_table = pd.DataFrame({
+                    'Date': forecast_data['forecast'].index,
+                    'Forecast': forecast_data['forecast'].values.round(0).astype(int)
+                })
 
-                # Determine which models to include
-                models_to_display = custom_models_lower if len(custom_models_lower) > 0 else available_models
+                # If we have model evaluation data for multiple models, show them side by side in the table
+                if (show_all_models or len(custom_models_lower) > 0) and 'model_evaluation' in forecast_data and 'all_models_forecasts' in forecast_data['model_evaluation']:
+                    model_forecasts = forecast_data['model_evaluation']['all_models_forecasts']
 
-                # Add each selected model's forecast as a column
-                for model in models_to_display:
-                    if model in model_forecasts and model != forecast_data['model']:  # Skip primary model as it's already in 'Forecast'
-                        model_forecast = model_forecasts[model]
-                        if len(model_forecast) == len(forecast_table):
-                            forecast_table[f'{model.upper()} Forecast'] = model_forecast.values.round(0).astype(int)
+                    # Determine which models to include
+                    models_to_display = custom_models_lower if len(custom_models_lower) > 0 else available_models
 
-            # Format the date column to be more readable
-            forecast_table['Date'] = forecast_table['Date'].dt.strftime('%Y-%m-%d')
+                    # Add each selected model's forecast as a column
+                    for model in models_to_display:
+                        if model in model_forecasts and model != forecast_data['model']:  # Skip primary model as it's already in 'Forecast'
+                            model_forecast = model_forecasts[model]
+                            if len(model_forecast) == len(forecast_table):
+                                forecast_table[f'{model.upper()} Forecast'] = model_forecast.values.round(0).astype(int)
 
-            # Display the enhanced table with styling
-            st.dataframe(
-                forecast_table.style.highlight_max(subset=['Forecast'], color='#d6eaf8')
-                                  .highlight_min(subset=['Forecast'], color='#fadbd8')
-                                  .format({'Range (±)': '{} units'}),
-                use_container_width=True,
-                height=min(35 * (len(forecast_table) + 1), 400)  # Dynamically size table height with scrolling
-            )
-            
-            # Add download button for the table
-            csv_buffer = io.BytesIO()
-            forecast_table.to_csv(csv_buffer, index=False)
-            csv_buffer.seek(0)
-            
-            st.download_button(
-                label="Download Forecast Table as CSV",
-                data=csv_buffer,
-                file_name=f"forecast_{selected_sku}_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv"
-            )
+                # Format the date column to be more readable
+                forecast_table['Date'] = forecast_table['Date'].dt.strftime('%Y-%m-%d')
+
+                # Display the enhanced table with styling
+                st.dataframe(
+                    forecast_table.style.highlight_max(subset=['Forecast'], color='#d6eaf8')
+                                      .highlight_min(subset=['Forecast'], color='#fadbd8')
+                                      .format({'Range (±)': '{} units'}),
+                    use_container_width=True,
+                    height=min(35 * (len(forecast_table) + 1), 400)  # Dynamically size table height with scrolling
+                )
 
         with forecast_tabs[1]:
             # Model comparison visualization
@@ -694,11 +677,11 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                 st.info("The system selected the model with the lowest RMSE as the best model for forecasting this SKU.")
 
         with forecast_tabs[3]:
-            # Enhanced Data Table view with improved structure
-            st.subheader("Enhanced SKU Forecast Data")
+            # All SKUs Data Table view
+            st.subheader("Comprehensive SKU Forecast Data")
 
             # Display information about this view
-            st.info("This table shows historical and forecasted values in a format optimized for analysis. You can pivot by date, model, or SKU.")
+            st.info("This table shows historical and forecasted values for all SKUs in a comprehensive format. Use the filters to narrow down the data.")
 
             # Prepare comprehensive data table
             if st.session_state.forecasts:
@@ -709,231 +692,115 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                 first_sku = list(st.session_state.forecasts.keys())[0]
                 first_forecast = st.session_state.forecasts[first_sku]
 
-                # Determine which SKUs to include based on user selection
-                skus_to_include = []
-                if use_selected_skus and 'selected_skus' in st.session_state and st.session_state.selected_skus:
-                    skus_to_include = st.session_state.selected_skus
-                else:
-                    skus_to_include = list(st.session_state.forecasts.keys())
-
                 # Make sure we have train data to extract historical dates
                 if 'train_set' in first_forecast:
                     # Identify unique dates in historical data
                     historical_dates = pd.to_datetime(sorted(st.session_state.sales_data['date'].unique()))
 
-                    # Limit to a reasonable number of historical rows (e.g., last 12 months)
+                    # Limit to a reasonable number of historical columns (e.g., last 12 months)
                     if len(historical_dates) > 12:
                         historical_dates = historical_dates[-12:]
 
-                    # Transform data into the new format requested
-                    enhanced_data = []
-                    
+                    # Format dates for column names
+                    historical_cols = [date.strftime('%-d-%b-%Y') for date in historical_dates]
+
                     # Process each SKU
-                    for sku in skus_to_include:
-                        if sku not in st.session_state.forecasts:
-                            continue
-                            
-                        forecast_data = st.session_state.forecasts[sku]
-                        
-                        # Get model information
-                        best_model = forecast_data['model']
-                        all_models = []
-                        
-                        if 'model_evaluation' in forecast_data and 'all_models_forecasts' in forecast_data['model_evaluation']:
-                            all_models = list(forecast_data['model_evaluation']['all_models_forecasts'].keys())
-                        else:
-                            all_models = [best_model]
-                            
-                        # Get historical data for this SKU
+                    for sku, forecast_data in st.session_state.forecasts.items():
+                        # Get model type
+                        model_type = forecast_data['model']
+
+                        # Create a row dictionary with SKU info
+                        row = {
+                            'sku_code': sku,
+                            'sku_variant': sku,  # Could be replaced with actual variant if available
+                            'model': model_type
+                        }
+
+                        # Add historical data
                         sku_sales = st.session_state.sales_data[st.session_state.sales_data['sku'] == sku].copy()
                         sku_sales.set_index('date', inplace=True)
-                        
-                        # Get forecast dates
-                        if 'forecast' in forecast_data:
-                            forecast_dates = forecast_data['forecast'].index
-                        else:
-                            forecast_dates = []
-                            
-                        # Process historical data first
-                        for date in historical_dates:
-                            # For each model (including the best model)
-                            for model in all_models:
-                                # Historical data is the same for all models
-                                value = 0
-                                if date in sku_sales.index:
-                                    value = int(sku_sales.loc[date, 'quantity']) if not pd.isna(sku_sales.loc[date, 'quantity']) else 0
-                                
-                                # Add a row for this SKU-model-date combination
-                                enhanced_data.append({
-                                    'sku_code': sku,
-                                    'sku_name': sku,  # Could be replaced with actual name if available
-                                    'model': model.upper(),
-                                    'is_best_model': model == best_model,
-                                    'date': date,
-                                    'value': value,
-                                    'data_type': 'Historical'
-                                })
-                        
-                        # Now process forecast data
-                        for model in all_models:
-                            model_forecast = None
-                            
-                            # Get forecast data for this model
-                            if model == best_model and 'forecast' in forecast_data:
-                                model_forecast = forecast_data['forecast']
-                            elif 'model_evaluation' in forecast_data and 'all_models_forecasts' in forecast_data['model_evaluation']:
-                                if model in forecast_data['model_evaluation']['all_models_forecasts']:
-                                    model_forecast = forecast_data['model_evaluation']['all_models_forecasts'][model]
-                            
-                            if model_forecast is not None:
-                                # Add each forecast date
-                                for date in model_forecast.index:
-                                    value = int(model_forecast[date])
-                                    
-                                    enhanced_data.append({
-                                        'sku_code': sku,
-                                        'sku_name': sku,  # Could be replaced with actual name if available
-                                        'model': model.upper(),
-                                        'is_best_model': model == best_model,
-                                        'date': date,
-                                        'value': value,
-                                        'data_type': 'Forecast'
-                                    })
-                    
-                    # Create DataFrame from the enhanced data
-                    enhanced_df = pd.DataFrame(enhanced_data)
-                    
-                    # Format the date column
-                    enhanced_df['date'] = pd.to_datetime(enhanced_df['date'])
-                    enhanced_df['date_str'] = enhanced_df['date'].dt.strftime('%Y-%m-%d')
-                    
-                    # Add pivot options
-                    st.subheader("Table View Options")
-                    
-                    col1, col2, col3 = st.columns(3)
-                    
+
+                        # Add historical values
+                        for date, col_name in zip(historical_dates, historical_cols):
+                            if date in sku_sales.index:
+                                row[col_name] = int(sku_sales.loc[date, 'quantity']) if not pd.isna(sku_sales.loc[date, 'quantity']) else 0
+                            else:
+                                row[col_name] = 0
+
+                        # Add forecast dates and values                        forecast_dates = forecast_data['forecast'].index
+                        for date in forecast_dates:
+                            col_name = date.strftime('%-d-%b-%Y')
+                            row[col_name] = int(forecast_data['forecast'][date])
+
+                        all_sku_data.append(row)
+
+                    # Create DataFrame from all data
+                    all_sku_df = pd.DataFrame(all_sku_data)
+
+                    # Identify which columns are historical vs forecast
+                    all_cols = all_sku_df.columns.tolist()
+                    info_cols = ['sku_code', 'sku_variant', 'model']
+                    data_cols = [col for col in all_cols if col not in info_cols]
+
+                    # Split into historical and forecast columns
+                    hist_cols = [col for col in data_cols if pd.to_datetime(col, format='%d-%b-%Y') <= historical_dates.max()]
+                    forecast_cols = [col for col in data_cols if col not in hist_cols]
+
+                    # Allow filtering by model type or SKU
+                    col1, col2 = st.columns(2)
+
                     with col1:
-                        pivot_option = st.radio(
-                            "Select Table Format",
-                            ["Standard View", "Pivot by Date", "Pivot by Model"],
-                            index=1  # Default to Date pivot as requested
-                        )
-                    
-                    with col2:
-                        # Filter options
-                        data_type_filter = st.multiselect(
-                            "Filter by Data Type",
-                            options=["Historical", "Forecast"],
-                            default=["Historical", "Forecast"]
-                        )
-                    
-                    with col3:
-                        # Model filter
-                        model_options = enhanced_df['model'].unique().tolist()
                         model_filter = st.multiselect(
-                            "Filter by Model",
-                            options=model_options,
-                            default=model_options
+                            "Filter by Model Type",
+                            options=all_sku_df['model'].unique(),
+                            default=all_sku_df['model'].unique()
                         )
-                    
+
+                    with col2:
+                        sku_filter = st.multiselect(
+                            "Filter by SKU",
+                            options=all_sku_df['sku_code'].unique(),
+                            default=[]
+                        )
+
                     # Apply filters
-                    filtered_df = enhanced_df.copy()
-                    
-                    if data_type_filter:
-                        filtered_df = filtered_df[filtered_df['data_type'].isin(data_type_filter)]
-                    
+                    filtered_df = all_sku_df
                     if model_filter:
                         filtered_df = filtered_df[filtered_df['model'].isin(model_filter)]
-                    
-                    # Create different views based on user selection
-                    if pivot_option == "Standard View":
-                        # Just show the filtered data
-                        display_df = filtered_df[['sku_code', 'sku_name', 'model', 'is_best_model', 'date_str', 'value', 'data_type']]
-                        display_df.columns = ['SKU Code', 'SKU Name', 'Model', 'Best Model', 'Date', 'Value', 'Data Type']
-                        
-                    elif pivot_option == "Pivot by Date":
-                        # Pivot to have dates as columns, with SKU+Model as rows
-                        pivot_df = filtered_df.pivot_table(
-                            index=['sku_code', 'sku_name', 'model', 'is_best_model', 'data_type'],
-                            columns='date_str',
-                            values='value',
-                            aggfunc='sum'
-                        ).reset_index()
-                        
-                        # Rename the index columns
-                        pivot_df.columns.name = None
-                        display_df = pivot_df
-                        
-                    elif pivot_option == "Pivot by Model":
-                        # Pivot to have models as columns, with SKU+Date as rows
-                        pivot_df = filtered_df.pivot_table(
-                            index=['sku_code', 'sku_name', 'date_str', 'data_type'],
-                            columns='model',
-                            values='value',
-                            aggfunc='sum'
-                        ).reset_index()
-                        
-                        # Rename the index columns
-                        pivot_df.columns.name = None
-                        display_df = pivot_df
-                    
-                    # Define styling for the table
-                    def highlight_best_model_and_forecast(df):
+                    if sku_filter:
+                        filtered_df = filtered_df[filtered_df['sku_code'].isin(sku_filter)]
+
+                    # Define a function for styling the dataframe
+                    def highlight_forecast_columns(df):
                         # Create a DataFrame of styles
                         styles = pd.DataFrame('', index=df.index, columns=df.columns)
-                        
-                        # Try to highlight best models
-                        if 'Best Model' in df.columns:
-                            # Apply highlight to rows where Best Model is True
-                            for i, val in enumerate(df['Best Model']):
-                                if val:
-                                    styles.iloc[i, :] = 'background-color: #E8F5E9'
-                        
-                        # Try to highlight forecast cells
-                        if 'Data Type' in df.columns:
-                            for i, val in enumerate(df['Data Type']):
-                                if val == 'Forecast':
-                                    styles.iloc[i, :] = 'background-color: #FFF9C4'
-                        
+
+                        # Apply background colors to forecast columns
+                        for col in forecast_cols:
+                            styles[col] = 'background-color: #FFF9C4'  # Light yellow for forecast cols
+
                         return styles
-                    
-                    # Display the table with styling
+
+                    # Use styling to highlight forecast vs historical data
                     st.dataframe(
-                        display_df.style.apply(highlight_best_model_and_forecast, axis=None),
+                        filtered_df.style.apply(highlight_forecast_columns, axis=None),
                         use_container_width=True,
                         height=500
                     )
-                    
-                    # Provide download buttons for different formats
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        # CSV download
-                        csv_buffer = io.BytesIO()
-                        display_df.to_csv(csv_buffer, index=False)
-                        csv_buffer.seek(0)
-                        
-                        st.download_button(
-                            label="Download as CSV",
-                            data=csv_buffer,
-                            file_name=f"enhanced_forecast_data_{datetime.now().strftime('%Y%m%d')}.csv",
-                            mime="text/csv"
-                        )
-                    
-                    with col2:
-                        # Excel download
-                        excel_buffer = io.BytesIO()
-                        display_df.to_excel(excel_buffer, index=False, engine='xlsxwriter')
-                        excel_buffer.seek(0)
-                        
-                        st.download_button(
-                            label="Download as Excel",
-                            data=excel_buffer,
-                            file_name=f"enhanced_forecast_data_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                            mime="application/vnd.ms-excel"
-                        )
+
+                    # Provide a download button for the table
+                    csv_buffer = io.BytesIO()
+                    filtered_df.to_csv(csv_buffer, index=False)
+                    csv_buffer.seek(0)
+
+                    st.download_button(
+                        label="Download Table as CSV",
+                        data=csv_buffer,
+                        file_name=f"all_sku_forecast_data_{datetime.now().strftime('%Y%m%d')}.csv",
+                        mime="text/csv"
+                    )
                 else:
-                    st.warning("No historical training data available to construct the enhanced data table.")
+                    st.warning("No historical training data available to construct the comprehensive data table.")
             else:
                 st.warning("No forecast data available. Please run the forecast first.")
 
