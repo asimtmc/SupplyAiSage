@@ -435,24 +435,32 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
     col1, col2 = st.columns([2, 1])
 
     with col1:
-        # Allow user to select a SKU to view detailed forecast
+        # Allow user to select multiple SKUs to view detailed forecasts
         sku_list = list(st.session_state.forecasts.keys())
-
-        # Safely get an index for the selected SKU
-        if st.session_state.selected_sku is None or st.session_state.selected_sku not in sku_list:
-            default_index = 0
+        
+        # Set default selection based on selected_skus state
+        if st.session_state.selected_skus and any(sku in sku_list for sku in st.session_state.selected_skus):
+            default_selection = [sku for sku in st.session_state.selected_skus if sku in sku_list]
+        elif st.session_state.selected_sku is not None and st.session_state.selected_sku in sku_list:
+            default_selection = [st.session_state.selected_sku]
         else:
-            try:
-                default_index = sku_list.index(st.session_state.selected_sku)
-            except (ValueError, IndexError):
-                default_index = 0
-
-        selected_sku = st.selectbox(
-            "Select a SKU to view forecast details",
+            default_selection = [sku_list[0]] if sku_list else []
+        
+        selected_skus = st.multiselect(
+            "Select SKUs to view forecast details",
             options=sku_list,
-            index=default_index
+            default=default_selection,
+            help="Select one or more SKUs to compare forecasts"
         )
-        st.session_state.selected_sku = selected_sku
+        
+        # Maintain compatibility with single SKU selection
+        if selected_skus:
+            st.session_state.selected_skus = selected_skus
+            st.session_state.selected_sku = selected_skus[0]
+        elif sku_list:  # If no selection but SKUs exist, select the first one
+            selected_skus = [sku_list[0]]
+            st.session_state.selected_skus = selected_skus
+            st.session_state.selected_sku = selected_skus[0]
 
     with col2:
         # Show basic info about the selected SKU

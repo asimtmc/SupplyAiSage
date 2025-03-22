@@ -6,19 +6,19 @@ import base64
 from datetime import datetime, timedelta
 import numpy as np
 
-def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
+def plot_forecast(sales_data, forecast_data, sku_or_skus, selected_models=None):
     """
-    Create a plotly figure showing historical sales and forecast for a specific SKU
+    Create a plotly figure showing historical sales and forecast for one or multiple SKUs
     with enhanced visualization and error metrics. Can show multiple models if selected.
     
     Parameters:
     -----------
     sales_data : pandas.DataFrame
         Historical sales data
-    forecast_data : dict
-        Forecast information for the SKU
-    sku : str
-        SKU identifier
+    forecast_data : dict or list of dicts
+        Forecast information for a single SKU or the primary SKU in a multi-SKU plot
+    sku_or_skus : str or list
+        SKU identifier or list of SKU identifiers
     selected_models : list, optional
         List of model names to include in the plot. If None, only the best model is shown.
     
@@ -27,91 +27,153 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
     plotly.graph_objects.Figure
         Plotly figure object with the forecast plot
     """
-    # Filter sales data for the specified SKU
-    sku_sales = sales_data[sales_data['sku'] == sku].copy()
-    
-    if len(sku_sales) == 0:
-        # Return empty figure if no data
-        fig = go.Figure()
-        fig.update_layout(title=f"No historical data available for SKU: {sku}")
-        return fig
-    
-    # Ensure data is sorted by date
-    sku_sales = sku_sales.sort_values('date')
-    
     # Create figure
     fig = go.Figure()
     
-    # Check if training and test data are separated
-    has_train_test_split = 'train_set' in forecast_data and 'test_set' in forecast_data
+    # Convert single SKU to list for consistent processing
+    skus = [sku_or_skus] if isinstance(sku_or_skus, str) else sku_or_skus
     
-    # Initialize test_dates variable to avoid "possibly unbound" errors
-    test_dates = None
+    # Check if we have multiple SKUs or just one
+    is_multi_sku = len(skus) > 1
     
-    if has_train_test_split:
-        # Add training data with distinct color
-        train_dates = forecast_data['train_set'].index
-        train_values = forecast_data['train_set'].values
-        
-        # Create hover text with historical data values
-        train_hover = [f"<b>Historical Data (Train)</b><br>" +
-                      f"<b>Date:</b> {date.strftime('%Y-%m-%d')}<br>" +
-                      f"<b>Value:</b> {int(value) if not np.isnan(value) else 'N/A'}" 
-                      for date, value in zip(train_dates, train_values)]
-                
-        fig.add_trace(go.Scatter(
-            x=train_dates,
-            y=train_values,
-            mode='lines+markers',
-            name='Training Data',
-            line=dict(color='#1f77b4', width=2),
-            marker=dict(size=6),
-            hoverinfo='text',
-            hovertext=train_hover,
-            hoverlabel=dict(bgcolor='#1f77b4', font=dict(color='white')),
-        ))
-        
-        # Add test data with distinct color
-        test_dates = forecast_data['test_set'].index
-        test_values = forecast_data['test_set'].values
-        
-        # Create hover text with test data values
-        test_hover = [f"<b>Historical Data (Test)</b><br>" +
-                     f"<b>Date:</b> {date.strftime('%Y-%m-%d')}<br>" +
-                     f"<b>Value:</b> {int(value) if not np.isnan(value) else 'N/A'}" 
-                     for date, value in zip(test_dates, test_values)]
-        
-        fig.add_trace(go.Scatter(
-            x=test_dates,
-            y=test_values,
-            mode='lines+markers',
-            name='Test Data (Actual)',
-            line=dict(color='#2ca02c', width=2, dash='dot'),
-            marker=dict(size=8, color='#2ca02c', symbol='circle'),
-            hoverinfo='text',
-            hovertext=test_hover,
-            hoverlabel=dict(bgcolor='#2ca02c', font=dict(color='white')),
-            showlegend=True
-        ))
+    # Define color palette for multiple SKUs
+    if is_multi_sku:
+        # More distinguishable colors for multiple SKUs
+        sku_colors = {
+            'train': ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22'],
+            'test': ['#17becf', '#aec7e8', '#ffbb78', '#98df8a', '#ff9896', '#c5b0d5', '#c49c94', '#f7b6d2', '#c7c7c7']
+        }
     else:
-        # Add all historical data
-        # Create hover text for historical data
-        hist_hover = [f"<b>Historical Data</b><br>" +
-                     f"<b>Date:</b> {date.strftime('%Y-%m-%d')}<br>" +
-                     f"<b>Value:</b> {int(value) if not np.isnan(value) else 'N/A'}" 
-                     for date, value in zip(sku_sales['date'], sku_sales['quantity'])]
+        # Original colors for single SKU
+        sku_colors = {
+            'train': ['#1f77b4'],
+            'test': ['#ff7f0e']
+        }
+    
+    # Process each SKU
+    for idx, sku in enumerate(skus):
+        # Filter sales data for the current SKU
+        sku_sales = sales_data[sales_data['sku'] == sku].copy()
         
-        fig.add_trace(go.Scatter(
-            x=sku_sales['date'],
-            y=sku_sales['quantity'],
-            mode='lines+markers',
-            name='Historical Sales',
-            line=dict(color='#1f77b4', width=2),
-            marker=dict(size=6),
-            hoverinfo='text',
-            hovertext=hist_hover,
-            hoverlabel=dict(bgcolor='#1f77b4', font=dict(color='white')),
-        ))
+        if len(sku_sales) == 0:
+            # Skip this SKU if no data
+            continue
+        
+        # Ensure data is sorted by date
+        sku_sales = sku_sales.sort_values('date')
+        
+        # Get the forecast data for current SKU
+        current_forecast_data = forecast_data if not is_multi_sku else None
+        
+        # If we're working with multiple SKUs, we need to access the forecast data differently
+        # Use the session_state.forecasts dictionary to get the data for each SKU
+        if is_multi_sku:
+            # This assumes we have a reference to st.session_state.forecasts outside this function
+            import streamlit as st
+            if 'forecasts' in st.session_state and sku in st.session_state.forecasts:
+                current_forecast_data = st.session_state.forecasts[sku]
+            else:
+                continue  # Skip if we can't find forecast data for this SKU
+    
+    # Check if we need to continue with visualization (all SKUs might have been skipped)
+    if not skus:
+        # Return empty figure if no data
+        fig = go.Figure()
+        fig.update_layout(title="No data available for the selected SKUs")
+        return fig
+        
+    # Process each SKU for visualization
+    for idx, sku in enumerate(skus):
+        # Skip if no data for this SKU
+        if sku not in st.session_state.forecasts:
+            continue
+            
+        # Get this SKU's forecast data
+        current_forecast_data = st.session_state.forecasts[sku]
+        
+        # Check if training and test data are separated
+        has_train_test_split = 'train_set' in current_forecast_data and 'test_set' in current_forecast_data
+        
+        # Initialize test_dates variable to avoid "possibly unbound" errors
+        test_dates = None
+        
+        # Set color for this SKU (different colors for multi-SKU view)
+        train_color = sku_colors['train'][idx % len(sku_colors['train'])]
+        test_color = sku_colors['test'][idx % len(sku_colors['test'])]
+        
+        # Add SKU name prefix for multi-SKU display
+        name_prefix = f"{sku} - " if is_multi_sku else ""
+        
+        if has_train_test_split:
+            # Add training data with distinct color
+            train_dates = current_forecast_data['train_set'].index
+            train_values = current_forecast_data['train_set'].values
+            
+            # Create hover text with historical data values
+            train_hover = [f"<b>{sku}</b><br><b>Historical Data (Train)</b><br>" +
+                          f"<b>Date:</b> {date.strftime('%Y-%m-%d')}<br>" +
+                          f"<b>Value:</b> {int(value) if not np.isnan(value) else 'N/A'}" 
+                          for date, value in zip(train_dates, train_values)]
+                    
+            fig.add_trace(go.Scatter(
+                x=train_dates,
+                y=train_values,
+                mode='lines+markers',
+                name=f'{name_prefix}Training Data',
+                line=dict(color=train_color, width=2),
+                marker=dict(size=6),
+                hoverinfo='text',
+                hovertext=train_hover,
+                hoverlabel=dict(bgcolor=train_color, font=dict(color='white')),
+            ))
+            
+            # Add test data with distinct color if it exists
+            if 'test_set' in current_forecast_data and len(current_forecast_data['test_set']) > 0:
+                test_dates = current_forecast_data['test_set'].index
+                test_values = current_forecast_data['test_set'].values
+                
+                # Create hover text with test data values
+                test_hover = [f"<b>{sku}</b><br><b>Historical Data (Test)</b><br>" +
+                             f"<b>Date:</b> {date.strftime('%Y-%m-%d')}<br>" +
+                             f"<b>Value:</b> {int(value) if not np.isnan(value) else 'N/A'}" 
+                             for date, value in zip(test_dates, test_values)]
+                
+                fig.add_trace(go.Scatter(
+                    x=test_dates,
+                    y=test_values,
+                    mode='lines+markers',
+                    name=f'{name_prefix}Test Data (Actual)',
+                    line=dict(color=test_color, width=2, dash='dot'),
+                    marker=dict(size=8, color=test_color, symbol='circle'),
+                    hoverinfo='text',
+                    hovertext=test_hover,
+                    hoverlabel=dict(bgcolor=test_color, font=dict(color='white')),
+                    showlegend=True
+                ))
+        else:
+            # If no train/test split, add all historical data
+            sku_sales = sales_data[sales_data['sku'] == sku].copy()
+            
+            if len(sku_sales) > 0:
+                sku_sales = sku_sales.sort_values('date')
+                
+                # Create hover text for historical data
+                hist_hover = [f"<b>{sku}</b><br><b>Historical Data</b><br>" +
+                             f"<b>Date:</b> {date.strftime('%Y-%m-%d')}<br>" +
+                             f"<b>Value:</b> {int(value) if not np.isnan(value) else 'N/A'}" 
+                             for date, value in zip(sku_sales['date'], sku_sales['quantity'])]
+                
+                fig.add_trace(go.Scatter(
+                    x=sku_sales['date'],
+                    y=sku_sales['quantity'],
+                    mode='lines+markers',
+                    name=f'{name_prefix}Historical Sales',
+                    line=dict(color=train_color, width=2),
+                    marker=dict(size=6),
+                    hoverinfo='text',
+                    hovertext=hist_hover,
+                    hoverlabel=dict(bgcolor=train_color, font=dict(color='white')),
+                ))
     
     # Define a list of colors with better contrast for multiple models
     model_colors = ['#d62728', '#0099ff', '#9467bd', '#02bc77', '#e377c2', '#ffb74d', '#4d4dff', '#17becf']
