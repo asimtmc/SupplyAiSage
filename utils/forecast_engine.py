@@ -1038,12 +1038,13 @@ def generate_forecasts(sales_data, cluster_info, forecast_periods=12, evaluate_m
     total_skus = len(skus)
     
     for i, sku in enumerate(skus):
-        # Update progress if callback is provided
-        if progress_callback:
-            progress_callback(i+1, sku, total_skus)
-            
-        # Filter data for this SKU
-        sku_data = sales_data[sales_data['sku'] == sku].copy()
+        try:
+            # Update progress if callback is provided
+            if progress_callback:
+                progress_callback(i+1, sku, total_skus)
+                
+            # Filter data for this SKU
+            sku_data = sales_data[sales_data['sku'] == sku].copy()
         
         # Ensure we have enough data points
         if len(sku_data) < 3:
@@ -1135,6 +1136,11 @@ def generate_forecasts(sales_data, cluster_info, forecast_periods=12, evaluate_m
             forecast_result['model_evaluation'] = model_evaluation
         
         # Store in dictionary
-        forecasts[sku] = forecast_result
+            forecasts[sku] = forecast_result
+            
+        except Exception as e:
+            print(f"Error forecasting SKU {sku}: {str(e)}")
+            # Continue with the next SKU rather than failing the entire process
+            continue
     
     return forecasts

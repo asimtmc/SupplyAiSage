@@ -4,6 +4,7 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import io
+import time
 from datetime import datetime
 from utils.data_processor import process_sales_data
 from utils.forecast_engine import extract_features, cluster_skus, generate_forecasts
@@ -44,6 +45,12 @@ if 'selected_models' not in st.session_state:
     st.session_state.selected_models = []
 if 'sku_options' not in st.session_state:
     st.session_state.sku_options = []
+if 'forecast_in_progress' not in st.session_state:
+    st.session_state.forecast_in_progress = False
+if 'forecast_progress' not in st.session_state:
+    st.session_state.forecast_progress = 0
+if 'forecast_current_sku' not in st.session_state:
+    st.session_state.forecast_current_sku = ""
 
 # Create sidebar for settings
 with st.sidebar:
@@ -52,50 +59,63 @@ with st.sidebar:
     # Get available SKUs from sales data (always available)
     if 'sales_data' in st.session_state and st.session_state.sales_data is not None:
         st.subheader("SKU Selection")
-
-        # Get available SKUs from the sales data
-        available_skus = sorted(st.session_state.sales_data['sku'].unique().tolist())
-
-        # Always use all available SKUs for selection
-        sku_list = available_skus
-
-        # If we have forecasts, maintain the forecasted SKUs for dropdown
-        if st.session_state.run_forecast and 'forecasts' in st.session_state and st.session_state.forecasts:
-            forecasted_skus = sorted(list(st.session_state.forecasts.keys()))
-            st.session_state.sku_options = forecasted_skus
+        
+        # Function to update selected SKUs
+        def update_selected_skus():
+            new_selection = st.session_state.sku_multiselect
+            st.session_state.selected_skus = new_selection
+            if new_selection:
+                st.session_state.selected_sku = new_selection[0]  # Set first selected SKU as primary
+        
+        # Get available SKUs from the sales data - ensure we have a stable list
+        try:
+            available_skus = sorted(st.session_state.sales_data['sku'].unique().tolist())
+        except Exception as e:
+            st.error(f"Error getting SKUs from sales data: {str(e)}")
+            available_skus = []
+        
+        # Safety check - ensure we have valid SKUs
+        available_skus = [sku for sku in available_skus if sku is not None and str(sku).strip() != '']
+        
+        # Determine default selection - with robust error handling
+        default_selection = []
+        
+        # If we already have selected SKUs, use them if they're still valid
+        if st.session_state.selected_skus:
+            default_selection = [sku for sku in st.session_state.selected_skus if sku in available_skus]
+        
+        # If no valid selection, default to first SKU if available
+        if not default_selection and available_skus:
+            default_selection = [available_skus[0]]
+        
+        # Info about available SKUs
+        if available_skus:
+            st.info(f"📊 {len(available_skus)} SKUs available for analysis")
         else:
-            # If no forecasts yet, all SKUs are available for the dropdown
-            st.session_state.sku_options = sku_list
-
-        # Select SKUs (multi-select if multiple SKUs should be shown)
-        default_value = []
-        if st.session_state.selected_skus and any(sku in sku_list for sku in st.session_state.selected_skus):
-            # Use existing selection if valid
-            default_value = [sku for sku in st.session_state.selected_skus if sku in sku_list]
-        elif sku_list:
-            # Otherwise select first SKU as default if list has items
-            default_value = [sku_list[0]]
-
-        # Clear selected_skus if the multiselect is being recreated to prevent stale state
-        if 'selected_skus_key' not in st.session_state:
-            st.session_state.selected_skus_key = 0
-        else:
-            st.session_state.selected_skus_key += 1
-
-        selected_skus = st.multiselect(
+            st.warning("No SKUs found in sales data. Please check your data upload.")
+            
+        # Create the multiselect widget with on_change callback
+        sku_selection = st.multiselect(
             "Select SKUs to Analyze",
-            options=sku_list,
-            default=default_value,
-            help="Select one or more SKUs to analyze or forecast",
-            key=f"sku_select_{st.session_state.selected_skus_key}"
+            options=available_skus,
+            default=default_selection,
+            on_change=update_selected_skus,
+            key="sku_multiselect",
+            help="Select one or more SKUs to analyze or forecast"
         )
-
-        # Store all selected SKUs in session state
-        st.session_state.selected_skus = selected_skus
-
-        # Update selected primary SKU in session state if selection changed
-        if selected_skus:
-            st.session_state.selected_sku = selected_skus[0]  # Keep first as primary
+        
+        # Ensure selected_skus is always updated
+        st.session_state.selected_skus = sku_selection
+        
+        # Update primary selected SKU if we have a selection
+        if sku_selection:
+            st.session_state.selected_sku = sku_selection[0]
+            
+        # Show current selection information
+        if sku_selection:
+            st.success(f"✅ Selected {len(sku_selection)} SKU(s) for analysis")
+        else:
+            st.warning("⚠️ Please select at least one SKU for analysis")
 
     # Forecast horizon slider
     forecast_periods = st.slider(
@@ -160,6 +180,12 @@ with st.sidebar:
     if 'selected_skus' in st.session_state and st.session_state.selected_skus:
         selected_skus_to_forecast = st.session_state.selected_skus
 
+    # Progress tracking callback function
+    def forecast_progress_callback(current_index, current_sku, total_skus):
+        # Update progress information in session state
+        st.session_state.forecast_progress = int((current_index / total_skus) * 100)
+        st.session_state.forecast_current_sku = current_sku
+
     # Run forecast button
     forecast_button_text = "Run Forecast Analysis"
     if forecast_scope == "Selected SKUs Only" and selected_skus_to_forecast:
@@ -170,42 +196,98 @@ with st.sidebar:
     # Only show the button if we have valid SKUs to forecast
     should_show_button = not (forecast_scope == "Selected SKUs Only" and not selected_skus_to_forecast)
 
-    if should_show_button and st.button(forecast_button_text):
-        st.session_state.run_forecast = True
-        with st.spinner("Running forecast analysis..."):
-            # Extract time series features for clustering
-            features_df = extract_features(st.session_state.sales_data)
-
-            # Cluster SKUs
-            st.session_state.clusters = cluster_skus(features_df, n_clusters=num_clusters)
-
-            # Determine which SKUs to forecast
-            skus_to_forecast = None
-            if forecast_scope == "Selected SKUs Only" and selected_skus_to_forecast:
-                skus_to_forecast = selected_skus_to_forecast
-
-            # Generate forecasts with model evaluation
-            st.session_state.forecasts = generate_forecasts(
-                st.session_state.sales_data,
-                st.session_state.clusters,
-                forecast_periods=st.session_state.forecast_periods,
-                evaluate_models_flag=evaluate_models_flag,
-                models_to_evaluate=models_to_evaluate,
-                selected_skus=skus_to_forecast
-            )
-
-            # If forecasts were generated, set default selected SKU
-            if st.session_state.forecasts:
-                sku_list = sorted(list(st.session_state.forecasts.keys()))
-                st.session_state.sku_options = sku_list
-                if sku_list and not st.session_state.selected_sku in sku_list:
-                    st.session_state.selected_sku = sku_list[0]
-
-            num_skus = len(st.session_state.forecasts)
-            if num_skus > 0:
-                st.success(f"Successfully generated forecasts for {num_skus} SKUs!")
-            else:
-                st.error("No forecasts were generated. Please check your data and selected SKUs.")
+    # Create a placeholder for the progress bar
+    progress_placeholder = st.empty()
+    
+    # Create a run button with a unique key
+    if should_show_button:
+        run_forecast_clicked = st.button(
+            forecast_button_text, 
+            key="run_forecast_button",
+            use_container_width=True
+        )
+        
+        if run_forecast_clicked:
+            # Set forecast in progress flag
+            st.session_state.forecast_in_progress = True
+            st.session_state.forecast_progress = 0
+            st.session_state.run_forecast = True
+            
+            # Create a progress bar
+            with progress_placeholder.container():
+                # Header for progress display
+                st.subheader("🔄 Forecast Generation in Progress")
+                
+                # Progress bar
+                progress_bar = st.progress(0)
+                
+                # Status text
+                status_text = st.empty()
+                
+                try:
+                    # Extract time series features for clustering
+                    status_text.text("Step 1/3: Extracting time series features...")
+                    features_df = extract_features(st.session_state.sales_data)
+                    progress_bar.progress(10)
+                    
+                    # Cluster SKUs
+                    status_text.text("Step 2/3: Clustering SKUs by sales patterns...")
+                    st.session_state.clusters = cluster_skus(features_df, n_clusters=num_clusters)
+                    progress_bar.progress(20)
+                    
+                    # Determine which SKUs to forecast
+                    skus_to_forecast = None
+                    if forecast_scope == "Selected SKUs Only" and selected_skus_to_forecast:
+                        skus_to_forecast = selected_skus_to_forecast
+                        status_text.text(f"Step 3/3: Generating forecasts for {len(skus_to_forecast)} selected SKUs...")
+                    else:
+                        total_skus = len(features_df)
+                        status_text.text(f"Step 3/3: Generating forecasts for all {total_skus} SKUs...")
+                    
+                    # Generate forecasts with model evaluation and progress tracking
+                    st.session_state.forecasts = generate_forecasts(
+                        st.session_state.sales_data,
+                        st.session_state.clusters,
+                        forecast_periods=st.session_state.forecast_periods,
+                        evaluate_models_flag=evaluate_models_flag,
+                        models_to_evaluate=models_to_evaluate,
+                        selected_skus=skus_to_forecast,
+                        progress_callback=forecast_progress_callback
+                    )
+                    
+                    # Update progress based on callback data
+                    while st.session_state.forecast_progress < 100 and st.session_state.forecast_current_sku:
+                        progress_bar.progress(20 + int(st.session_state.forecast_progress * 0.8))
+                        status_text.text(f"Processing SKU: {st.session_state.forecast_current_sku} - {st.session_state.forecast_progress}% complete")
+                        time.sleep(0.1)
+                    
+                    # Complete the progress bar
+                    progress_bar.progress(100)
+                    status_text.text("Forecast generation completed!")
+                    
+                    # If forecasts were generated, set default selected SKU
+                    if st.session_state.forecasts:
+                        sku_list = sorted(list(st.session_state.forecasts.keys()))
+                        st.session_state.sku_options = sku_list
+                        if sku_list and not st.session_state.selected_sku in sku_list:
+                            st.session_state.selected_sku = sku_list[0]
+                    
+                    num_skus = len(st.session_state.forecasts)
+                    if num_skus > 0:
+                        st.success(f"Successfully generated forecasts for {num_skus} SKUs!")
+                    else:
+                        st.error("No forecasts were generated. Please check your data and selected SKUs.")
+                    
+                except Exception as e:
+                    st.error(f"Error during forecast generation: {str(e)}")
+                
+                finally:
+                    # Reset progress tracking
+                    st.session_state.forecast_in_progress = False
+                    time.sleep(1)  # Keep the completed progress visible briefly
+            
+            # Clear the progress display after completion
+            progress_placeholder.empty()
 
 # Main content
 if st.session_state.run_forecast and 'forecasts' in st.session_state and st.session_state.forecasts:
