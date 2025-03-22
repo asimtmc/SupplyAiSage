@@ -1057,87 +1057,87 @@ def generate_forecasts(sales_data, cluster_info, forecast_periods=12, evaluate_m
             else:
                 sku_cluster = -1
                 sku_cluster_name = "Unclassified"
-        
-        # Evaluate models if requested
-        model_evaluation = None
-        if evaluate_models_flag and len(sku_data) >= 12:
-            model_evaluation = evaluate_models(
-                sku_data,
-                models_to_evaluate=models_to_evaluate,
-                test_size=0.2,
-                forecast_periods=forecast_periods
-            )
-            
-            # Use best model for forecasting
-            best_model = model_evaluation["best_model"]
-        else:
-            best_model = None
-        
-        # Select model and generate forecast
-        if best_model == "lstm" and len(sku_data) >= 24:
-            try:
-                # Train LSTM with full data
-                sequence_length = min(12, len(sku_data) // 3)  # Reduce sequence length to ensure enough training samples
+
+            # Evaluate models if requested
+            model_evaluation = None
+            if evaluate_models_flag and len(sku_data) >= 12:
+                model_evaluation = evaluate_models(
+                    sku_data,
+                    models_to_evaluate=models_to_evaluate,
+                    test_size=0.2,
+                    forecast_periods=forecast_periods
+                )
                 
-                # Ensure we have enough data points for the LSTM sequence
-                if len(sku_data) > sequence_length + 2:
-                    model, scaler, _, _ = train_lstm_model(
-                        sku_data['quantity'].values,
-                        test_size=0.1,  # Small validation set
-                        sequence_length=sequence_length,
-                        epochs=50
-                    )
-                    
-                    # Prepare last sequence for forecasting
-                    last_sequence = sku_data['quantity'].values[-sequence_length:]
-                    last_sequence = scaler.transform(last_sequence.reshape(-1, 1)).flatten()
-                    
-                    # Generate forecasts
-                    forecast_values = forecast_with_lstm(
-                        model,
-                        scaler,
-                        last_sequence,
-                        forecast_periods=forecast_periods
-                    )
-                    
-                    # Create confidence intervals (wider for LSTM to reflect uncertainty)
-                    lower_bound = forecast_values * 0.75
-                    upper_bound = forecast_values * 1.25
-                    
-                    # Create dates for forecast periods
-                    last_date = sku_data['date'].max()
-                    forecast_dates = [last_date + timedelta(days=30*i) for i in range(1, forecast_periods+1)]
-                    
-                    # Create forecast result
-                    forecast_result = {
-                        "model": "lstm",
-                        "forecast": pd.Series(forecast_values, index=forecast_dates),
-                        "lower_bound": pd.Series(lower_bound, index=forecast_dates),
-                        "upper_bound": pd.Series(upper_bound, index=forecast_dates)
-                    }
-                else:
-                    # Fall back to another model if sequence length doesn't work
-                    forecast_result = select_best_model(sku_data, forecast_periods)
-            except Exception as e:
-                # If LSTM fails, fall back to another model
-                print(f"LSTM failed for SKU {sku}: {str(e)}")
-                forecast_result = select_best_model(sku_data, forecast_periods)
-        else:
-            # Use select_best_model for other cases
-            forecast_result = select_best_model(sku_data, forecast_periods)
-        
-        # Add metadata to result
-        forecast_result['sku'] = sku
-        forecast_result['cluster'] = sku_cluster
-        forecast_result['cluster_name'] = sku_cluster_name
-        
-        # Add model evaluation results if available
-        if model_evaluation:
-            forecast_result['model_evaluation'] = model_evaluation
-        
-        # Store in dictionary
-        forecasts[sku] = forecast_result
+                # Use best model for forecasting
+                best_model = model_evaluation["best_model"]
+            else:
+                best_model = None
             
+            # Select model and generate forecast
+            if best_model == "lstm" and len(sku_data) >= 24:
+                try:
+                    # Train LSTM with full data
+                    sequence_length = min(12, len(sku_data) // 3)  # Reduce sequence length to ensure enough training samples
+                    
+                    # Ensure we have enough data points for the LSTM sequence
+                    if len(sku_data) > sequence_length + 2:
+                        model, scaler, _, _ = train_lstm_model(
+                            sku_data['quantity'].values,
+                            test_size=0.1,  # Small validation set
+                            sequence_length=sequence_length,
+                            epochs=50
+                        )
+                        
+                        # Prepare last sequence for forecasting
+                        last_sequence = sku_data['quantity'].values[-sequence_length:]
+                        last_sequence = scaler.transform(last_sequence.reshape(-1, 1)).flatten()
+                        
+                        # Generate forecasts
+                        forecast_values = forecast_with_lstm(
+                            model,
+                            scaler,
+                            last_sequence,
+                            forecast_periods=forecast_periods
+                        )
+                        
+                        # Create confidence intervals (wider for LSTM to reflect uncertainty)
+                        lower_bound = forecast_values * 0.75
+                        upper_bound = forecast_values * 1.25
+                        
+                        # Create dates for forecast periods
+                        last_date = sku_data['date'].max()
+                        forecast_dates = [last_date + timedelta(days=30*i) for i in range(1, forecast_periods+1)]
+                        
+                        # Create forecast result
+                        forecast_result = {
+                            "model": "lstm",
+                            "forecast": pd.Series(forecast_values, index=forecast_dates),
+                            "lower_bound": pd.Series(lower_bound, index=forecast_dates),
+                            "upper_bound": pd.Series(upper_bound, index=forecast_dates)
+                        }
+                    else:
+                        # Fall back to another model if sequence length doesn't work
+                        forecast_result = select_best_model(sku_data, forecast_periods)
+                except Exception as e:
+                    # If LSTM fails, fall back to another model
+                    print(f"LSTM failed for SKU {sku}: {str(e)}")
+                    forecast_result = select_best_model(sku_data, forecast_periods)
+            else:
+                # Use select_best_model for other cases
+                forecast_result = select_best_model(sku_data, forecast_periods)
+            
+            # Add metadata to result
+            forecast_result['sku'] = sku
+            forecast_result['cluster'] = sku_cluster
+            forecast_result['cluster_name'] = sku_cluster_name
+            
+            # Add model evaluation results if available
+            if model_evaluation:
+                forecast_result['model_evaluation'] = model_evaluation
+            
+            # Store in dictionary
+            forecasts[sku] = forecast_result
+                
         except Exception as e:
             print(f"Error forecasting SKU {sku}: {str(e)}")
             # Continue with the next SKU rather than failing the entire process
