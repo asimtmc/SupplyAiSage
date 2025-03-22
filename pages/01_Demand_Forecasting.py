@@ -860,19 +860,6 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                 file_name=f"forecasts_{datetime.now().strftime('%Y%m%d')}.xlsx",
                 mime="application/vnd.ms-excel"
             )
-        
-        # Add the forecast data table outside of the tabs to take full width
-        st.header("Forecast Data Table")
-        st.info("This table shows historical and forecasted values with dates as columns. The table includes actual sales data and forecasts for each SKU/model combination.")
-        
-        # Prepare comprehensive data table
-        if st.session_state.forecasts:
-            # Create a dataframe to store all SKUs data with reoriented structure
-            all_sku_data = []
-            
-            # Get historical dates (use the first forecast as reference for dates)
-            first_sku = list(st.session_state.forecasts.keys())[0]
-            first_forecast = st.session_state.forecasts[first_sku]
             
             # Make sure we have train data to extract historical dates
             if 'train_set' in first_forecast:
