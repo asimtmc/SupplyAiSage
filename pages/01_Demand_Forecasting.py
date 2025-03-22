@@ -565,11 +565,11 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                 st.subheader("Comprehensive SKU Forecast Data")
                 
                 # Display information about this view
-                st.info("This table shows historical and forecasted values for all SKUs. The table includes actual sales data and forecasts for each SKU/model combination.")
+                st.info("This table shows historical and forecasted values with dates as columns. The table includes actual sales data and forecasts for each SKU/model combination.")
                 
                 # Prepare comprehensive data table
                 if st.session_state.forecasts:
-                    # Create a dataframe to store all SKUs data
+                    # Create a dataframe to store all SKUs data with reoriented structure
                     all_sku_data = []
                     
                     # Get historical dates (use the first forecast as reference for dates)
@@ -586,11 +586,11 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                             historical_dates = historical_dates[-6:]
                         
                         # Format dates for column names
-                        historical_cols = [date.strftime('%-d-%b-%Y') for date in historical_dates]
+                        historical_cols = [date.strftime('%-d %b %Y') for date in historical_dates]
                         
                         # Get forecast dates from first SKU (for column headers)
                         forecast_dates = first_forecast['forecast'].index
-                        forecast_date_cols = [date.strftime('%-d-%b-%Y') for date in forecast_dates]
+                        forecast_date_cols = [date.strftime('%-d %b %Y') for date in forecast_dates]
                         
                         # Add SKU selector for the table
                         st.write("Select SKUs to display in the table:")
@@ -835,131 +835,6 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                 st.info("The system selected the model with the lowest RMSE as the best model for forecasting this SKU.")
                 
         # The All SKUs Data Table tab was removed as the information is now integrated in the Forecast Chart tab
-            
-            # Display information about this view
-            st.info("This table shows historical and forecasted values for all SKUs in a comprehensive format. Use the filters to narrow down the data.")
-            
-            # Prepare comprehensive data table
-            if st.session_state.forecasts:
-                # Create a dataframe to store all SKUs data
-                all_sku_data = []
-                
-                # Get historical dates (use the first forecast as reference for dates)
-                first_sku = list(st.session_state.forecasts.keys())[0]
-                first_forecast = st.session_state.forecasts[first_sku]
-                
-                # Make sure we have train data to extract historical dates
-                if 'train_set' in first_forecast:
-                    # Identify unique dates in historical data
-                    historical_dates = pd.to_datetime(sorted(st.session_state.sales_data['date'].unique()))
-                    
-                    # Limit to a reasonable number of historical columns (e.g., last 12 months)
-                    if len(historical_dates) > 12:
-                        historical_dates = historical_dates[-12:]
-                    
-                    # Format dates for column names
-                    historical_cols = [date.strftime('%-d-%b-%Y') for date in historical_dates]
-                    
-                    # Process each SKU
-                    for sku, forecast_data in st.session_state.forecasts.items():
-                        # Get model type
-                        model_type = forecast_data['model']
-                        
-                        # Create a row dictionary with SKU info
-                        row = {
-                            'sku_code': sku,
-                            'sku_variant': sku,  # Could be replaced with actual variant if available
-                            'model': model_type
-                        }
-                        
-                        # Add historical data
-                        sku_sales = st.session_state.sales_data[st.session_state.sales_data['sku'] == sku].copy()
-                        sku_sales.set_index('date', inplace=True)
-                        
-                        # Add historical values
-                        for date, col_name in zip(historical_dates, historical_cols):
-                            if date in sku_sales.index:
-                                row[col_name] = int(sku_sales.loc[date, 'quantity']) if not pd.isna(sku_sales.loc[date, 'quantity']) else 0
-                            else:
-                                row[col_name] = 0
-                        
-                        # Add forecast dates and values
-                        forecast_dates = forecast_data['forecast'].index
-                        for date in forecast_dates:
-                            col_name = date.strftime('%-d-%b-%Y')
-                            row[col_name] = int(forecast_data['forecast'][date])
-                        
-                        all_sku_data.append(row)
-                    
-                    # Create DataFrame from all data
-                    all_sku_df = pd.DataFrame(all_sku_data)
-                    
-                    # Identify which columns are historical vs forecast
-                    all_cols = all_sku_df.columns.tolist()
-                    info_cols = ['sku_code', 'sku_variant', 'model']
-                    data_cols = [col for col in all_cols if col not in info_cols]
-                    
-                    # Split into historical and forecast columns
-                    hist_cols = [col for col in data_cols if pd.to_datetime(col, format='%d-%b-%Y') <= historical_dates.max()]
-                    forecast_cols = [col for col in data_cols if col not in hist_cols]
-                    
-                    # Allow filtering by model type or SKU
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        model_filter = st.multiselect(
-                            "Filter by Model Type",
-                            options=all_sku_df['model'].unique(),
-                            default=all_sku_df['model'].unique()
-                        )
-                    
-                    with col2:
-                        sku_filter = st.multiselect(
-                            "Filter by SKU",
-                            options=all_sku_df['sku_code'].unique(),
-                            default=[]
-                        )
-                    
-                    # Apply filters
-                    filtered_df = all_sku_df
-                    if model_filter:
-                        filtered_df = filtered_df[filtered_df['model'].isin(model_filter)]
-                    if sku_filter:
-                        filtered_df = filtered_df[filtered_df['sku_code'].isin(sku_filter)]
-                    
-                    # Define a function for styling the dataframe
-                    def highlight_forecast_columns(df):
-                        # Create a DataFrame of styles
-                        styles = pd.DataFrame('', index=df.index, columns=df.columns)
-                        
-                        # Apply background colors to forecast columns
-                        for col in forecast_cols:
-                            styles[col] = 'background-color: #FFF9C4'  # Light yellow for forecast cols
-                        
-                        return styles
-                    
-                    # Use styling to highlight forecast vs historical data
-                    st.dataframe(
-                        filtered_df.style.apply(highlight_forecast_columns, axis=None),
-                        use_container_width=True,
-                        height=500
-                    )
-                    
-                    # Provide a download button for the table
-                    csv_buffer = io.BytesIO()
-                    filtered_df.to_csv(csv_buffer, index=False)
-                    csv_buffer.seek(0)
-                    
-                    st.download_button(
-                        label="Download Table as CSV",
-                        data=csv_buffer,
-                        file_name=f"all_sku_forecast_data_{datetime.now().strftime('%Y%m%d')}.csv",
-                        mime="text/csv"
-                    )
-                else:
-                    st.warning("No historical training data available to construct the comprehensive data table.")
-            else:
-                st.warning("No forecast data available. Please run the forecast first.")
 
     # Forecast export
     st.header("Export Forecasts")
