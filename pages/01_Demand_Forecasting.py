@@ -213,57 +213,101 @@ with st.sidebar:
             st.session_state.forecast_progress = 0
             st.session_state.run_forecast = True
             
-            # Create a progress bar
+            # Create an enhanced progress display
             with progress_placeholder.container():
-                # Header for progress display
-                st.subheader("🔄 Forecast Generation in Progress")
+                # Create a two-column layout for the progress display
+                progress_cols = st.columns([3, 1])
                 
-                # Progress bar
-                progress_bar = st.progress(0)
+                with progress_cols[0]:
+                    # Header for progress display with animation effect
+                    st.markdown('<h3 style="color:#0066cc;"><span class="highlight">🔄 Forecast Generation in Progress</span></h3>', unsafe_allow_html=True)
+                    
+                    # Progress bar with custom styling
+                    progress_bar = st.progress(0)
+                    
+                    # Status text placeholder
+                    status_text = st.empty()
+                    
+                    # Add a progress details section
+                    progress_details = st.empty()
                 
-                # Status text
-                status_text = st.empty()
+                with progress_cols[1]:
+                    # Add an animated spinner for current processing step
+                    spinner_placeholder = st.empty()
+                    # Status indicator for phases
+                    phase_indicator = st.empty()
                 
                 try:
-                    # Extract time series features for clustering
-                    status_text.text("Step 1/3: Extracting time series features...")
-                    features_df = extract_features(st.session_state.sales_data)
-                    progress_bar.progress(10)
+                    # Phase 1: Extract time series features for clustering
+                    with spinner_placeholder:
+                        with st.spinner("Extracting features..."):
+                            phase_indicator.markdown("**Phase 1/3**")
+                            status_text.markdown("### Step 1: Time Series Feature Extraction")
+                            progress_details.info("Analyzing sales patterns and extracting key time series features for every SKU...")
+                            features_df = extract_features(st.session_state.sales_data)
+                            progress_bar.progress(10)
+                            time.sleep(0.5)  # Add a small pause for visual effect
                     
-                    # Cluster SKUs
-                    status_text.text("Step 2/3: Clustering SKUs by sales patterns...")
-                    st.session_state.clusters = cluster_skus(features_df, n_clusters=num_clusters)
-                    progress_bar.progress(20)
+                    # Phase 2: Cluster SKUs
+                    with spinner_placeholder:
+                        with st.spinner("Clustering SKUs..."):
+                            phase_indicator.markdown("**Phase 2/3**")
+                            status_text.markdown("### Step 2: SKU Clustering")
+                            progress_details.info("Grouping similar SKUs based on their sales patterns to optimize forecast model selection...")
+                            st.session_state.clusters = cluster_skus(features_df, n_clusters=num_clusters)
+                            progress_bar.progress(20)
+                            time.sleep(0.5)  # Add a small pause for visual effect
+                    
+                    # Phase 3: Generate forecasts
+                    phase_indicator.markdown("**Phase 3/3**")
+                    status_text.markdown("### Step 3: Forecast Generation")
                     
                     # Determine which SKUs to forecast
                     skus_to_forecast = None
                     if forecast_scope == "Selected SKUs Only" and selected_skus_to_forecast:
                         skus_to_forecast = selected_skus_to_forecast
-                        status_text.text(f"Step 3/3: Generating forecasts for {len(skus_to_forecast)} selected SKUs...")
+                        progress_details.info(f"Generating forecasts for {len(skus_to_forecast)} selected SKUs using {len(models_to_evaluate)} different forecasting models...")
                     else:
                         total_skus = len(features_df)
-                        status_text.text(f"Step 3/3: Generating forecasts for all {total_skus} SKUs...")
+                        progress_details.info(f"Generating forecasts for all {total_skus} SKUs using {len(models_to_evaluate)} different forecasting models...")
                     
                     # Generate forecasts with model evaluation and progress tracking
-                    st.session_state.forecasts = generate_forecasts(
-                        st.session_state.sales_data,
-                        st.session_state.clusters,
-                        forecast_periods=st.session_state.forecast_periods,
-                        evaluate_models_flag=evaluate_models_flag,
-                        models_to_evaluate=models_to_evaluate,
-                        selected_skus=skus_to_forecast,
-                        progress_callback=forecast_progress_callback
-                    )
+                    with spinner_placeholder:
+                        with st.spinner("Building forecast models..."):
+                            st.session_state.forecasts = generate_forecasts(
+                                st.session_state.sales_data,
+                                st.session_state.clusters,
+                                forecast_periods=st.session_state.forecast_periods,
+                                evaluate_models_flag=evaluate_models_flag,
+                                models_to_evaluate=models_to_evaluate,
+                                selected_skus=skus_to_forecast,
+                                progress_callback=forecast_progress_callback
+                            )
                     
-                    # Update progress based on callback data
+                    # Update progress based on callback data with improved visuals
+                    # Create an animated progress update
+                    last_progress = 0
                     while st.session_state.forecast_progress < 100 and st.session_state.forecast_current_sku:
-                        progress_bar.progress(20 + int(st.session_state.forecast_progress * 0.8))
-                        status_text.text(f"Processing SKU: {st.session_state.forecast_current_sku} - {st.session_state.forecast_progress}% complete")
-                        time.sleep(0.1)
+                        current_progress = 20 + int(st.session_state.forecast_progress * 0.8)
+                        if current_progress > last_progress:
+                            progress_bar.progress(current_progress)
+                            last_progress = current_progress
+                            
+                        with spinner_placeholder:
+                            with st.spinner(f"Processing {st.session_state.forecast_current_sku}..."):
+                                # Update progress display with more dynamic information
+                                status_text.markdown(f"### Processing: **{st.session_state.forecast_current_sku}**")
+                                progress_percentage = st.session_state.forecast_progress
+                                progress_details.info(f"Completed: **{progress_percentage}%** | Current SKU: **{st.session_state.forecast_current_sku}**")
+                                phase_indicator.markdown(f"**Processing {progress_percentage}% complete**")
+                                time.sleep(0.1)
                     
-                    # Complete the progress bar
+                    # Complete the progress bar with success animation
                     progress_bar.progress(100)
-                    status_text.text("Forecast generation completed!")
+                    spinner_placeholder.success("✅ Complete")
+                    phase_indicator.markdown("**Finished!**")
+                    status_text.markdown("### ✨ Forecast Generation Completed Successfully!")
+                    progress_details.success("All forecasts have been generated and are ready to explore!")
                     
                     # If forecasts were generated, set default selected SKU
                     if st.session_state.forecasts:
