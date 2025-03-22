@@ -577,16 +577,11 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                 # Enhanced forecast table with additional details
                 st.subheader("Forecast Data Table")
                 
-                # Create basic forecast table
+                # Create basic forecast table - without confidence intervals as requested
                 forecast_table = pd.DataFrame({
                     'Date': forecast_data['forecast'].index,
-                    'Forecast': forecast_data['forecast'].values.round(0).astype(int),
-                    'Lower Bound': forecast_data['lower_bound'].values.round(0).astype(int),
-                    'Upper Bound': forecast_data['upper_bound'].values.round(0).astype(int)
+                    'Forecast': forecast_data['forecast'].values.round(0).astype(int)
                 })
-                
-                # Add range column to show potential variance
-                forecast_table['Range (±)'] = (forecast_table['Upper Bound'] - forecast_table['Lower Bound']).div(2).round(0).astype(int)
                 
                 # If we have model evaluation data for multiple models, show them side by side in the table
                 if (show_all_models or len(custom_models_lower) > 0) and 'model_evaluation' in forecast_data and 'all_models_forecasts' in forecast_data['model_evaluation']:

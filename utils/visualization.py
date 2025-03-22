@@ -201,16 +201,7 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
                     marker=dict(size=8, symbol='diamond'),
                 ))
                 
-                # Add confidence interval for primary model
-                fig.add_trace(go.Scatter(
-                    x=list(upper_bound.index) + list(lower_bound.index)[::-1],
-                    y=list(upper_bound.values) + list(lower_bound.values)[::-1],
-                    fill='toself',
-                    fillcolor='rgba(214, 39, 40, 0.2)',
-                    line=dict(color='rgba(214, 39, 40, 0)'),
-                    name='95% Confidence Interval',
-                    showlegend=True
-                ))
+                # Confidence interval removed as requested
     else:
         # Only add the primary model forecast
         # Create hover text with model name and exact values
@@ -231,16 +222,7 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
             hoverlabel=dict(bgcolor='#d62728', font=dict(color='white')),
         ))
         
-        # Add confidence interval
-        fig.add_trace(go.Scatter(
-            x=list(upper_bound.index) + list(lower_bound.index)[::-1],
-            y=list(upper_bound.values) + list(lower_bound.values)[::-1],
-            fill='toself',
-            fillcolor='rgba(214, 39, 40, 0.2)',
-            line=dict(color='rgba(214, 39, 40, 0)'),
-            name='95% Confidence Interval',
-            showlegend=True
-        ))
+        # Confidence interval removed as requested
     
     # Add test predictions if available
     # Show test predictions if explicitly requested or if in test prediction mode
