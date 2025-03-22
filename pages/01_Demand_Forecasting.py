@@ -834,9 +834,7 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                 # Add explanation about model selection
                 st.info("The system selected the model with the lowest RMSE as the best model for forecasting this SKU.")
                 
-        with forecast_tabs[3]:
-            # All SKUs Data Table view
-            st.subheader("Comprehensive SKU Forecast Data")
+        # The All SKUs Data Table tab was removed as the information is now integrated in the Forecast Chart tab
             
             # Display information about this view
             st.info("This table shows historical and forecasted values for all SKUs in a comprehensive format. Use the filters to narrow down the data.")
