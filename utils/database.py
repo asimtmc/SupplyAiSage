@@ -70,15 +70,16 @@ def save_uploaded_file(file, file_type, description=None):
         session = SessionFactory()
         
         # Check if file of this type already exists
-        if file_type_exists(file_type):
-            # Find the existing file(s) of this type and delete them
-            existing_files = session.query(UploadedFile).filter(
-                UploadedFile.file_type == file_type
-            ).all()
-            
+        existing_files = session.query(UploadedFile).filter(
+            UploadedFile.file_type == file_type
+        ).all()
+        
+        # Delete existing files if any
+        if existing_files:
             for existing_file in existing_files:
                 session.delete(existing_file)
             
+            # Use confirm_deleted_rows=False to suppress the warning
             session.commit()
             
         # Generate a unique ID

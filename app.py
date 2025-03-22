@@ -206,32 +206,70 @@ if 'clusters' not in st.session_state:
 if 'init_db_load' not in st.session_state:
     st.session_state.init_db_load = False
 
-# Try to load data from database on initial load
-if not st.session_state.init_db_load:
-    # Try to get the most recent files of each type
+# Initialize a session state for database load status
+if 'db_load_status' not in st.session_state:
+    st.session_state.db_load_status = {}
+
+def load_data_from_database():
+    """Function to load data from database and update status"""
+    st.session_state.db_load_status = {}
+    
     try:
-        st.session_state.init_db_load = True  # Mark as attempted even if it fails
-        
         # Load sales data
         sales_data_file = get_file_by_type('sales_data')
         if sales_data_file:
             st.session_state.sales_data = sales_data_file[1]
-            st.info(f"✅ Successfully loaded sales data from database: {sales_data_file[0]}")
+            st.session_state.db_load_status['sales_data'] = {
+                'status': 'success',
+                'message': f"✅ Successfully loaded sales data: {sales_data_file[0]}"
+            }
+        else:
+            st.session_state.db_load_status['sales_data'] = {
+                'status': 'warning',
+                'message': "⚠️ No sales data found in database"
+            }
             
         # Load BOM data
         bom_data_file = get_file_by_type('bom_data')
         if bom_data_file:
             st.session_state.bom_data = bom_data_file[1]
-            st.info(f"✅ Successfully loaded BOM data from database: {bom_data_file[0]}")
+            st.session_state.db_load_status['bom_data'] = {
+                'status': 'success',
+                'message': f"✅ Successfully loaded BOM data: {bom_data_file[0]}"
+            }
+        else:
+            st.session_state.db_load_status['bom_data'] = {
+                'status': 'warning',
+                'message': "⚠️ No BOM data found in database"
+            }
             
         # Load supplier data
         supplier_data_file = get_file_by_type('supplier_data')
         if supplier_data_file:
             st.session_state.supplier_data = supplier_data_file[1]
-            st.info(f"✅ Successfully loaded supplier data from database: {supplier_data_file[0]}")
+            st.session_state.db_load_status['supplier_data'] = {
+                'status': 'success',
+                'message': f"✅ Successfully loaded supplier data: {supplier_data_file[0]}"
+            }
+        else:
+            st.session_state.db_load_status['supplier_data'] = {
+                'status': 'warning',
+                'message': "⚠️ No supplier data found in database"
+            }
+        
+        return True
+    
     except Exception as e:
-        st.error(f"Error loading data from database: {str(e)}")
-        # Continue to let users upload files
+        st.session_state.db_load_status['error'] = {
+            'status': 'error',
+            'message': f"❌ Error loading data: {str(e)}"
+        }
+        return False
+
+# Try to load data from database on initial load
+if not st.session_state.init_db_load:
+    st.session_state.init_db_load = True  # Mark as attempted even if it fails
+    load_data_from_database()
 
 # Main page header with animated gradient
 st.markdown('<h1 class="gradient-text">AI-Powered Supply Chain Platform</h1>', unsafe_allow_html=True)
@@ -421,6 +459,27 @@ with tab1:
 
 with tab2:
     st.markdown("Access previously uploaded files from the database.")
+    
+    # Add database retrieval button
+    if st.button("🔄 Retrieve Data from Database", key="retrieve_db_data", use_container_width=True):
+        with st.spinner("Loading data from database..."):
+            success = load_data_from_database()
+            if success:
+                st.success("Data retrieval completed!")
+            else:
+                st.error("Error occurred during data retrieval. See details below.")
+    
+    # Show database load status if available
+    if st.session_state.db_load_status:
+        st.subheader("Database Retrieval Status")
+        
+        for data_type, status in st.session_state.db_load_status.items():
+            if status['status'] == 'success':
+                st.success(status['message'])
+            elif status['status'] == 'warning':
+                st.warning(status['message'])
+            elif status['status'] == 'error':
+                st.error(status['message'])
     
     # Add link to file management page
     st.markdown("""
