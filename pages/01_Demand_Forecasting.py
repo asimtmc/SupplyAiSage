@@ -530,15 +530,45 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                 confidence_text = "High" if forecast_data['model'] != 'moving_average' else "Medium"
                 st.markdown(f"**Forecast Confidence:** <span style='color:{confidence_color}'>{confidence_text}</span>", unsafe_allow_html=True)
 
-                # Forecast table
+                # Enhanced forecast table with additional details
+                st.subheader("Forecast Data Table")
+                
+                # Create basic forecast table
                 forecast_table = pd.DataFrame({
                     'Date': forecast_data['forecast'].index,
-                    'Forecast': forecast_data['forecast'].values.round(0),
-                    'Lower Bound': forecast_data['lower_bound'].values.round(0),
-                    'Upper Bound': forecast_data['upper_bound'].values.round(0)
+                    'Forecast': forecast_data['forecast'].values.round(0).astype(int),
+                    'Lower Bound': forecast_data['lower_bound'].values.round(0).astype(int),
+                    'Upper Bound': forecast_data['upper_bound'].values.round(0).astype(int)
                 })
-
-                st.dataframe(forecast_table, use_container_width=True)
+                
+                # Add range column to show potential variance
+                forecast_table['Range (±)'] = (forecast_table['Upper Bound'] - forecast_table['Lower Bound']).div(2).round(0).astype(int)
+                
+                # If we have model evaluation data for multiple models, show them side by side in the table
+                if (show_all_models or len(custom_models_lower) > 0) and 'model_evaluation' in forecast_data and 'all_models_forecasts' in forecast_data['model_evaluation']:
+                    model_forecasts = forecast_data['model_evaluation']['all_models_forecasts']
+                    
+                    # Determine which models to include
+                    models_to_display = custom_models_lower if len(custom_models_lower) > 0 else available_models
+                    
+                    # Add each selected model's forecast as a column
+                    for model in models_to_display:
+                        if model in model_forecasts and model != forecast_data['model']:  # Skip primary model as it's already in 'Forecast'
+                            model_forecast = model_forecasts[model]
+                            if len(model_forecast) == len(forecast_table):
+                                forecast_table[f'{model.upper()} Forecast'] = model_forecast.values.round(0).astype(int)
+                
+                # Format the date column to be more readable
+                forecast_table['Date'] = forecast_table['Date'].dt.strftime('%Y-%m-%d')
+                
+                # Display the enhanced table with styling
+                st.dataframe(
+                    forecast_table.style.highlight_max(subset=['Forecast'], color='#d6eaf8')
+                                      .highlight_min(subset=['Forecast'], color='#fadbd8')
+                                      .format({'Range (±)': '{} units'}),
+                    use_container_width=True,
+                    height=min(35 * (len(forecast_table) + 1), 400)  # Dynamically size table height with scrolling
+                )
 
         with forecast_tabs[1]:
             # Model comparison visualization
