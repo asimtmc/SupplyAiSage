@@ -50,6 +50,7 @@ SessionFactory = sessionmaker(bind=engine)
 def save_uploaded_file(file, file_type, description=None):
     """
     Save an uploaded file to the database
+    If a file of the same type already exists, delete it first
     
     Parameters:
     -----------
@@ -68,6 +69,18 @@ def save_uploaded_file(file, file_type, description=None):
     try:
         session = SessionFactory()
         
+        # Check if file of this type already exists
+        if file_type_exists(file_type):
+            # Find the existing file(s) of this type and delete them
+            existing_files = session.query(UploadedFile).filter(
+                UploadedFile.file_type == file_type
+            ).all()
+            
+            for existing_file in existing_files:
+                session.delete(existing_file)
+            
+            session.commit()
+            
         # Generate a unique ID
         file_id = str(uuid.uuid4())
         
@@ -190,6 +203,33 @@ def get_file_by_type(file_type):
             return (file.filename, df)
         else:
             return None
+    except Exception as e:
+        raise e
+    finally:
+        if session:
+            session.close()
+            
+def file_type_exists(file_type):
+    """
+    Check if a file of a specific type already exists in the database
+    
+    Parameters:
+    -----------
+    file_type : str
+        Type of file to check (e.g., 'sales_data', 'bom_data', 'supplier_data')
+    
+    Returns:
+    --------
+    bool
+        True if file exists, False otherwise
+    """
+    try:
+        session = SessionFactory()
+        file_exists = session.query(UploadedFile).filter(
+            UploadedFile.file_type == file_type
+        ).first() is not None
+        
+        return file_exists
     except Exception as e:
         raise e
     finally:

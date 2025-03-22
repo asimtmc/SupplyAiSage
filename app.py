@@ -210,23 +210,28 @@ if 'init_db_load' not in st.session_state:
 if not st.session_state.init_db_load:
     # Try to get the most recent files of each type
     try:
+        st.session_state.init_db_load = True  # Mark as attempted even if it fails
+        
+        # Load sales data
         sales_data_file = get_file_by_type('sales_data')
         if sales_data_file:
             st.session_state.sales_data = sales_data_file[1]
+            st.info(f"✅ Successfully loaded sales data from database: {sales_data_file[0]}")
             
+        # Load BOM data
         bom_data_file = get_file_by_type('bom_data')
         if bom_data_file:
             st.session_state.bom_data = bom_data_file[1]
+            st.info(f"✅ Successfully loaded BOM data from database: {bom_data_file[0]}")
             
+        # Load supplier data
         supplier_data_file = get_file_by_type('supplier_data')
         if supplier_data_file:
             st.session_state.supplier_data = supplier_data_file[1]
-            
-        # Mark as loaded
-        st.session_state.init_db_load = True
+            st.info(f"✅ Successfully loaded supplier data from database: {supplier_data_file[0]}")
     except Exception as e:
-        # Silently fail - we'll let users upload files
-        pass
+        st.error(f"Error loading data from database: {str(e)}")
+        # Continue to let users upload files
 
 # Main page header with animated gradient
 st.markdown('<h1 class="gradient-text">AI-Powered Supply Chain Platform</h1>', unsafe_allow_html=True)
@@ -324,8 +329,15 @@ with tab1:
         
         if sales_file is not None:
             try:
+                # Make a copy of the file data before processing
+                file_data = sales_file.read()
+                sales_file.seek(0)  # Reset file pointer to beginning
+                
                 # Process the sales data
                 st.session_state.sales_data = process_sales_data(sales_file)
+                
+                # Reset file pointer again for database save
+                sales_file.seek(0)
                 
                 # Save to database
                 file_id = save_uploaded_file(sales_file, 'sales_data', 'Sales history data')
@@ -349,8 +361,15 @@ with tab1:
         
         if bom_file is not None:
             try:
+                # Make a copy of the file data before processing
+                file_data = bom_file.read()
+                bom_file.seek(0)  # Reset file pointer to beginning
+                
                 # Process the BOM data
                 st.session_state.bom_data = process_bom_data(bom_file)
+                
+                # Reset file pointer again for database save
+                bom_file.seek(0)
                 
                 # Save to database
                 file_id = save_uploaded_file(bom_file, 'bom_data', 'Bill of materials data')
@@ -374,8 +393,15 @@ with tab1:
         
         if supplier_file is not None:
             try:
+                # Make a copy of the file data before processing
+                file_data = supplier_file.read()
+                supplier_file.seek(0)  # Reset file pointer to beginning
+                
                 # Process the supplier data
                 st.session_state.supplier_data = process_supplier_data(supplier_file)
+                
+                # Reset file pointer again for database save
+                supplier_file.seek(0)
                 
                 # Save to database
                 file_id = save_uploaded_file(supplier_file, 'supplier_data', 'Supplier information data')
