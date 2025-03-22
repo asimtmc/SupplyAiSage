@@ -32,7 +32,10 @@ class ForecastResult(Base):
     
     id = Column(String(36), primary_key=True)
     sku = Column(String(100), nullable=False)
+    sku_code = Column(String(100), nullable=True)
+    sku_name = Column(String(255), nullable=True)
     model_type = Column(String(50), nullable=False)
+    is_best_model = Column(Integer, nullable=False, default=0)  # Boolean flag: 1=best model, 0=not best
     forecast_date = Column(DateTime, default=datetime.now)
     forecast_periods = Column(Integer, nullable=False)
     mape = Column(Float, nullable=True)
@@ -40,6 +43,7 @@ class ForecastResult(Base):
     mae = Column(Float, nullable=True)
     forecast_data = Column(Text, nullable=False)  # JSON string of forecast values
     model_params = Column(Text, nullable=True)    # JSON string of model parameters
+    historical_data = Column(Text, nullable=True) # JSON string of historical values
 
 # Create the tables
 Base.metadata.create_all(engine)
@@ -269,7 +273,8 @@ def delete_file(file_id):
         if session:
             session.close()
 
-def save_forecast_result(sku, model_type, forecast_periods, mape, rmse, mae, forecast_data, model_params):
+def save_forecast_result(sku, model_type, forecast_periods, mape, rmse, mae, forecast_data, model_params, 
+                         sku_code=None, sku_name=None, is_best_model=0, historical_data=None):
     """
     Save a forecast result to the database
     
@@ -291,6 +296,14 @@ def save_forecast_result(sku, model_type, forecast_periods, mape, rmse, mae, for
         JSON string of forecast values
     model_params : str
         JSON string of model parameters
+    sku_code : str, optional
+        SKU code (can be same as SKU or different)
+    sku_name : str, optional
+        SKU descriptive name
+    is_best_model : int, optional
+        Flag indicating if this model is the best model for the SKU (1=yes, 0=no)
+    historical_data : str, optional
+        JSON string of historical values
     
     Returns:
     --------
@@ -303,17 +316,29 @@ def save_forecast_result(sku, model_type, forecast_periods, mape, rmse, mae, for
         # Generate a unique ID
         forecast_id = str(uuid.uuid4())
         
+        # Default sku_code to sku if not provided
+        if sku_code is None:
+            sku_code = sku
+            
+        # Default sku_name to sku if not provided
+        if sku_name is None:
+            sku_name = sku
+        
         # Create a new ForecastResult record
         new_forecast = ForecastResult(
             id=forecast_id,
             sku=sku,
+            sku_code=sku_code,
+            sku_name=sku_name,
             model_type=model_type,
+            is_best_model=is_best_model,
             forecast_periods=forecast_periods,
             mape=mape,
             rmse=rmse,
             mae=mae,
             forecast_data=forecast_data,
-            model_params=model_params
+            model_params=model_params,
+            historical_data=historical_data
         )
         
         # Add to session and commit
