@@ -45,6 +45,9 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
     # Check if training and test data are separated
     has_train_test_split = 'train_set' in forecast_data and 'test_set' in forecast_data
     
+    # Initialize test_dates variable to avoid "possibly unbound" errors
+    test_dates = None
+    
     if has_train_test_split:
         # Add training data with distinct color
         train_dates = forecast_data['train_set'].index
@@ -53,7 +56,8 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
         # Create hover text with historical data values
         train_hover = [f"<b>Historical Data (Train)</b><br>" +
                       f"<b>Date:</b> {date.strftime('%Y-%m-%d')}<br>" +
-                      f"<b>Value:</b> {int(value)}" for date, value in zip(train_dates, train_values)]
+                      f"<b>Value:</b> {int(value) if not np.isnan(value) else 'N/A'}" 
+                      for date, value in zip(train_dates, train_values)]
                 
         fig.add_trace(go.Scatter(
             x=train_dates,
@@ -74,7 +78,8 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
         # Create hover text with test data values
         test_hover = [f"<b>Historical Data (Test)</b><br>" +
                      f"<b>Date:</b> {date.strftime('%Y-%m-%d')}<br>" +
-                     f"<b>Value:</b> {int(value)}" for date, value in zip(test_dates, test_values)]
+                     f"<b>Value:</b> {int(value) if not np.isnan(value) else 'N/A'}" 
+                     for date, value in zip(test_dates, test_values)]
         
         fig.add_trace(go.Scatter(
             x=test_dates,
@@ -93,7 +98,8 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
         # Create hover text for historical data
         hist_hover = [f"<b>Historical Data</b><br>" +
                      f"<b>Date:</b> {date.strftime('%Y-%m-%d')}<br>" +
-                     f"<b>Value:</b> {int(value)}" for date, value in zip(sku_sales['date'], sku_sales['quantity'])]
+                     f"<b>Value:</b> {int(value) if not np.isnan(value) else 'N/A'}" 
+                     for date, value in zip(sku_sales['date'], sku_sales['quantity'])]
         
         fig.add_trace(go.Scatter(
             x=sku_sales['date'],
@@ -150,7 +156,8 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
                 # Create hover text with model name and exact values
                 hover_text = [f"<b>Model:</b> {model_name.upper()}<br>" +
                              f"<b>Date:</b> {date.strftime('%Y-%m-%d')}<br>" +
-                             f"<b>Value:</b> {int(value)}" for date, value in zip(model_forecast.index, model_forecast.values)]
+                             f"<b>Value:</b> {int(value) if not np.isnan(value) else 'N/A'}" 
+                             for date, value in zip(model_forecast.index, model_forecast.values)]
                 
                 fig.add_trace(go.Scatter(
                     x=model_forecast.index,
@@ -209,7 +216,8 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
         # Create hover text with model name and exact values
         hover_text = [f"<b>Model:</b> {primary_model.upper()}<br>" +
                      f"<b>Date:</b> {date.strftime('%Y-%m-%d')}<br>" +
-                     f"<b>Value:</b> {int(value)}" for date, value in zip(forecast.index, forecast.values)]
+                     f"<b>Value:</b> {int(value) if not np.isnan(value) else 'N/A'}" 
+                     for date, value in zip(forecast.index, forecast.values)]
                 
         fig.add_trace(go.Scatter(
             x=forecast.index,
@@ -241,7 +249,7 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
         ('test_predictions' in forecast_data and len(forecast_data['test_predictions']) > 0)
     )
     
-    if show_test_predictions and 'test_predictions' in forecast_data and len(forecast_data['test_predictions']) > 0:
+    if show_test_predictions and 'test_predictions' in forecast_data and len(forecast_data['test_predictions']) > 0 and test_dates is not None:
         test_pred = forecast_data['test_predictions'].values
         
         # Get the primary model color for consistency
@@ -250,7 +258,8 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
         # Create hover text for test predictions
         test_pred_hover = [f"<b>Test Prediction</b><br>" +
                          f"<b>Date:</b> {date.strftime('%Y-%m-%d')}<br>" +
-                         f"<b>Predicted:</b> {int(value)}" for date, value in zip(test_dates, test_pred)]
+                         f"<b>Predicted:</b> {int(value) if not np.isnan(value) else 'N/A'}" 
+                         for date, value in zip(test_dates, test_pred)]
         
         # Add test predictions with better styling
         fig.add_trace(go.Scatter(
