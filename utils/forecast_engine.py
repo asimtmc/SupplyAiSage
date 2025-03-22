@@ -1136,7 +1136,7 @@ def generate_forecasts(sales_data, cluster_info, forecast_periods=12, evaluate_m
             forecast_result['model_evaluation'] = model_evaluation
         
         # Store in dictionary
-            forecasts[sku] = forecast_result
+        forecasts[sku] = forecast_result
             
         except Exception as e:
             print(f"Error forecasting SKU {sku}: {str(e)}")
