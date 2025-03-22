@@ -1137,7 +1137,7 @@ def generate_forecasts(sales_data, cluster_info, forecast_periods=12, evaluate_m
             
             # Store in dictionary
             forecasts[sku] = forecast_result
-                
+            
         except Exception as e:
             print(f"Error forecasting SKU {sku}: {str(e)}")
             # Continue with the next SKU rather than failing the entire process
