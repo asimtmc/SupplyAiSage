@@ -50,6 +50,11 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
         train_dates = forecast_data['train_set'].index
         train_values = forecast_data['train_set'].values
         
+        # Create hover text with historical data values
+        train_hover = [f"<b>Historical Data (Train)</b><br>" +
+                      f"<b>Date:</b> {date.strftime('%Y-%m-%d')}<br>" +
+                      f"<b>Value:</b> {int(value)}" for date, value in zip(train_dates, train_values)]
+                
         fig.add_trace(go.Scatter(
             x=train_dates,
             y=train_values,
@@ -57,11 +62,19 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
             name='Training Data',
             line=dict(color='#1f77b4', width=2),
             marker=dict(size=6),
+            hoverinfo='text',
+            hovertext=train_hover,
+            hoverlabel=dict(bgcolor='#1f77b4', font=dict(color='white')),
         ))
         
         # Add test data with distinct color
         test_dates = forecast_data['test_set'].index
         test_values = forecast_data['test_set'].values
+        
+        # Create hover text with test data values
+        test_hover = [f"<b>Historical Data (Test)</b><br>" +
+                     f"<b>Date:</b> {date.strftime('%Y-%m-%d')}<br>" +
+                     f"<b>Value:</b> {int(value)}" for date, value in zip(test_dates, test_values)]
         
         fig.add_trace(go.Scatter(
             x=test_dates,
@@ -70,10 +83,18 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
             name='Test Data (Actual)',
             line=dict(color='#2ca02c', width=2, dash='dot'),
             marker=dict(size=8, color='#2ca02c', symbol='circle'),
+            hoverinfo='text',
+            hovertext=test_hover,
+            hoverlabel=dict(bgcolor='#2ca02c', font=dict(color='white')),
             showlegend=True
         ))
     else:
         # Add all historical data
+        # Create hover text for historical data
+        hist_hover = [f"<b>Historical Data</b><br>" +
+                     f"<b>Date:</b> {date.strftime('%Y-%m-%d')}<br>" +
+                     f"<b>Value:</b> {int(value)}" for date, value in zip(sku_sales['date'], sku_sales['quantity'])]
+        
         fig.add_trace(go.Scatter(
             x=sku_sales['date'],
             y=sku_sales['quantity'],
@@ -81,6 +102,9 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
             name='Historical Sales',
             line=dict(color='#1f77b4', width=2),
             marker=dict(size=6),
+            hoverinfo='text',
+            hovertext=hist_hover,
+            hoverlabel=dict(bgcolor='#1f77b4', font=dict(color='white')),
         ))
     
     # Define a list of colors with better contrast for multiple models
@@ -123,6 +147,11 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
                 marker_symbols = ['diamond', 'circle', 'square', 'triangle-up', 'star', 'x']
                 marker_symbol = marker_symbols[i % len(marker_symbols)]
                 
+                # Create hover text with model name and exact values
+                hover_text = [f"<b>Model:</b> {model_name.upper()}<br>" +
+                             f"<b>Date:</b> {date.strftime('%Y-%m-%d')}<br>" +
+                             f"<b>Value:</b> {int(value)}" for date, value in zip(model_forecast.index, model_forecast.values)]
+                
                 fig.add_trace(go.Scatter(
                     x=model_forecast.index,
                     y=model_forecast.values,
@@ -138,6 +167,9 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
                         symbol=marker_symbol,
                         color=model_colors[color_idx]
                     ),
+                    hoverinfo='text',
+                    hovertext=hover_text,
+                    hoverlabel=dict(bgcolor=model_colors[color_idx], font=dict(color='white')),
                 ))
                 
                 # Only add confidence interval for primary model
@@ -174,6 +206,11 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
                 ))
     else:
         # Only add the primary model forecast
+        # Create hover text with model name and exact values
+        hover_text = [f"<b>Model:</b> {primary_model.upper()}<br>" +
+                     f"<b>Date:</b> {date.strftime('%Y-%m-%d')}<br>" +
+                     f"<b>Value:</b> {int(value)}" for date, value in zip(forecast.index, forecast.values)]
+                
         fig.add_trace(go.Scatter(
             x=forecast.index,
             y=forecast.values,
@@ -181,6 +218,9 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
             name=f'{primary_model.upper()} Forecast',
             line=dict(color='#d62728', width=2, dash='dash'),
             marker=dict(size=8, symbol='diamond'),
+            hoverinfo='text',
+            hovertext=hover_text,
+            hoverlabel=dict(bgcolor='#d62728', font=dict(color='white')),
         ))
         
         # Add confidence interval
@@ -207,6 +247,11 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
         # Get the primary model color for consistency
         test_pred_color = '#ff7f0e'  # Default orange
         
+        # Create hover text for test predictions
+        test_pred_hover = [f"<b>Test Prediction</b><br>" +
+                         f"<b>Date:</b> {date.strftime('%Y-%m-%d')}<br>" +
+                         f"<b>Predicted:</b> {int(value)}" for date, value in zip(test_dates, test_pred)]
+        
         # Add test predictions with better styling
         fig.add_trace(go.Scatter(
             x=test_dates,
@@ -224,6 +269,9 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
                 symbol='star',
                 line=dict(color='#ffffff', width=1)  # Add white border to markers
             ),
+            hoverinfo='text',
+            hovertext=test_pred_hover,
+            hoverlabel=dict(bgcolor=test_pred_color, font=dict(color='white')),
             showlegend=True
         ))
         
