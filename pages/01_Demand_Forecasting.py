@@ -556,7 +556,24 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                         forecast_data['show_test_predictions'] = True
 
                 # Display forecast chart with selected models
-                forecast_fig = plot_forecast(st.session_state.sales_data, forecast_data, selected_sku, selected_models_for_viz)
+                # Handle single vs multi-SKU scenarios
+                if len(selected_skus) == 1:
+                    # Single SKU visualization
+                    forecast_fig = plot_forecast(
+                        st.session_state.sales_data[st.session_state.sales_data['sku'] == selected_sku], 
+                        forecast_data, 
+                        selected_sku, 
+                        selected_models=selected_models_for_viz
+                    )
+                else:
+                    # Multi-SKU visualization - pass the list of SKUs instead of a single SKU
+                    forecast_fig = plot_forecast(
+                        st.session_state.sales_data,
+                        None,  # No primary forecast data for multi-SKU view
+                        selected_skus,  # Pass the list of selected SKUs
+                        selected_models=selected_models_for_viz
+                    )
+                
                 st.plotly_chart(forecast_fig, use_container_width=True)
 
                 # Show training/test split information if available
@@ -570,26 +587,75 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                     st.caption(f"Data split: {train_count} training points ({train_pct}%) and {test_count} test points ({test_pct}%)")
 
             with col2:
-                # Show forecast details (same as before)
                 st.subheader("Forecast Details")
+                
+                # Different display for single SKU vs multiple SKUs
+                if len(selected_skus) == 1:
+                    # Single SKU view - show detailed info
+                    st.markdown(f"**SKU:** {selected_sku}")
+                    st.markdown(f"**Cluster:** {forecast_data['cluster_name']}")
+                    st.markdown(f"**Model Used:** {forecast_data['model'].upper()}")
 
-                st.markdown(f"**SKU:** {selected_sku}")
-                st.markdown(f"**Cluster:** {forecast_data['cluster_name']}")
-                st.markdown(f"**Model Used:** {forecast_data['model'].upper()}")
-
-                # Forecast confidence
-                confidence_color = "green" if forecast_data['model'] != 'moving_average' else "orange"
-                confidence_text = "High" if forecast_data['model'] != 'moving_average' else "Medium"
-                st.markdown(f"**Forecast Confidence:** <span style='color:{confidence_color}'>{confidence_text}</span>", unsafe_allow_html=True)
-
+                    # Forecast confidence
+                    confidence_color = "green" if forecast_data['model'] != 'moving_average' else "orange"
+                    confidence_text = "High" if forecast_data['model'] != 'moving_average' else "Medium"
+                    st.markdown(f"**Forecast Confidence:** <span style='color:{confidence_color}'>{confidence_text}</span>", unsafe_allow_html=True)
+                else:
+                    # Multi-SKU view - show summary of selected SKUs
+                    st.markdown(f"**Selected SKUs:** {len(selected_skus)}")
+                    
+                    # Show summary of models used
+                    model_counts = {}
+                    for sku in selected_skus:
+                        if sku in st.session_state.forecasts:
+                            model = st.session_state.forecasts[sku]['model'].upper()
+                            model_counts[model] = model_counts.get(model, 0) + 1
+                    
+                    st.markdown("**Models Used:**")
+                    for model, count in model_counts.items():
+                        st.markdown(f"- {model}: {count} SKUs")
+                
                 # Enhanced forecast table with additional details
                 st.subheader("Forecast Data Table")
 
-                # Create basic forecast table - without confidence intervals as requested
-                forecast_table = pd.DataFrame({
-                    'Date': forecast_data['forecast'].index,
-                    'Forecast': forecast_data['forecast'].values.round(0).astype(int)
-                })
+                # Create basic forecast table - handling single or multiple SKUs
+                if len(selected_skus) == 1:
+                    # Single SKU table
+                    forecast_table = pd.DataFrame({
+                        'Date': forecast_data['forecast'].index,
+                        'Forecast': forecast_data['forecast'].values.round(0).astype(int)
+                    })
+                else:
+                    # Multi-SKU comparison table
+                    # Start with the date column
+                    forecast_dates = None
+                    
+                    # Find a common date range using the first SKU as reference
+                    for sku in selected_skus:
+                        if sku in st.session_state.forecasts:
+                            sku_forecast = st.session_state.forecasts[sku]['forecast']
+                            if forecast_dates is None:
+                                forecast_dates = sku_forecast.index
+                            else:
+                                # Use the intersection of dates
+                                forecast_dates = forecast_dates.intersection(sku_forecast.index)
+                    
+                    # Create a table with a row for each forecast date
+                    if forecast_dates is not None and len(forecast_dates) > 0:
+                        # Initialize with dates
+                        forecast_table = pd.DataFrame({'Date': forecast_dates})
+                        
+                        # Add a column for each SKU
+                        for sku in selected_skus:
+                            if sku in st.session_state.forecasts:
+                                sku_forecast = st.session_state.forecasts[sku]['forecast']
+                                # Extract values for common dates only
+                                values = [sku_forecast.loc[date] if date in sku_forecast.index else np.nan for date in forecast_dates]
+                                forecast_table[f'{sku}'] = np.round(values).astype(int)
+                    else:
+                        # Fallback if no common dates
+                        forecast_table = pd.DataFrame({'Date': [], 'Note': ['No common forecast dates found for selected SKUs']})
+                
 
                 # If we have model evaluation data for multiple models, show them side by side in the table
                 if (show_all_models or len(custom_models_lower) > 0) and 'model_evaluation' in forecast_data and 'all_models_forecasts' in forecast_data['model_evaluation']:
@@ -618,14 +684,47 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                 )
 
         with forecast_tabs[1]:
-            # Model comparison visualization
-            if 'model_evaluation' in forecast_data and forecast_data['model_evaluation']['metrics']:
+            # Model comparison visualization - only available for single SKU
+            if len(selected_skus) == 1 and 'model_evaluation' in forecast_data and forecast_data['model_evaluation']['metrics']:
                 # Visual comparison of models
                 st.subheader("Model Performance Comparison")
 
                 # Use plot_model_comparison
                 model_comparison_fig = plot_model_comparison(selected_sku, forecast_data)
                 st.plotly_chart(model_comparison_fig, use_container_width=True)
+            elif len(selected_skus) > 1:
+                # For multiple SKUs, show a message about model comparison
+                st.info("Model comparison is only available when a single SKU is selected. Please select just one SKU to view detailed model comparison.")
+                
+                # Show a summary table of the best models for each selected SKU
+                st.subheader("Best Models Summary")
+                
+                model_summary = []
+                for sku in selected_skus:
+                    if sku in st.session_state.forecasts:
+                        sku_data = st.session_state.forecasts[sku]
+                        model_name = sku_data['model'].upper()
+                        
+                        # Get accuracy metrics if available
+                        mape = "N/A"
+                        rmse = "N/A"
+                        if ('model_evaluation' in sku_data and 
+                            'metrics' in sku_data['model_evaluation'] and 
+                            sku_data['model'] in sku_data['model_evaluation']['metrics']):
+                            
+                            metrics = sku_data['model_evaluation']['metrics'][sku_data['model']]
+                            mape = f"{metrics['mape']:.2f}%" if 'mape' in metrics and not np.isnan(metrics['mape']) else "N/A"
+                            rmse = f"{metrics['rmse']:.2f}" if 'rmse' in metrics else "N/A"
+                        
+                        model_summary.append({
+                            'SKU': sku,
+                            'Best Model': model_name,
+                            'MAPE': mape,
+                            'RMSE': rmse
+                        })
+                
+                if model_summary:
+                    st.dataframe(pd.DataFrame(model_summary), use_container_width=True)
 
                 # Add explanation of the evaluation process
                 st.info("The system evaluates each selected forecasting model on historical test data. " +
