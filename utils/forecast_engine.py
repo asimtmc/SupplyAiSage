@@ -1051,12 +1051,12 @@ def generate_forecasts(sales_data, cluster_info, forecast_periods=12, evaluate_m
                 continue
             
             # Get cluster for this SKU if available
-        if sku in cluster_info['sku'].values:
-            sku_cluster = cluster_info[cluster_info['sku'] == sku]['cluster'].iloc[0]
-            sku_cluster_name = cluster_info[cluster_info['sku'] == sku]['cluster_name'].iloc[0]
-        else:
-            sku_cluster = -1
-            sku_cluster_name = "Unclassified"
+            if sku in cluster_info['sku'].values:
+                sku_cluster = cluster_info[cluster_info['sku'] == sku]['cluster'].iloc[0]
+                sku_cluster_name = cluster_info[cluster_info['sku'] == sku]['cluster_name'].iloc[0]
+            else:
+                sku_cluster = -1
+                sku_cluster_name = "Unclassified"
         
         # Evaluate models if requested
         model_evaluation = None
