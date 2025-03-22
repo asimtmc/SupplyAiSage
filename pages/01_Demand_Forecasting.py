@@ -76,11 +76,18 @@ with st.sidebar:
             # Otherwise select first SKU as default if list has items
             default_value = [sku_list[0]]
             
+        # Clear selected_skus if the multiselect is being recreated to prevent stale state
+        if 'selected_skus_key' not in st.session_state:
+            st.session_state.selected_skus_key = 0
+        else:
+            st.session_state.selected_skus_key += 1
+            
         selected_skus = st.multiselect(
             "Select SKUs to Analyze",
             options=sku_list,
             default=default_value,
-            help="Select one or more SKUs to analyze or forecast"
+            help="Select one or more SKUs to analyze or forecast",
+            key=f"sku_select_{st.session_state.selected_skus_key}"
         )
         
         # Store all selected SKUs in session state
@@ -360,7 +367,7 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                     available_models = list(forecast_data['model_evaluation']['all_models_forecasts'].keys())
                     
                     # Create multi-select for choosing models to display
-                    display_options = ["Best Model Only", "All Selected Models", "Custom Selection"]
+                    display_options = ["Best Model Only", "All Selected Models", "Custom Selection", "Include Test Predictions"]
                     display_choice = st.radio(
                         "Display Options", 
                         display_options,
@@ -372,6 +379,11 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                     elif display_choice == "All Selected Models":
                         # Use the models selected in the sidebar
                         selected_models_for_viz = [m for m in st.session_state.selected_models if m in available_models]
+                    elif display_choice == "Include Test Predictions":
+                        # Show test predictions along with best model
+                        selected_models_for_viz = [forecast_data['model']]
+                        # Set a flag to ensure test predictions are shown
+                        forecast_data['show_test_predictions'] = True
                     else:  # Custom Selection
                         model_options = [model.upper() for model in available_models]
                         selected_model_names = st.multiselect(

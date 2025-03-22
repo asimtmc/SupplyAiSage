@@ -66,8 +66,9 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
         fig.add_trace(go.Scatter(
             x=test_dates,
             y=test_values,
-            mode='markers',
+            mode='lines+markers',
             name='Test Data (Actual)',
+            line=dict(color='#2ca02c', width=2, dash='dot'),
             marker=dict(size=8, color='#2ca02c', symbol='circle'),
             showlegend=True
         ))
@@ -104,7 +105,8 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
     if show_multiple_models:
         # Add each selected model's forecast
         for i, model_name in enumerate(selected_models):
-            if model_name in forecast_data['model_evaluation']['all_models_forecasts']:
+            # Check if the model exists in model_evaluation
+            if 'model_evaluation' in forecast_data and 'all_models_forecasts' in forecast_data['model_evaluation'] and model_name in forecast_data['model_evaluation']['all_models_forecasts']:
                 model_forecast = forecast_data['model_evaluation']['all_models_forecasts'][model_name]
                 
                 # Choose color - primary model gets red, others get different colors
@@ -113,12 +115,12 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
                 fig.add_trace(go.Scatter(
                     x=model_forecast.index,
                     y=model_forecast.values,
-                    mode='lines+markers' if model_name == primary_model else 'lines',
+                    mode='lines+markers',
                     name=f'{model_name.upper()} Forecast',
                     line=dict(
                         color=model_colors[color_idx], 
                         width=3 if model_name == primary_model else 2,
-                        dash='dash' if model_name == primary_model else 'dot'
+                        dash='dash'
                     ),
                     marker=dict(size=8 if model_name == primary_model else 6, symbol='diamond'),
                 ))
@@ -134,6 +136,27 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
                         name='95% Confidence Interval',
                         showlegend=True
                     ))
+            elif model_name == primary_model:
+                # If primary model isn't in all_models_forecasts, still show it
+                fig.add_trace(go.Scatter(
+                    x=forecast.index,
+                    y=forecast.values,
+                    mode='lines+markers',
+                    name=f'{primary_model.upper()} Forecast',
+                    line=dict(color='#d62728', width=3, dash='dash'),
+                    marker=dict(size=8, symbol='diamond'),
+                ))
+                
+                # Add confidence interval for primary model
+                fig.add_trace(go.Scatter(
+                    x=list(upper_bound.index) + list(lower_bound.index)[::-1],
+                    y=list(upper_bound.values) + list(lower_bound.values)[::-1],
+                    fill='toself',
+                    fillcolor='rgba(214, 39, 40, 0.2)',
+                    line=dict(color='rgba(214, 39, 40, 0)'),
+                    name='95% Confidence Interval',
+                    showlegend=True
+                ))
     else:
         # Only add the primary model forecast
         fig.add_trace(go.Scatter(
@@ -157,14 +180,21 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
         ))
     
     # Add test predictions if available
-    if has_train_test_split and 'test_predictions' in forecast_data:
+    # Show test predictions if explicitly requested or if in test prediction mode
+    show_test_predictions = has_train_test_split and (
+        'show_test_predictions' in forecast_data or 
+        ('test_predictions' in forecast_data and len(forecast_data['test_predictions']) > 0)
+    )
+    
+    if show_test_predictions and 'test_predictions' in forecast_data and len(forecast_data['test_predictions']) > 0:
         test_pred = forecast_data['test_predictions'].values
         
         fig.add_trace(go.Scatter(
             x=test_dates,
             y=test_pred,
-            mode='markers',
+            mode='lines+markers',
             name='Test Data (Predicted)',
+            line=dict(color='#ff7f0e', width=2, dash='dot'),
             marker=dict(size=10, color='#ff7f0e', symbol='x'),
             showlegend=True
         ))
@@ -672,7 +702,7 @@ def plot_inventory_health(sales_data, forecast_data):
 def plot_model_comparison(sku, forecast_data):
     """
     Create a plotly figure comparing different forecasting models for a specific SKU
-    with detailed error metrics visualization
+    with detailed error metrics visualization - using a clustered bar chart with a line for MAPE
     
     Parameters:
     -----------
@@ -711,30 +741,30 @@ def plot_model_comparison(sku, forecast_data):
         y=rmse_values,
         name='RMSE',
         marker_color='#1f77b4',
-        text=rmse_values,
+        text=[f"{v:.2f}" for v in rmse_values],
         textposition='auto',
     ))
     
-    # Add MAPE bars (using secondary y-axis)
-    fig.add_trace(go.Bar(
-        x=models,
-        y=mape_values,
-        name='MAPE (%)',
-        marker_color='#ff7f0e',
-        text=mape_values,
-        textposition='auto',
-        yaxis='y2'
-    ))
-    
-    # Add MAE bars
+    # Add MAE bars (clustered with RMSE)
     fig.add_trace(go.Bar(
         x=models,
         y=mae_values,
         name='MAE',
         marker_color='#2ca02c',
-        text=mae_values,
+        text=[f"{v:.2f}" for v in mae_values],
         textposition='auto',
-        visible='legendonly'  # Initially hidden, can be shown via legend
+    ))
+    
+    # Add MAPE as a line chart on secondary y-axis
+    fig.add_trace(go.Scatter(
+        x=models,
+        y=mape_values,
+        name='MAPE (%)',
+        mode='lines+markers',
+        marker=dict(size=10, color='#ff7f0e'),
+        line=dict(width=3, color='#ff7f0e'),
+        text=[f"{v:.2f}%" for v in mape_values],
+        yaxis='y2'
     ))
     
     # Highlight the best model

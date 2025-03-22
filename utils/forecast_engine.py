@@ -715,7 +715,7 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                         enforce_stationarity=False,
                         enforce_invertibility=False
                     )
-                    model_fit = model.fit(disp=False)
+                    model_fit = model.fit(disp=False, maxiter=50, method='powell')
                     
                     # Generate test forecasts
                     forecast_obj = model_fit.get_forecast(steps=len(test_data))
@@ -732,7 +732,7 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                         enforce_stationarity=False,
                         enforce_invertibility=False
                     )
-                    full_model_fit = full_model.fit(disp=False)
+                    full_model_fit = full_model.fit(disp=False, maxiter=50, method='powell')
                     
                     # Generate future forecasts
                     future_forecast = full_model_fit.get_forecast(steps=forecast_periods)
