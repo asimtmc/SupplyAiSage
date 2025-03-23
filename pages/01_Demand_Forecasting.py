@@ -526,16 +526,16 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                             model_options = [model.upper() for model in available_models]
                             # Get all available models in uppercase
                             model_options = [model.upper() for model in available_models]
-                            
+
                             # Get the selected models from sidebar (also in uppercase)
                             selected_sidebar_models = [m.upper() for m in st.session_state.selected_models 
                                                      if m.lower() in available_models]
-                            
+
                             # Ensure best model is included in the options
                             default_model = forecast_data['model'].upper()
                             if default_model not in model_options:
                                 model_options.append(default_model)
-                            
+
                             # If none of the sidebar selected models are available, default to the best model
                             if not selected_sidebar_models:
                                 selected_sidebar_models = [default_model]
@@ -624,13 +624,23 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                         else:
                             models_to_display = [forecast_data['model']]
 
-                    # Add each selected model's forecast as a column
+                    # Add each selected model's forecast as a column - ensuring each value is properly obtained
                     for model in models_to_display:
                         if model in model_forecasts:
                             model_forecast = model_forecasts[model]
-                            if len(model_forecast) == len(forecast_table):
-                                # Ensure we're getting proper values from the Series
-                                forecast_table[f'{model.upper()} Forecast'] = model_forecast.values.round(0).astype(int)
+
+                            # Create the column based on model forecasts
+                            forecast_values = []
+                            for date in forecast_table['Date']:
+                                date_obj = pd.to_datetime(date)
+                                if date_obj in model_forecast.index:
+                                    forecast_val = model_forecast[date_obj]
+                                    forecast_values.append(int(round(forecast_val)))
+                                else:
+                                    forecast_values.append(0)
+
+                            # Add the values to the forecast table
+                            forecast_table[f'{model.upper()} Forecast'] = forecast_values
 
                 # Format the date column to be more readable
                 forecast_table['Date'] = forecast_table['Date'].dt.strftime('%Y-%m-%d')
@@ -723,8 +733,7 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
 
             for sku, forecast_data in st.session_state.forecasts.items():
                 for date, value in forecast_data['forecast'].items():
-                    export_data.append({
-                        'sku': sku,
+                    export_data.append({                        'sku': sku,
                         'date': date,
                         'forecast': round(value),
                         'model': forecast_data['model'],
@@ -807,13 +816,13 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                 # Get all models for this SKU based on what was selected in the sidebar
                 # Only include models that are in selected_models from the sidebar
                 models_to_include = []
-                
+
                 # Get available models for this SKU
                 available_models = []
                 if 'model_evaluation' in forecast_data_for_sku and 'all_models_forecasts' in forecast_data_for_sku['model_evaluation']:
                     # Add available models to the list
                     available_models = list(forecast_data_for_sku['model_evaluation']['all_models_forecasts'].keys())
-                
+
                 # Only include models that were selected in the sidebar
                 for model in st.session_state.selected_models:
                     model_lower = model.lower()
@@ -863,27 +872,22 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                     # Add forecast values (no prefix, just the date) - ensuring dates match
                     for date, col_name in zip(forecast_dates, forecast_date_cols):
                         forecast_col_name = col_name  # Just use the date as column name
-                        
-                        # Check if model forecast contains this date
-                        if date in model_forecast.index:
-                            # Handle the case directly
-                            forecast_value = model_forecast[date]
-                            # Debug: print the value type and contents
-                            # st.write(f"Type: {type(forecast_value)}, Value: {forecast_value}")
+
+                        # Check if this forecast exists in all_models_forecasts
+                        model_forecast_series = None
+
+                        if ('model_evaluation' in forecast_data_for_sku and 
+                            'all_models_forecasts' in forecast_data_for_sku['model_evaluation'] and 
+                            model.lower() in forecast_data_for_sku['model_evaluation']['all_models_forecasts']):
+                            model_forecast_series = forecast_data_for_sku['model_evaluation']['all_models_forecasts'][model.lower()]
+
+                        # Now check if date exists in the model's forecast
+                        if model_forecast_series is not None and date in model_forecast_series.index:
+                            forecast_value = model_forecast_series[date]
                             row[forecast_col_name] = int(forecast_value) if not pd.isna(forecast_value) else 0
                         else:
-                            # Try to get a forecast from all models' forecasts if available
-                            if ('model_evaluation' in forecast_data_for_sku and 
-                                'all_models_forecasts' in forecast_data_for_sku['model_evaluation'] and 
-                                model.lower() in forecast_data_for_sku['model_evaluation']['all_models_forecasts']):
-                                specific_model_forecast = forecast_data_for_sku['model_evaluation']['all_models_forecasts'][model.lower()]
-                                if date in specific_model_forecast.index:
-                                    forecast_value = specific_model_forecast[date]
-                                    row[forecast_col_name] = int(forecast_value) if not pd.isna(forecast_value) else 0
-                                else:
-                                    row[forecast_col_name] = 0
-                            else:
-                                row[forecast_col_name] = 0
+                            # If we can't find the forecast, set to 0
+                            row[forecast_col_name] = 0
 
                     all_sku_data.append(row)
 
