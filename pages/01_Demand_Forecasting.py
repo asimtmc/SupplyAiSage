@@ -633,19 +633,33 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                         if model in model_forecasts:
                             model_forecast = model_forecasts[model]
 
-                            # Create the column based on model forecasts
+                            # Add each selected model's forecast as a column
                             forecast_values = []
                             for date in forecast_table['Date']:
-                                date_obj = pd.to_datetime(date)
-                                if date_obj in model_forecast.index:
-                                    forecast_val = model_forecast[date_obj]
-                                    forecast_values.append(int(round(forecast_val)))
-                                else:
+                                try:
+                                    date_obj = pd.to_datetime(date)
+                                    if date_obj in model_forecast.index:
+                                        forecast_val = model_forecast[date_obj]
+                                        # Handle NaN values before conversion to int
+                                        if pd.isna(forecast_val) or np.isnan(forecast_val):
+                                            forecast_values.append(0)
+                                        else:
+                                            # Double-check to ensure we're not trying to convert NaN
+                                            try:
+                                                forecast_values.append(int(round(forecast_val)))
+                                            except (ValueError, TypeError):
+                                                # If conversion fails for any reason, use 0
+                                                forecast_values.append(0)
+                                    else:
+                                        forecast_values.append(0)
+                                except Exception as e:
+                                    # Catch any unexpected errors
+                                    print(f"Error processing forecast date {date}: {str(e)}")
                                     forecast_values.append(0)
 
                             # Add the values to the forecast table with proper NaN handling
                             forecast_table[f'{model.upper()} Forecast'] = forecast_values
-                            
+
                             # Ensure there are no NaN values in the table
                             forecast_table.fillna(0, inplace=True)
 
@@ -719,7 +733,7 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                 # Add explanation about metrics
                 st.markdown("""
                 **Metrics Explanation:**
-                * **RMSE (Root Mean Square Error)**: Measures the square root of the average squared difference between predicted and actual values. Lower values are better.
+                *RMSE (Root Mean Square Error): Measures the square root of the average squared difference between predicted and actual values. Lower values are better.
                 * **MAPE (Mean Absolute Percentage Error)**: Measures the average percentage difference between predicted and actual values. Lower values are better.
                 * **MAE (Mean Absolute Error)**: Measures the average absolute difference between predicted and actual values. Lower values are better.
                 """)
@@ -889,19 +903,28 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                             model_forecast_series = forecast_data_for_sku['model_evaluation']['all_models_forecasts'][model.lower()]
 
                         # Now check if date exists in the model's forecast
-                        if model_forecast_series is not None and date in model_forecast_series.index:
-                            forecast_value = model_forecast_series[date]
-                            # Proper NaN handling
-                            if pd.isna(forecast_value):
-                                row[forecast_col_name] = 0
-                            else:
-                                try:
-                                    row[forecast_col_name] = int(round(forecast_value))
-                                except:
-                                    # Fallback if conversion fails
+                        try:
+                            if model_forecast_series is not None and date in model_forecast_series.index:
+                                forecast_value = model_forecast_series[date]
+                                # Proper NaN handling
+                                if pd.isna(forecast_value) or np.isnan(forecast_value):
                                     row[forecast_col_name] = 0
-                        else:
-                            # If we can't find the forecast, set to 0
+                                else:
+                                    try:
+                                        # Extra safety check against NaN before conversion
+                                        if np.isnan(forecast_value) or pd.isna(forecast_value):
+                                            row[forecast_col_name] = 0
+                                        else:
+                                            row[forecast_col_name] = int(round(forecast_value))
+                                    except:
+                                        # Fallback if conversion fails
+                                        row[forecast_col_name] = 0
+                            else:
+                                # If we can't find the forecast, set to 0
+                                row[forecast_col_name] = 0
+                        except Exception as e:
+                            # Catch any unexpected errors and use a safe fallback
+                            print(f"Error processing forecast for {date}: {str(e)}")
                             row[forecast_col_name] = 0
 
                     all_sku_data.append(row)
