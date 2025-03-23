@@ -20,7 +20,7 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
     sku : str
         SKU identifier
     selected_models : list, optional
-        List of model names to include in the plot. If None, only the best model is shown.
+        List of model names to include in the plot. If None, all available models are shown.
     
     Returns:
     --------
@@ -119,39 +119,51 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
     # Define line styles for better differentiation
     line_styles = ['solid', 'dash', 'dot', 'dashdot', 'longdash', 'longdashdot']
     
-    # Only use models that were actually selected by the user
-    if selected_models is None:
-        # If no models are explicitly selected, include the primary model by default
-        selected_models = [forecast_data['model']]
-    if not selected_models:
-        selected_models = [forecast_data['model']]
+    # Make sure we have model_evaluation and all_models_forecasts
+    has_model_forecasts = ('model_evaluation' in forecast_data and 
+                          'all_models_forecasts' in forecast_data['model_evaluation'])
     
-    # Get forecast data for the model chosen by the algorithm
-    primary_model = forecast_data['model']
-    forecast = forecast_data['forecast']
-    lower_bound = forecast_data['lower_bound']
-    upper_bound = forecast_data['upper_bound']
-    
-    # Always include the primary model
-    show_primary_model = True
-    
-    # Check if we should show multiple models
-    show_multiple_models = (selected_models is not None and 
-                           len(selected_models) > 0 and 
-                           'model_evaluation' in forecast_data and 
-                           'all_models_forecasts' in forecast_data['model_evaluation'])
-    
-    if show_multiple_models:
-        # Add each selected model's forecast
-        for i, model_name in enumerate(selected_models):
-            # Check if the model exists in model_evaluation
-            if 'model_evaluation' in forecast_data and 'all_models_forecasts' in forecast_data['model_evaluation'] and model_name in forecast_data['model_evaluation']['all_models_forecasts']:
-                model_forecast = forecast_data['model_evaluation']['all_models_forecasts'][model_name]
+    # Determine which models to display
+    if not has_model_forecasts:
+        # Fallback to default model if no model evaluation data
+        models_to_display = [forecast_data['model']]
+        forecast = forecast_data['forecast']
+        
+        # Display only the default model
+        hover_text = [f"<b>Model:</b> {forecast_data['model'].upper()}<br>" +
+                     f"<b>Date:</b> {date.strftime('%Y-%m-%d')}<br>" +
+                     f"<b>Value:</b> {int(value) if not np.isnan(value) else 'N/A'}" 
+                     for date, value in zip(forecast.index, forecast.values)]
                 
-                # Choose color based on model index, no model gets special treatment
+        fig.add_trace(go.Scatter(
+            x=forecast.index,
+            y=forecast.values,
+            mode='lines+markers',
+            name=f'{forecast_data["model"].upper()} Forecast',
+            line=dict(color=model_colors[0], width=2.5, dash='solid'),
+            marker=dict(size=7, symbol='circle'),
+            hoverinfo='text',
+            hovertext=hover_text,
+            hoverlabel=dict(bgcolor=model_colors[0], font=dict(color='white')),
+        ))
+    else:
+        # Get all available forecasts
+        model_forecasts = forecast_data['model_evaluation']['all_models_forecasts']
+        
+        # If no models selected, use all available ones
+        if selected_models is None or len(selected_models) == 0:
+            models_to_display = list(model_forecasts.keys())
+        else:
+            # Filter to only show selected models that are available
+            models_to_display = [model.lower() for model in selected_models if model.lower() in model_forecasts]
+            
+        # Add each model's forecast with equal treatment
+        for i, model_name in enumerate(models_to_display):
+            if model_name in model_forecasts:
+                model_forecast = model_forecasts[model_name]
+                
+                # Choose color and style based on model index
                 color_idx = i % len(model_colors)
-                
-                # Calculate dash pattern index (use different patterns for different models)
                 dash_idx = i % len(line_styles)
                 dash_pattern = line_styles[dash_idx]
                 
@@ -184,42 +196,6 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
                     hovertext=hover_text,
                     hoverlabel=dict(bgcolor=model_colors[color_idx], font=dict(color='white')),
                 ))
-                
-                # Confidence interval removed for all models to ensure equality
-            elif model_name == primary_model:
-                # If primary model isn't in all_models_forecasts, still show it
-                fig.add_trace(go.Scatter(
-                    x=forecast.index,
-                    y=forecast.values,
-                    mode='lines+markers',
-                    name=f'{primary_model.upper()} Forecast',
-                    line=dict(color='#d62728', width=3, dash='dash'),
-                    marker=dict(size=8, symbol='diamond'),
-                ))
-                
-                # Confidence interval removed as requested
-    else:
-        # Only add the primary model forecast if it's in selected models or if none are selected
-        if show_primary_model:
-            # Create hover text with model name and exact values
-            hover_text = [f"<b>Model:</b> {primary_model.upper()}<br>" +
-                         f"<b>Date:</b> {date.strftime('%Y-%m-%d')}<br>" +
-                         f"<b>Value:</b> {int(value) if not np.isnan(value) else 'N/A'}" 
-                         for date, value in zip(forecast.index, forecast.values)]
-                    
-            fig.add_trace(go.Scatter(
-                x=forecast.index,
-                y=forecast.values,
-                mode='lines+markers',
-                name=f'{primary_model.upper()} Forecast',
-                line=dict(color='#d62728', width=2, dash='dash'),
-                marker=dict(size=8, symbol='diamond'),
-                hoverinfo='text',
-                hovertext=hover_text,
-                hoverlabel=dict(bgcolor='#d62728', font=dict(color='white')),
-            ))
-        
-        # Confidence interval removed as requested
     
     # Add test predictions if available
     # Show test predictions if explicitly requested or if in test prediction mode

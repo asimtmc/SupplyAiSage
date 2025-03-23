@@ -606,20 +606,23 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
 
                 # If we have model evaluation data for multiple models, show them side by side in the table
                 if 'model_evaluation' in forecast_data and 'all_models_forecasts' in forecast_data['model_evaluation']:
-                    model_forecasts = forecast_data['model_evaluation']['all_models_forecasts']
+                    model_forecasts = forecast_data['model_evaluation']['all_models_forecasts']_models_forecasts']
 
-                    # Only show models explicitly selected by the user
+                    # Show models explicitly selected by the user
                     if show_all_models:
-                        # Use only models from sidebar that are available
+                        # Use all models from sidebar that are available
                         models_to_display = [m.lower() for m in st.session_state.selected_models 
-                                           if m.lower() in model_forecasts and m.lower() != forecast_data['model']]
+                                           if m.lower() in model_forecasts]
                     elif custom_models_lower:
-                        # Use custom selection from multiselect (excluding primary model already shown)
+                        # Use custom selection from multiselect
                         models_to_display = [m for m in custom_models_lower 
-                                           if m in model_forecasts and m != forecast_data['model']]
+                                           if m in model_forecasts]
                     else:
-                        # If no models selected, don't show any additional models
-                        models_to_display = []
+                        # If no models selected, use the best model (from model_evaluation)
+                        if 'model_evaluation' in forecast_data and 'best_model' in forecast_data['model_evaluation']:
+                            models_to_display = [forecast_data['model_evaluation']['best_model']]
+                        else:
+                            models_to_display = [forecast_data['model']]
 
                     # Add each selected model's forecast as a column
                     for model in models_to_display:

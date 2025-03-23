@@ -1005,8 +1005,18 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                 # Add fallback forecast for any missing model
                 window = min(3, len(data) // 2)
                 fallback_forecast = data['quantity'].rolling(window=window).mean().iloc[-1]
+                if pd.isna(fallback_forecast):  # Handle NaN case
+                    fallback_forecast = data['quantity'].mean() if len(data) > 0 else 0
                 fallback_values = [fallback_forecast] * forecast_periods
                 all_models_forecasts[model_lower] = pd.Series(fallback_values, index=future_dates)
+                
+                # Also ensure there's an entry in metrics for this model
+                if model_lower not in metrics:
+                    metrics[model_lower] = {
+                        'rmse': np.nan,
+                        'mape': np.nan,
+                        'mae': np.nan
+                    }
 
     # Return complete evaluation results
     return {
