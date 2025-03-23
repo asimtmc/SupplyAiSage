@@ -65,41 +65,41 @@ with st.sidebar:
     # Get available SKUs from sales data (always available)
     if 'sales_data' in st.session_state and st.session_state.sales_data is not None:
         st.subheader("SKU Selection")
-        
+
         # Function to update selected SKUs
         def update_selected_skus():
             new_selection = st.session_state.sku_multiselect
             st.session_state.selected_skus = new_selection
             if new_selection:
                 st.session_state.selected_sku = new_selection[0]  # Set first selected SKU as primary
-        
+
         # Get available SKUs from the sales data - ensure we have a stable list
         try:
             available_skus = sorted(st.session_state.sales_data['sku'].unique().tolist())
         except Exception as e:
             st.error(f"Error getting SKUs from sales data: {str(e)}")
             available_skus = []
-        
+
         # Safety check - ensure we have valid SKUs
         available_skus = [sku for sku in available_skus if sku is not None and str(sku).strip() != '']
-        
+
         # Determine default selection - with robust error handling
         default_selection = []
-        
+
         # If we already have selected SKUs, use them if they're still valid
         if st.session_state.selected_skus:
             default_selection = [sku for sku in st.session_state.selected_skus if sku in available_skus]
-        
+
         # If no valid selection, default to first SKU if available
         if not default_selection and available_skus:
             default_selection = [available_skus[0]]
-        
+
         # Info about available SKUs
         if available_skus:
             st.info(f"📊 {len(available_skus)} SKUs available for analysis")
         else:
             st.warning("No SKUs found in sales data. Please check your data upload.")
-            
+
         # Create the multiselect widget with on_change callback
         sku_selection = st.multiselect(
             "Select SKUs to Analyze",
@@ -109,14 +109,14 @@ with st.sidebar:
             key="sku_multiselect",
             help="Select one or more SKUs to analyze or forecast"
         )
-        
+
         # Ensure selected_skus is always updated
         st.session_state.selected_skus = sku_selection
-        
+
         # Update primary selected SKU if we have a selection
         if sku_selection:
             st.session_state.selected_sku = sku_selection[0]
-            
+
         # Show current selection information
         if sku_selection:
             st.success(f"✅ Selected {len(sku_selection)} SKU(s) for analysis")
@@ -204,7 +204,7 @@ with st.sidebar:
 
     # Create a placeholder for the progress bar
     progress_placeholder = st.empty()
-    
+
     # Create a run button with a unique key
     if should_show_button:
         run_forecast_clicked = st.button(
@@ -212,37 +212,37 @@ with st.sidebar:
             key="run_forecast_button",
             use_container_width=True
         )
-        
+
         if run_forecast_clicked:
             # Set forecast in progress flag
             st.session_state.forecast_in_progress = True
             st.session_state.forecast_progress = 0
             st.session_state.run_forecast = True
-            
+
             # Create an enhanced progress display
             with progress_placeholder.container():
                 # Create a two-column layout for the progress display
                 progress_cols = st.columns([3, 1])
-                
+
                 with progress_cols[0]:
                     # Header for progress display with animation effect
                     st.markdown('<h3 style="color:#0066cc;"><span class="highlight">🔄 Forecast Generation in Progress</span></h3>', unsafe_allow_html=True)
-                    
+
                     # Progress bar with custom styling
                     progress_bar = st.progress(0)
-                    
+
                     # Status text placeholder
                     status_text = st.empty()
-                    
+
                     # Add a progress details section
                     progress_details = st.empty()
-                
+
                 with progress_cols[1]:
                     # Add an animated spinner for current processing step
                     spinner_placeholder = st.empty()
                     # Status indicator for phases
                     phase_indicator = st.empty()
-                
+
                 try:
                     # Phase 1: Extract time series features for clustering
                     with spinner_placeholder:
@@ -253,7 +253,7 @@ with st.sidebar:
                             features_df = extract_features(st.session_state.sales_data)
                             progress_bar.progress(10)
                             time.sleep(0.5)  # Add a small pause for visual effect
-                    
+
                     # Phase 2: Cluster SKUs
                     with spinner_placeholder:
                         with st.spinner("Clustering SKUs..."):
@@ -263,11 +263,11 @@ with st.sidebar:
                             st.session_state.clusters = cluster_skus(features_df, n_clusters=num_clusters)
                             progress_bar.progress(20)
                             time.sleep(0.5)  # Add a small pause for visual effect
-                    
+
                     # Phase 3: Generate forecasts
                     phase_indicator.markdown("**Phase 3/3**")
                     status_text.markdown("### Step 3: Forecast Generation")
-                    
+
                     # Determine which SKUs to forecast
                     skus_to_forecast = None
                     if forecast_scope == "Selected SKUs Only" and selected_skus_to_forecast:
@@ -276,7 +276,7 @@ with st.sidebar:
                     else:
                         total_skus = len(features_df)
                         progress_details.info(f"Generating forecasts for all {total_skus} SKUs using {len(models_to_evaluate)} different forecasting models...")
-                    
+
                     # Generate forecasts with model evaluation and progress tracking
                     with spinner_placeholder:
                         with st.spinner("Building forecast models..."):
@@ -289,7 +289,7 @@ with st.sidebar:
                                 selected_skus=skus_to_forecast,
                                 progress_callback=forecast_progress_callback
                             )
-                    
+
                     # Update progress based on callback data with improved visuals
                     # Create an animated progress update
                     last_progress = 0
@@ -298,7 +298,7 @@ with st.sidebar:
                         if current_progress > last_progress:
                             progress_bar.progress(current_progress)
                             last_progress = current_progress
-                            
+
                         with spinner_placeholder:
                             with st.spinner(f"Processing {st.session_state.forecast_current_sku}..."):
                                 # Update progress display with more dynamic information
@@ -307,35 +307,35 @@ with st.sidebar:
                                 progress_details.info(f"Completed: **{progress_percentage}%** | Current SKU: **{st.session_state.forecast_current_sku}**")
                                 phase_indicator.markdown(f"**Processing {progress_percentage}% complete**")
                                 time.sleep(0.1)
-                    
+
                     # Complete the progress bar with success animation
                     progress_bar.progress(100)
                     spinner_placeholder.success("✅ Complete")
                     phase_indicator.markdown("**Finished!**")
                     status_text.markdown("### ✨ Forecast Generation Completed Successfully!")
                     progress_details.success("All forecasts have been generated and are ready to explore!")
-                    
+
                     # If forecasts were generated, set default selected SKU
                     if st.session_state.forecasts:
                         sku_list = sorted(list(st.session_state.forecasts.keys()))
                         st.session_state.sku_options = sku_list
                         if sku_list and not st.session_state.selected_sku in sku_list:
                             st.session_state.selected_sku = sku_list[0]
-                    
+
                     num_skus = len(st.session_state.forecasts)
                     if num_skus > 0:
                         st.success(f"Successfully generated forecasts for {num_skus} SKUs!")
                     else:
                         st.error("No forecasts were generated. Please check your data and selected SKUs.")
-                    
+
                 except Exception as e:
                     st.error(f"Error during forecast generation: {str(e)}")
-                
+
                 finally:
                     # Reset progress tracking
                     st.session_state.forecast_in_progress = False
                     time.sleep(1)  # Keep the completed progress visible briefly
-            
+
             # Clear the progress display after completion
             progress_placeholder.empty()
 
@@ -528,7 +528,7 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                             default_model = forecast_data['model'].upper()
                             if default_model not in model_options:
                                 model_options.append(default_model)
-                                
+
                             # Create multiselect for custom model selection
                             custom_models = st.multiselect(
                                 "Select Models to Display",
@@ -569,7 +569,7 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                     test_pct = int((test_count / total_points) * 100)
 
                     st.caption(f"Data split: {train_count} training points ({train_pct}%) and {test_count} test points ({test_pct}%)")
-                
+
 
             with col2:
                 # Show forecast details (same as before)
@@ -586,30 +586,30 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
 
                 # Enhanced forecast table with additional details
                 st.subheader("Forecast Data Table")
-                
+
                 # Create basic forecast table - without confidence intervals as requested
                 forecast_table = pd.DataFrame({
                     'Date': forecast_data['forecast'].index,
                     'Forecast': forecast_data['forecast'].values.round(0).astype(int)
                 })
-                
+
                 # If we have model evaluation data for multiple models, show them side by side in the table
                 if (show_all_models or len(custom_models_lower) > 0) and 'model_evaluation' in forecast_data and 'all_models_forecasts' in forecast_data['model_evaluation']:
                     model_forecasts = forecast_data['model_evaluation']['all_models_forecasts']
-                    
+
                     # Determine which models to include
                     models_to_display = custom_models_lower if len(custom_models_lower) > 0 else available_models
-                    
+
                     # Add each selected model's forecast as a column
                     for model in models_to_display:
                         if model in model_forecasts and model != forecast_data['model']:  # Skip primary model as it's already in 'Forecast'
                             model_forecast = model_forecasts[model]
                             if len(model_forecast) == len(forecast_table):
                                 forecast_table[f'{model.upper()} Forecast'] = model_forecast.values.round(0).astype(int)
-                
+
                 # Format the date column to be more readable
                 forecast_table['Date'] = forecast_table['Date'].dt.strftime('%Y-%m-%d')
-                
+
                 # Display the enhanced table with styling
                 st.dataframe(
                     forecast_table.style.highlight_max(subset=['Forecast'], color='#d6eaf8')
@@ -684,7 +684,7 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
 
                 # Add explanation about model selection
                 st.info("The system selected the model with the lowest RMSE as the best model for forecasting this SKU.")
-                
+
         # The All SKUs Data Table tab was removed as the information is now integrated in the Forecast Chart tab
 
     # Forecast export
@@ -724,41 +724,42 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                 file_name=f"forecasts_{datetime.now().strftime('%Y%m%d')}.xlsx",
                 mime="application/vnd.ms-excel"
             )
-        else:
-            st.warning("No forecast data available. Please run a forecast first.")
+
+    else:
+        st.warning("No forecast data available. Please run a forecast first.")
 
     # Add the forecast data table outside of the tabs to take full width
     st.header("Forecast Data Table")
     st.info("This table shows historical and forecasted values with dates as columns. The table includes actual sales data and forecasts for each SKU/model combination.")
-    
+
     # Prepare comprehensive data table
     if st.session_state.forecasts:
         # Create a dataframe to store all SKUs data with reoriented structure
         all_sku_data = []
-        
+
         # Get historical dates (use the first forecast as reference for dates)
         first_sku = list(st.session_state.forecasts.keys())[0]
         first_forecast = st.session_state.forecasts[first_sku]  # Define first_forecast here
-        
+
         # Make sure we have train data to extract historical dates
         if 'train_set' in first_forecast:
             # Identify unique dates in historical data
             historical_dates = pd.to_datetime(sorted(st.session_state.sales_data['date'].unique()))
-            
+
             # Limit to a reasonable number of historical columns (e.g., last 6 months)
             if len(historical_dates) > 6:
                 historical_dates = historical_dates[-6:]
-            
+
             # Format dates for column names
             historical_cols = [date.strftime('%-d %b %Y') for date in historical_dates]
-            
+
             # Get forecast dates from first SKU (for column headers)
             forecast_dates = first_forecast['forecast'].index
             forecast_date_cols = [date.strftime('%-d %b %Y') for date in forecast_dates]
-            
+
             # Add SKU selector for the table
             all_skus = sorted(list(st.session_state.forecasts.keys()))
-            
+
             # Add multi-select for table SKUs
             table_skus = st.multiselect(
                 "Select SKUs to include in the table",
@@ -766,33 +767,33 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                 default=[selected_sku] if selected_sku in all_skus else [],
                 help="Select specific SKUs to include in the table below"
             )
-            
+
             # If no SKUs selected, use the currently selected one
             if not table_skus:
                 table_skus = [selected_sku] if selected_sku in all_skus else []
-            
+
             # Process each selected SKU
             for sku in table_skus:
                 forecast_data_for_sku = st.session_state.forecasts[sku]
-                
+
                 # Get all models for this SKU
                 models_to_include = [forecast_data_for_sku['model']]  # Start with best model
-                
+
                 if 'model_evaluation' in forecast_data_for_sku and 'all_models_forecasts' in forecast_data_for_sku['model_evaluation']:
                     # Add other models if available
                     for model in forecast_data_for_sku['model_evaluation']['all_models_forecasts']:
                         if model != forecast_data_for_sku['model']:  # Don't duplicate best model
                             models_to_include.append(model)
-                
+
                 # Get actual sales data for this SKU
                 sku_sales = st.session_state.sales_data[st.session_state.sales_data['sku'] == sku].copy()
                 sku_sales.set_index('date', inplace=True)
-                
+
                 # For each model, create a row in the table
                 for model in models_to_include:
                     # Mark if this is the best model
                     is_best_model = (model == forecast_data_for_sku['model'])
-                    
+
                     # Create base row info
                     row = {
                         'sku_code': sku,
@@ -800,7 +801,7 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                         'model': model.upper(),
                         'best_model': '✓' if is_best_model else ''
                     }
-                    
+
                     # Get model forecast data
                     if model == forecast_data_for_sku['model']:
                         model_forecast = forecast_data_for_sku['forecast']
@@ -808,7 +809,7 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                         model_forecast = forecast_data_for_sku['model_evaluation']['all_models_forecasts'].get(model, pd.Series())
                     else:
                         model_forecast = pd.Series()
-                        
+
                     # Add historical/actual values (prefixed with 'Actual:')
                     for date, col_name in zip(historical_dates, historical_cols):
                         actual_col_name = f"Actual: {col_name}"
@@ -816,7 +817,7 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                             row[actual_col_name] = int(sku_sales.loc[date, 'quantity']) if not pd.isna(sku_sales.loc[date, 'quantity']) else 0
                         else:
                             row[actual_col_name] = 0
-                    
+
                     # Add forecast values (prefixed with 'Forecast:') - ensuring dates match
                     for date, col_name in zip(forecast_dates, forecast_date_cols):
                         forecast_col_name = f"Forecast: {col_name}"
@@ -824,51 +825,51 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                             row[forecast_col_name] = int(model_forecast[date])
                         else:
                             row[forecast_col_name] = 0
-                    
+
                     all_sku_data.append(row)
-            
+
             # Create DataFrame from all data
             if all_sku_data:
                 all_sku_df = pd.DataFrame(all_sku_data)
-                
+
                 # Identify column groups for styling
                 all_cols = all_sku_df.columns.tolist()
                 info_cols = ['sku_code', 'sku_name', 'model', 'best_model']
                 actual_cols = [col for col in all_cols if col.startswith('Actual:')]
                 forecast_cols = [col for col in all_cols if col.startswith('Forecast:')]
-                
+
                 # Define a function for styling the dataframe
                 def highlight_data_columns(df):
                     # Create a DataFrame of styles
                     styles = pd.DataFrame('', index=df.index, columns=df.columns)
-                    
+
                     # Apply background colors to different column types
                     for col in actual_cols:
                         styles[col] = 'background-color: #E8F4F9'  # Light blue for actual values
-                    
+
                     for col in forecast_cols:
                         styles[col] = 'background-color: #FFF9C4'  # Light yellow for forecast values
-                    
+
                     # Highlight best model rows
                     for i, val in enumerate(df['best_model']):
                         if val == '✓':
                             for col in df.columns:
                                 styles.iloc[i, df.columns.get_loc(col)] += '; font-weight: bold'
-                    
+
                     return styles
-                
+
                 # Use styling to highlight data column types
                 st.dataframe(
                     all_sku_df.style.apply(highlight_data_columns, axis=None),
                     use_container_width=True,
                     height=500
                 )
-                
+
                 # Provide a download button for the table
                 csv_buffer = io.BytesIO()
                 all_sku_df.to_csv(csv_buffer, index=False)
                 csv_buffer.seek(0)
-                
+
                 st.download_button(
                     label="Download Table as CSV",
                     data=csv_buffer,
