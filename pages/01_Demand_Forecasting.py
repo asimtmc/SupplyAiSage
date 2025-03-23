@@ -746,9 +746,10 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
             # Identify unique dates in historical data
             historical_dates = pd.to_datetime(sorted(st.session_state.sales_data['date'].unique()))
 
-            # Limit to a reasonable number of historical columns (e.g., last 6 months)
-            if len(historical_dates) > 6:
-                historical_dates = historical_dates[-6:]
+            # Show all historical data points as requested by the user
+            # Commented out the limit to show all historical dates
+            # if len(historical_dates) > 6:
+            #     historical_dates = historical_dates[-6:]
 
             # Format dates for column names
             historical_cols = [date.strftime('%-d %b %Y') for date in historical_dates]
@@ -812,17 +813,19 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                     else:
                         model_forecast = pd.Series()
 
-                    # Add historical/actual values (prefixed with 'Actual:')
+                    # Add historical/actual values (no prefix, just the date)
                     for date, col_name in zip(historical_dates, historical_cols):
-                        actual_col_name = f"Actual: {col_name}"
+                        # Remove "Actual:" prefix but track these columns separately for styling
+                        actual_col_name = col_name  # Just use the date as column name
                         if date in sku_sales.index:
                             row[actual_col_name] = int(sku_sales.loc[date, 'quantity']) if not pd.isna(sku_sales.loc[date, 'quantity']) else 0
                         else:
                             row[actual_col_name] = 0
 
-                    # Add forecast values (prefixed with 'Forecast:') - ensuring dates match
+                    # Add forecast values (no prefix, just the date) - ensuring dates match
                     for date, col_name in zip(forecast_dates, forecast_date_cols):
-                        forecast_col_name = f"Forecast: {col_name}"
+                        # Remove "Forecast:" prefix but track these columns separately for styling
+                        forecast_col_name = col_name  # Just use the date as column name
                         if date in model_forecast.index:
                             row[forecast_col_name] = int(model_forecast[date])
                         else:
@@ -837,8 +840,11 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                 # Identify column groups for styling
                 all_cols = all_sku_df.columns.tolist()
                 info_cols = ['sku_code', 'sku_name', 'model', 'best_model']
-                actual_cols = [col for col in all_cols if col.startswith('Actual:')]
-                forecast_cols = [col for col in all_cols if col.startswith('Forecast:')]
+                
+                # Since we removed prefixes, we need a different way to identify historical vs forecast columns
+                # Use the fact that historical columns come from historical_cols and forecast columns from forecast_date_cols
+                actual_cols = historical_cols
+                forecast_cols = forecast_date_cols
 
                 # Define a function for styling the dataframe
                 def highlight_data_columns(df):
@@ -880,11 +886,38 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                 with st.expander("Understanding the Table", expanded=False):
                     st.markdown(forecast_explanation)
                 
-                # Use styling to highlight data column types
+                # Use styling to highlight data column types with frozen columns till model name
                 st.dataframe(
                     all_sku_df.style.apply(highlight_data_columns, axis=None),
                     use_container_width=True,
                     height=600,  # Increased height for better visibility
+                    column_config={
+                        # Freeze the info columns (SKU code, SKU name, model, best model)
+                        "sku_code": st.column_config.TextColumn(
+                            "SKU Code",
+                            width="medium",
+                            help="Unique identifier for the SKU",
+                            frozen=True
+                        ),
+                        "sku_name": st.column_config.TextColumn(
+                            "SKU Name",
+                            width="medium",
+                            help="Name of the SKU",
+                            frozen=True
+                        ),
+                        "model": st.column_config.TextColumn(
+                            "Model",
+                            width="medium",
+                            help="Forecasting model used",
+                            frozen=True
+                        ),
+                        "best_model": st.column_config.TextColumn(
+                            "Best",
+                            width="small",
+                            help="Check mark indicates best performing model",
+                            frozen=True
+                        )
+                    }
                 )
 
                 # Create Excel file with nice formatting for download
@@ -931,9 +964,9 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                         col_idx = all_sku_df.columns.get_loc(col)
                         if col in info_cols:
                             worksheet.set_column(col_idx, col_idx, 15, info_format)
-                        elif col.startswith('Actual:'):
+                        elif col in actual_cols:
                             worksheet.set_column(col_idx, col_idx, 12, actual_format)
-                        elif col.startswith('Forecast:'):
+                        elif col in forecast_cols:
                             worksheet.set_column(col_idx, col_idx, 12, forecast_format)
                     
                 excel_buffer.seek(0)

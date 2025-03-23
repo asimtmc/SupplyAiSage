@@ -119,9 +119,10 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
     # Define line styles for better differentiation
     line_styles = ['solid', 'dash', 'dot', 'dashdot', 'longdash', 'longdashdot']
     
-    # If no models selected, use the best model
+    # Only use models that were actually selected by the user
     if selected_models is None or len(selected_models) == 0:
-        selected_models = [forecast_data['model']]
+        # Don't default to any model if none selected
+        selected_models = []
     
     # Get forecast data for the primary (best) model
     primary_model = forecast_data['model']
