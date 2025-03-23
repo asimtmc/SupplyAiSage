@@ -545,6 +545,9 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                     if show_all_models:
                         # Use all selected models from sidebar
                         selected_models_for_viz = [m for m in st.session_state.selected_models if m in available_models]
+                        # Remove any models not selected in sidebar
+                        if forecast_data['model'] not in st.session_state.selected_models:
+                            selected_models_for_viz = [m for m in selected_models_for_viz if m != forecast_data['model']]
                     elif custom_models_lower:
                         # Use custom selection
                         selected_models_for_viz = custom_models_lower
