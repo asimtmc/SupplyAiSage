@@ -724,7 +724,6 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                 file_name=f"forecasts_{datetime.now().strftime('%Y%m%d')}.xlsx",
                 mime="application/vnd.ms-excel"
             )
-
     else:
         st.warning("No forecast data available. Please run a forecast first.")
 
