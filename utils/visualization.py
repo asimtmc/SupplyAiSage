@@ -179,13 +179,18 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
 
     # Add a vertical line separating historical and forecast periods
     # Use a direct shape instead of add_vline to avoid type issues
+    # Convert to string format to avoid type issues
+    max_date = sku_data['date'].max()
+    if isinstance(max_date, pd.Timestamp):
+        max_date = max_date.strftime('%Y-%m-%d')
+    
     forecast_start_line = dict(
         type="line",
         xref="x",
         yref="paper",
-        x0=sku_data['date'].max(),
+        x0=max_date,
         y0=0,
-        x1=sku_data['date'].max(),
+        x1=max_date,
         y1=1,
         line=dict(
             color="gray",
@@ -194,8 +199,9 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
     )
     
     # Add annotation for the line
+    # Use the same string-formatted date to ensure consistency
     forecast_annotation = dict(
-        x=sku_data['date'].max(),
+        x=max_date,
         y=1,
         xref="x",
         yref="paper",

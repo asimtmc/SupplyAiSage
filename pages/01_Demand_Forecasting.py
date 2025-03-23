@@ -562,7 +562,7 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                     else:
                         # Default to the primary model if nothing is explicitly selected
                         selected_models_for_viz = [forecast_data['model']]
-                    
+
                     # Ensure we have at least one model in the list
                     if not selected_models_for_viz and available_models:
                         selected_models_for_viz = [available_models[0]]
@@ -735,7 +735,7 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
             # Create a DataFrame with all forecasts
             export_data = []
 
-            for sku, forecast_data in st.session_state.forecasts.items():
+            for sku, forecastdata in st.session_state.forecasts.items():
                 for date, value in forecast_data['forecast'].items():
                     export_data.append({                        'sku': sku,
                         'date': date,
