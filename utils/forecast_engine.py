@@ -843,7 +843,7 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
 
     # Default models to evaluate if none specified
     if models_to_evaluate is None or len(models_to_evaluate) == 0:
-        models_to_evaluate = ["arima", "sarima", "prophet", "lstm", "holtwinters"]
+        models_to_evaluate = ["arima", "sarima", "prophet", "lstm", "holtwinters", "ensemble"]
 
     # Print list of models being evaluated (for debugging)
     print(f"Evaluating models: {models_to_evaluate}")
