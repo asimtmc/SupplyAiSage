@@ -904,7 +904,7 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                         else:
                             seasonal_periods = 4   # Quarterly-like pattern for shorter data
 
-                        # Train Holt-Winters Exponential Smoothing model
+                        # Train Holt-Winters Exponential Smoothing model with improved parameter handling
                         model = ExponentialSmoothing(
                             train_data['quantity'],
                             trend='add',               # Additive trend
@@ -912,38 +912,87 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                             seasonal_periods=seasonal_periods,
                             damped=True                # Damped trend to avoid over-forecasting
                         )
+                        
+                        # Use more stable optimization settings
                         model_fit = model.fit(
-                            optimized=True,            # Find optimal parameters
-                            use_brute=False            # Use gradient descent for speed
+                            optimized=True,            
+                            use_brute=True,            # Use brute force method which is more stable
+                            method='SLSQP'             # Use Sequential Least Squares Programming
                         )
 
-                        # Generate test forecasts
+                        # Generate test forecasts and validate results aren't NaN
                         y_pred = model_fit.forecast(steps=len(test_data))
-
+                        
+                        # Check if we have valid forecasts (not NaN)
+                        if np.isnan(y_pred).any():
+                            print(f"Holtwinters generated NaN values for test predictions - trying simpler model")
+                            # Try simpler model parameters
+                            model = ExponentialSmoothing(
+                                train_data['quantity'],
+                                trend=None,            # No trend component
+                                seasonal='add',        # Additive seasonality only
+                                seasonal_periods=seasonal_periods
+                            )
+                            model_fit = model.fit()
+                            y_pred = model_fit.forecast(steps=len(test_data))
+                            
+                            # If still NaN, raise exception to try fallback
+                            if np.isnan(y_pred).any():
+                                raise ValueError("Unable to generate valid forecasts with Holtwinters")
+                        
                         # Convert to NumPy array for consistency
                         y_pred = y_pred.values
 
                         # Store test predictions
                         all_models_test_pred[model_type] = pd.Series(y_pred, index=test_data['date'])
 
-                        # Train on all data for future forecast
+                        # Train on all data for future forecast using the same successful approach
                         full_model = ExponentialSmoothing(
                             data['quantity'],
-                            trend='add',
+                            trend='add' if 'trend' in model_fit.params and model_fit.params['trend'] else None,
                             seasonal='add',
                             seasonal_periods=seasonal_periods,
-                            damped=True
+                            damped='damped' in model_fit.params and model_fit.params['damped']
                         )
+                        
+                        # Use the same successful fitting method
+                        if 'method' in model_fit.mle_retvals:
+                            method = model_fit.mle_retvals['method']
+                        else:
+                            method = 'SLSQP'
+                            
                         full_model_fit = full_model.fit(
                             optimized=True,
-                            use_brute=False
+                            use_brute=True,
+                            method=method
                         )
 
-                        # Generate future forecasts
+                        # Generate future forecasts and validate
                         future_values = full_model_fit.forecast(steps=forecast_periods)
+                        
+                        # Verify forecasts are valid numbers
+                        if np.isnan(future_values).any():
+                            print(f"Holtwinters generated NaN values for future forecasts - trying simpler model")
+                            # Try simpler model
+                            full_model = ExponentialSmoothing(
+                                data['quantity'],
+                                trend=None,
+                                seasonal='add',
+                                seasonal_periods=seasonal_periods
+                            )
+                            full_model_fit = full_model.fit()
+                            future_values = full_model_fit.forecast(steps=forecast_periods)
+                            
+                            # If still NaN, raise exception to try fallback
+                            if np.isnan(future_values).any():
+                                raise ValueError("Unable to generate valid forecasts with Holtwinters")
 
-                        # Store future forecasts
-                        all_models_forecasts[model_type] = pd.Series(future_values, index=future_dates)
+                        # Store future forecasts (validate again just to be safe)
+                        if not np.isnan(future_values).any():
+                            all_models_forecasts[model_type] = pd.Series(future_values, index=future_dates)
+                        else:
+                            raise ValueError("Holtwinters produced NaN values")
+                            
                     except Exception as e:
                         print(f"Holt-Winters model failed: {str(e)}")
                         continue
