@@ -178,8 +178,9 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
     )
 
     # Add a vertical line separating historical and forecast periods
+    max_date = sku_data['date'].max()
     fig.add_vline(
-        x=sku_data['date'].max(), 
+        x=max_date, 
         line_dash="dash",
         line_color="gray",
         annotation_text="Forecast Start",
