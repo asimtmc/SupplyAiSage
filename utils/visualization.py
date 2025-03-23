@@ -122,6 +122,7 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
     # Only use models that were actually selected by the user
     if selected_models is None:
         # If no models are explicitly selected, include the primary model by default
+        selected_models = [forecast_data['model']]
     if not selected_models:
         selected_models = [forecast_data['model']]
     
