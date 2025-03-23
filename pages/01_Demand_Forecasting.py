@@ -524,16 +524,27 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                         if not show_all_models and len(available_models) > 1:
                             # Get model options capitalized
                             model_options = [model.upper() for model in available_models]
-                            # Default to the best model and ensure it's in the options list
+                            # Get all available models in uppercase
+                            model_options = [model.upper() for model in available_models]
+                            
+                            # Get the selected models from sidebar (also in uppercase)
+                            selected_sidebar_models = [m.upper() for m in st.session_state.selected_models 
+                                                     if m.lower() in available_models]
+                            
+                            # Ensure best model is included in the options
                             default_model = forecast_data['model'].upper()
                             if default_model not in model_options:
                                 model_options.append(default_model)
+                            
+                            # If none of the sidebar selected models are available, default to the best model
+                            if not selected_sidebar_models:
+                                selected_sidebar_models = [default_model]
 
                             # Create multiselect for custom model selection
                             custom_models = st.multiselect(
                                 "Select Models to Display",
                                 options=model_options,
-                                default=[default_model] if default_model in model_options else [],
+                                default=selected_sidebar_models,
                                 help="Select one or more models to display on chart"
                             )
                             # Convert back to lowercase
