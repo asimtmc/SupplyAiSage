@@ -733,7 +733,7 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                 # Add explanation about metrics
                 st.markdown("""
                 **Metrics Explanation:**
-                *RMSE (Root Mean Square Error): Measures the square root of the average squared difference between predicted and actual values. Lower values are better.
+                *RMSE (Root Mean Square Error): Measures the square root ofthe average squared difference between predicted and actual values. Lower values are better.
                 * **MAPE (Mean Absolute Percentage Error)**: Measures the average percentage difference between predicted and actual values. Lower values are better.
                 * **MAE (Mean Absolute Error)**: Measures the average absolute difference between predicted and actual values. Lower values are better.
                 """)
@@ -906,25 +906,25 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                         try:
                             if model_forecast_series is not None and date in model_forecast_series.index:
                                 forecast_value = model_forecast_series[date]
-                                # Proper NaN handling
-                                if pd.isna(forecast_value) or np.isnan(forecast_value):
-                                    row[forecast_col_name] = 0
-                                else:
-                                    try:
-                                        # Extra safety check against NaN before conversion
-                                        if np.isnan(forecast_value) or pd.isna(forecast_value):
-                                            row[forecast_col_name] = 0
-                                        else:
-                                            row[forecast_col_name] = int(round(forecast_value))
-                                    except:
-                                        # Fallback if conversion fails
+                                try:
+                                    # Check if value is NaN before conversion
+                                    if not pd.isna(forecast_value) and not np.isnan(forecast_value):
+                                        row[forecast_col_name] = int(round(forecast_value))
+                                    else:
+                                        # Handle NaN values
+                                        print(f"Warning: NaN value detected for {model} at {date}")
                                         row[forecast_col_name] = 0
+                                except Exception as e:
+                                    # Log the error with details
+                                    print(f"Error converting forecast value for {model} at {date}: {str(e)}")
+                                    row[forecast_col_name] = 0
                             else:
                                 # If we can't find the forecast, set to 0
+                                print(f"No forecast found for {model} at {date}")
                                 row[forecast_col_name] = 0
                         except Exception as e:
                             # Catch any unexpected errors and use a safe fallback
-                            print(f"Error processing forecast for {date}: {str(e)}")
+                            print(f"Error processing forecast for {model} at {date}: {str(e)}")
                             row[forecast_col_name] = 0
 
                     all_sku_data.append(row)
