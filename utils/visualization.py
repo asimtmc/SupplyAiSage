@@ -178,16 +178,45 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
     )
 
     # Add a vertical line separating historical and forecast periods
-    max_date = sku_data['date'].max()
-    # Convert to string format that Plotly can handle
-    max_date_str = max_date.strftime('%Y-%m-%d')
-    fig.add_vline(
-        x=max_date_str, 
-        line_dash="dash",
-        line_color="gray",
-        annotation_text="Forecast Start",
-        annotation_position="top right"
+    # Use a direct shape instead of add_vline to avoid type issues
+    forecast_start_line = dict(
+        type="line",
+        xref="x",
+        yref="paper",
+        x0=sku_data['date'].max(),
+        y0=0,
+        x1=sku_data['date'].max(),
+        y1=1,
+        line=dict(
+            color="gray",
+            dash="dash",
+        )
     )
+    
+    # Add annotation for the line
+    forecast_annotation = dict(
+        x=sku_data['date'].max(),
+        y=1,
+        xref="x",
+        yref="paper",
+        text="Forecast Start",
+        showarrow=False,
+        xanchor="right",
+        yanchor="top",
+        bgcolor="rgba(255, 255, 255, 0.8)",
+        font=dict(size=12)
+    )
+    
+    # Update layout to include the shape and annotation
+    if 'shapes' in fig.layout:
+        fig.layout.shapes = list(fig.layout.shapes) + [forecast_start_line]
+    else:
+        fig.layout.shapes = [forecast_start_line]
+        
+    if 'annotations' in fig.layout:
+        fig.layout.annotations = list(fig.layout.annotations) + [forecast_annotation]
+    else:
+        fig.layout.annotations = [forecast_annotation]
 
     # Indicate forecast area with light shading
     forecast_shade = dict(
