@@ -846,38 +846,123 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                     styles = pd.DataFrame('', index=df.index, columns=df.columns)
 
                     # Apply background colors to different column types
+                    for col in info_cols:
+                        styles[col] = 'background-color: #F5F5F5; font-weight: 500'  # Light gray for info columns
+                        
                     for col in actual_cols:
-                        styles[col] = 'background-color: #E8F4F9'  # Light blue for actual values
-
+                        styles[col] = 'background-color: #E3F2FD'  # Lighter blue for actual values
+                    
                     for col in forecast_cols:
-                        styles[col] = 'background-color: #FFF9C4'  # Light yellow for forecast values
-
+                        styles[col] = 'background-color: #FFF8E1'  # Lighter yellow for forecast values
+                    
                     # Highlight best model rows
                     for i, val in enumerate(df['best_model']):
                         if val == '✓':
                             for col in df.columns:
                                 styles.iloc[i, df.columns.get_loc(col)] += '; font-weight: bold'
-
+                                
+                    # Add text alignment
+                    for col in all_cols:
+                        if col in info_cols:
+                            styles[col] += '; text-align: left'
+                        else:
+                            styles[col] += '; text-align: right'
+                                
                     return styles
 
+                # Add column group headers using expander
+                forecast_explanation = """
+                - **SKU Info**: Basic product information
+                - **Actual Values**: Historical sales shown with blue background
+                - **Forecast Values**: Predicted sales shown with yellow background
+                - **✓**: Indicates the best performing model for each SKU
+                """
+                with st.expander("Understanding the Table", expanded=False):
+                    st.markdown(forecast_explanation)
+                
                 # Use styling to highlight data column types
                 st.dataframe(
                     all_sku_df.style.apply(highlight_data_columns, axis=None),
                     use_container_width=True,
-                    height=500
+                    height=600,  # Increased height for better visibility
                 )
 
-                # Provide a download button for the table
-                csv_buffer = io.BytesIO()
-                all_sku_df.to_csv(csv_buffer, index=False)
-                csv_buffer.seek(0)
-
-                st.download_button(
-                    label="Download Table as CSV",
-                    data=csv_buffer,
-                    file_name=f"sku_forecast_data_{datetime.now().strftime('%Y%m%d')}.csv",
-                    mime="text/csv"
-                )
+                # Create Excel file with nice formatting for download
+                excel_buffer = io.BytesIO()
+                with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
+                    all_sku_df.to_excel(writer, sheet_name='Forecast Data', index=False)
+                    
+                    # Get the xlsxwriter workbook and worksheet objects
+                    workbook = writer.book
+                    worksheet = writer.sheets['Forecast Data']
+                    
+                    # Add formats
+                    header_format = workbook.add_format({
+                        'bold': True,
+                        'text_wrap': True,
+                        'valign': 'top',
+                        'fg_color': '#D7E4BC',
+                        'border': 1
+                    })
+                    
+                    info_format = workbook.add_format({
+                        'bg_color': '#F5F5F5',
+                        'border': 1
+                    })
+                    
+                    actual_format = workbook.add_format({
+                        'bg_color': '#E3F2FD',
+                        'border': 1,
+                        'num_format': '#,##0'
+                    })
+                    
+                    forecast_format = workbook.add_format({
+                        'bg_color': '#FFF8E1',
+                        'border': 1,
+                        'num_format': '#,##0'
+                    })
+                    
+                    # Apply formats to the header
+                    for col_num, value in enumerate(all_sku_df.columns.values):
+                        worksheet.write(0, col_num, value, header_format)
+                    
+                    # Set column formats based on data type
+                    for i, col in enumerate(all_sku_df.columns):
+                        col_idx = all_sku_df.columns.get_loc(col)
+                        if col in info_cols:
+                            worksheet.set_column(col_idx, col_idx, 15, info_format)
+                        elif col.startswith('Actual:'):
+                            worksheet.set_column(col_idx, col_idx, 12, actual_format)
+                        elif col.startswith('Forecast:'):
+                            worksheet.set_column(col_idx, col_idx, 12, forecast_format)
+                    
+                excel_buffer.seek(0)
+                
+                # Provide download buttons for the table in multiple formats
+                col1, col2 = st.columns(2)
+                with col1:
+                    # Excel download
+                    st.download_button(
+                        label="📊 Download as Excel",
+                        data=excel_buffer,
+                        file_name=f"sku_forecast_data_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                        mime="application/vnd.ms-excel",
+                        help="Download a formatted Excel spreadsheet with the table data"
+                    )
+                
+                with col2:
+                    # CSV download
+                    csv_buffer = io.BytesIO()
+                    all_sku_df.to_csv(csv_buffer, index=False)
+                    csv_buffer.seek(0)
+                    
+                    st.download_button(
+                        label="📄 Download as CSV",
+                        data=csv_buffer,
+                        file_name=f"sku_forecast_data_{datetime.now().strftime('%Y%m%d')}.csv",
+                        mime="text/csv",
+                        help="Download a CSV file with the table data"
+                    )
             else:
                 st.warning("No data available for the selected SKUs.")
         else:
