@@ -643,8 +643,11 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                                 else:
                                     forecast_values.append(0)
 
-                            # Add the values to the forecast table
+                            # Add the values to the forecast table with proper NaN handling
                             forecast_table[f'{model.upper()} Forecast'] = forecast_values
+                            
+                            # Ensure there are no NaN values in the table
+                            forecast_table.fillna(0, inplace=True)
 
                 # Format the date column to be more readable
                 forecast_table['Date'] = forecast_table['Date'].dt.strftime('%Y-%m-%d')
@@ -888,7 +891,15 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                         # Now check if date exists in the model's forecast
                         if model_forecast_series is not None and date in model_forecast_series.index:
                             forecast_value = model_forecast_series[date]
-                            row[forecast_col_name] = int(forecast_value) if not pd.isna(forecast_value) else 0
+                            # Proper NaN handling
+                            if pd.isna(forecast_value):
+                                row[forecast_col_name] = 0
+                            else:
+                                try:
+                                    row[forecast_col_name] = int(round(forecast_value))
+                                except:
+                                    # Fallback if conversion fails
+                                    row[forecast_col_name] = 0
                         else:
                             # If we can't find the forecast, set to 0
                             row[forecast_col_name] = 0
