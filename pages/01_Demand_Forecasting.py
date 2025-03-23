@@ -897,32 +897,29 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                     use_container_width=True,
                     height=600,  # Increased height for better visibility
                     column_config={
-                        # Freeze the info columns (SKU code, SKU name, model, best model)
+                        # Configure the info columns (SKU code, SKU name, model, best model)
                         "sku_code": st.column_config.TextColumn(
                             "SKU Code",
                             width="medium",
-                            help="Unique identifier for the SKU",
-                            frozen=True
+                            help="Unique identifier for the SKU"
                         ),
                         "sku_name": st.column_config.TextColumn(
                             "SKU Name",
                             width="medium",
-                            help="Name of the SKU",
-                            frozen=True
+                            help="Name of the SKU"
                         ),
                         "model": st.column_config.TextColumn(
                             "Model",
                             width="medium",
-                            help="Forecasting model used",
-                            frozen=True
+                            help="Forecasting model used"
                         ),
                         "best_model": st.column_config.TextColumn(
                             "Best",
                             width="small",
-                            help="Check mark indicates best performing model",
-                            frozen=True
+                            help="Check mark indicates best performing model"
                         )
-                    }
+                    },
+                    hide_index=True
                 )
 
                 # Create Excel file with nice formatting for download
