@@ -706,7 +706,7 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                         'RMSE': round(metrics['rmse'], 2),
                         'MAPE (%)': round(metrics['mape'], 2) if not np.isnan(metrics['mape']) else "N/A",
                         'MAE': round(metrics['mae'], 2),
-                        'Best Model': '✓' if model_name == forecast_data['model_evaluation']['best_model'] else ''
+                        'Best Model': '1' if model_name == forecast_data['model_evaluation']['best_model'] else ''
                     })
 
                 # Create DataFrame and display
