@@ -741,8 +741,8 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
         first_sku = list(st.session_state.forecasts.keys())[0]
         first_forecast = st.session_state.forecasts[first_sku]  # Define first_forecast here
 
-        # Make sure we have train data to extract historical dates
-        if 'train_set' in first_forecast:
+        # Use sales data for historical dates instead of relying on train_set
+        if 'sales_data' in st.session_state and st.session_state.sales_data is not None:
             # Identify unique dates in historical data
             historical_dates = pd.to_datetime(sorted(st.session_state.sales_data['date'].unique()))
 
@@ -966,7 +966,7 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
             else:
                 st.warning("No data available for the selected SKUs.")
         else:
-            st.warning("No historical training data available to construct the comprehensive data table.")
+            st.warning("No sales data available to construct the comprehensive data table. Please upload sales data first.")
     else:
         st.warning("No forecast data available. Please run a forecast first.")
 
