@@ -389,7 +389,7 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
     for sku, forecast_data in st.session_state.forecasts.items():
         model_info = {
             'SKU': sku,
-            'Selected Model': forecast_data['model'].upper(),
+            'Selected Model': forecast_data['model_evaluation']['best_model'].upper() if 'model_evaluation' in forecast_data and 'best_model' in forecast_data['model_evaluation'] else forecast_data['model'].upper(),
             'Cluster': forecast_data['cluster_name']
         }
 
@@ -402,7 +402,7 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                 model_info['MAPE (%)'] = round(metrics['mape'], 2) if not np.isnan(metrics['mape']) else None
 
             # Add reason for selection
-            model_info['Selection Reason'] = "Best performance on test data" if best_model == forecast_data['model'] else "Fallback choice"
+            model_info['Selection Reason'] = "Best performance on test data" if best_model == model_info['Selected Model'].lower() else "Fallback choice"
 
         model_selection_data.append(model_info)
 
