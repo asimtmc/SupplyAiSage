@@ -166,6 +166,9 @@ with st.sidebar:
 
     if st.checkbox("Holt-Winters", value=True):
         models_to_evaluate.append("holtwinters")
+        
+    if st.checkbox("Ensemble Model", value=True, help="Combines multiple forecasting models for improved accuracy"):
+        models_to_evaluate.append("ensemble")
 
     # Store selected models for visualization
     st.session_state.selected_models = models_to_evaluate
@@ -638,23 +641,32 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                             for date in forecast_table['Date']:
                                 try:
                                     date_obj = pd.to_datetime(date)
+                                    # First check if the exact date is in the model forecast index
                                     if date_obj in model_forecast.index:
                                         forecast_val = model_forecast[date_obj]
-                                        # Handle NaN values before conversion to int
-                                        if pd.isna(forecast_val) or np.isnan(forecast_val):
-                                            forecast_values.append(0)
-                                        else:
-                                            # Double-check to ensure we're not trying to convert NaN
-                                            try:
-                                                forecast_values.append(int(round(forecast_val)))
-                                            except (ValueError, TypeError):
-                                                # If conversion fails for any reason, use 0
-                                                forecast_values.append(0)
+                                    # If not, try to get closest date if it's a forecast model with different index
                                     else:
+                                        # Print debugging information
+                                        closest_dates = model_forecast.index[model_forecast.index <= date_obj]
+                                        if len(closest_dates) > 0:
+                                            closest_date = closest_dates[-1]  # Get the most recent date before this one
+                                            forecast_val = model_forecast[closest_date]
+                                        else:
+                                            forecast_val = np.nan
+                                            
+                                    # Handle NaN values before conversion to int
+                                    if pd.isna(forecast_val) or np.isnan(forecast_val):
                                         forecast_values.append(0)
+                                    else:
+                                        # Double-check to ensure we're not trying to convert NaN
+                                        try:
+                                            forecast_values.append(int(round(forecast_val)))
+                                        except (ValueError, TypeError):
+                                            # If conversion fails for any reason, use 0
+                                            forecast_values.append(0)
                                 except Exception as e:
                                     # Catch any unexpected errors
-                                    print(f"Error processing forecast date {date}: {str(e)}")
+                                    print(f"Error processing forecast date {date} for model {model}: {str(e)}")
                                     forecast_values.append(0)
 
                             # Add the values to the forecast table with proper NaN handling
