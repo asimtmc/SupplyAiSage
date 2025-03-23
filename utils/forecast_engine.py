@@ -944,9 +944,17 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
             print(f"Model {model_type} failed: {str(e)}")
             continue
     
-    # Select best model based on RMSE
+    # Select best model based on RMSE, but only from models requested by user
     if metrics:
-        best_model = min(metrics.items(), key=lambda x: x[1]['rmse'])[0]
+        if models_to_evaluate:
+            # Filter to only include models that were requested
+            valid_models = {k: v for k, v in metrics.items() if k in models_to_evaluate}
+            if valid_models:
+                best_model = min(valid_models.items(), key=lambda x: x[1]['rmse'])[0]
+            else:
+                best_model = min(metrics.items(), key=lambda x: x[1]['rmse'])[0]
+        else:
+            best_model = min(metrics.items(), key=lambda x: x[1]['rmse'])[0]
     else:
         best_model = "moving_average"
         # Add moving average as fallback
