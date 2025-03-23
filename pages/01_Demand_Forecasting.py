@@ -543,17 +543,14 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
 
                     # Determine which models to display based on selections
                     if show_all_models:
-                        # Use all selected models from sidebar
-                        selected_models_for_viz = [m for m in st.session_state.selected_models if m in available_models]
-                        # Remove any models not selected in sidebar
-                        if forecast_data['model'] not in st.session_state.selected_models:
-                            selected_models_for_viz = [m for m in selected_models_for_viz if m != forecast_data['model']]
+                        # Use only the models explicitly selected from sidebar
+                        selected_models_for_viz = [m.lower() for m in st.session_state.selected_models if m.lower() in available_models]
                     elif custom_models_lower:
-                        # Use custom selection
+                        # Use custom selection from multiselect
                         selected_models_for_viz = custom_models_lower
                     else:
-                        # Default to best model only
-                        selected_models_for_viz = [forecast_data['model']]
+                        # No default model - only show what the user explicitly selects
+                        selected_models_for_viz = []
 
                     # Set test prediction flag based on checkbox
                     if show_test_predictions:
@@ -597,18 +594,27 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                 })
 
                 # If we have model evaluation data for multiple models, show them side by side in the table
-                if (show_all_models or len(custom_models_lower) > 0) and 'model_evaluation' in forecast_data and 'all_models_forecasts' in forecast_data['model_evaluation']:
+                if 'model_evaluation' in forecast_data and 'all_models_forecasts' in forecast_data['model_evaluation']:
                     model_forecasts = forecast_data['model_evaluation']['all_models_forecasts']
 
-                    # Determine which models to include
-                    models_to_display = custom_models_lower if len(custom_models_lower) > 0 else available_models
+                    # Only show models explicitly selected by the user
+                    if show_all_models:
+                        # Use only models from sidebar that are available
+                        models_to_display = [m.lower() for m in st.session_state.selected_models 
+                                           if m.lower() in model_forecasts and m.lower() != forecast_data['model']]
+                    elif custom_models_lower:
+                        # Use custom selection from multiselect (excluding primary model already shown)
+                        models_to_display = [m for m in custom_models_lower 
+                                           if m in model_forecasts and m != forecast_data['model']]
+                    else:
+                        # If no models selected, don't show any additional models
+                        models_to_display = []
 
                     # Add each selected model's forecast as a column
                     for model in models_to_display:
-                        if model in model_forecasts and model != forecast_data['model']:  # Skip primary model as it's already in 'Forecast'
-                            model_forecast = model_forecasts[model]
-                            if len(model_forecast) == len(forecast_table):
-                                forecast_table[f'{model.upper()} Forecast'] = model_forecast.values.round(0).astype(int)
+                        model_forecast = model_forecasts[model]
+                        if len(model_forecast) == len(forecast_table):
+                            forecast_table[f'{model.upper()} Forecast'] = model_forecast.values.round(0).astype(int)
 
                 # Format the date column to be more readable
                 forecast_table['Date'] = forecast_table['Date'].dt.strftime('%Y-%m-%d')
@@ -782,14 +788,22 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
             for sku in table_skus:
                 forecast_data_for_sku = st.session_state.forecasts[sku]
 
-                # Get all models for this SKU
-                models_to_include = [forecast_data_for_sku['model']]  # Start with best model
-
+                # Get all models for this SKU based on what was selected in the sidebar
+                # Only include models that are in selected_models from the sidebar
+                models_to_include = []
+                
+                # Get available models for this SKU
+                available_models = []
                 if 'model_evaluation' in forecast_data_for_sku and 'all_models_forecasts' in forecast_data_for_sku['model_evaluation']:
-                    # Add other models if available
-                    for model in forecast_data_for_sku['model_evaluation']['all_models_forecasts']:
-                        if model != forecast_data_for_sku['model']:  # Don't duplicate best model
-                            models_to_include.append(model)
+                    # Add available models to the list
+                    available_models = list(forecast_data_for_sku['model_evaluation']['all_models_forecasts'].keys())
+                
+                # Only include models that were selected in the sidebar
+                for model in st.session_state.selected_models:
+                    model_lower = model.lower()
+                    # Include the model if it was selected and is available
+                    if model_lower in available_models:
+                        models_to_include.append(model_lower)
 
                 # Get actual sales data for this SKU
                 sku_sales = st.session_state.sales_data[st.session_state.sales_data['sku'] == sku].copy()
