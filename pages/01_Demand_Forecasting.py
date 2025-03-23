@@ -606,7 +606,7 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
 
                 # If we have model evaluation data for multiple models, show them side by side in the table
                 if 'model_evaluation' in forecast_data and 'all_models_forecasts' in forecast_data['model_evaluation']:
-                    model_forecasts = forecast_data['model_evaluation']['all_models_forecasts']_models_forecasts']
+                    model_forecasts = forecast_data['model_evaluation']['all_models_forecasts']
 
                     # Show models explicitly selected by the user
                     if show_all_models:
