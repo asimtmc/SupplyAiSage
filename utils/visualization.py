@@ -121,8 +121,9 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
     
     # Only use models that were actually selected by the user
     if selected_models is None:
-        # Don't default to any model if none selected
-        selected_models = []
+        # If no models are explicitly selected, include the primary model by default
+    if not selected_models:
+        selected_models = [forecast_data['model']]
     
     # Get forecast data for the model chosen by the algorithm
     primary_model = forecast_data['model']
@@ -130,9 +131,8 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
     lower_bound = forecast_data['lower_bound']
     upper_bound = forecast_data['upper_bound']
     
-    # Only include the primary model if it's explicitly in the selected models
-    # This ensures no model shows up unless explicitly selected
-    show_primary_model = (primary_model in selected_models)
+    # Always include the primary model
+    show_primary_model = True
     
     # Check if we should show multiple models
     show_multiple_models = (selected_models is not None and 

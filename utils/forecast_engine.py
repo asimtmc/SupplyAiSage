@@ -997,6 +997,17 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
             'mae': mae
         }
 
+    # Ensure all requested models have forecasts
+    if models_to_evaluate:
+        for model in models_to_evaluate:
+            model_lower = model.lower()
+            if model_lower not in all_models_forecasts:
+                # Add fallback forecast for any missing model
+                window = min(3, len(data) // 2)
+                fallback_forecast = data['quantity'].rolling(window=window).mean().iloc[-1]
+                fallback_values = [fallback_forecast] * forecast_periods
+                all_models_forecasts[model_lower] = pd.Series(fallback_values, index=future_dates)
+
     # Return complete evaluation results
     return {
         "best_model": best_model,

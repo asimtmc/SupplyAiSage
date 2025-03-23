@@ -549,8 +549,8 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                         # Use custom selection from multiselect
                         selected_models_for_viz = custom_models_lower
                     else:
-                        # No default model - only show what the user explicitly selects
-                        selected_models_for_viz = []
+                        # Default to the primary model if nothing is explicitly selected
+                        selected_models_for_viz = [forecast_data['model']]
 
                     # Set test prediction flag based on checkbox
                     if show_test_predictions:
@@ -850,9 +850,19 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                         
                         # Check if model forecast contains this date
                         if date in model_forecast.index:
-                            row[forecast_col_name] = int(model_forecast[date])
+                            row[forecast_col_name] = int(model_forecast[date]) if not pd.isna(model_forecast[date]) else 0
                         else:
-                            row[forecast_col_name] = 0
+                            # Try to get a forecast from all models' forecasts if available
+                            if ('model_evaluation' in forecast_data_for_sku and 
+                                'all_models_forecasts' in forecast_data_for_sku['model_evaluation'] and 
+                                model.lower() in forecast_data_for_sku['model_evaluation']['all_models_forecasts']):
+                                model_forecast = forecast_data_for_sku['model_evaluation']['all_models_forecasts'][model.lower()]
+                                if date in model_forecast.index:
+                                    row[forecast_col_name] = int(model_forecast[date]) if not pd.isna(model_forecast[date]) else 0
+                                else:
+                                    row[forecast_col_name] = 0
+                            else:
+                                row[forecast_col_name] = 0
 
                     all_sku_data.append(row)
 
