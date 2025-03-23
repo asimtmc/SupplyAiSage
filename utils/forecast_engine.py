@@ -393,46 +393,49 @@ def select_best_model(sku_data, forecast_periods=12):
                 
                 # Create confidence intervals (80% by default)
                 forecast_std = np.std(data['quantity'])
-            z_value = 1.28  # Approximately 80% confidence interval
-            lower_bound = forecast_values - z_value * forecast_std
-            upper_bound = forecast_values + z_value * forecast_std
-        except:
-            # Fall back to SARIMA if Holt-Winters fails
-            model_type = "sarima"
-            try:
-                # Simple SARIMA model
-                model = SARIMAX(
-                    data['quantity'],
-                    order=(1, 1, 1),
-                    seasonal_order=(1, 1, 1, 12),
-                    enforce_stationarity=False,
-                    enforce_invertibility=False
-                )
-                results = model.fit(disp=False)
-                forecast_obj = results.get_forecast(steps=forecast_periods)
-                forecast_values = forecast_obj.predicted_mean.values
-                conf_int = forecast_obj.conf_int(alpha=0.1)
-                lower_bound = conf_int.iloc[:, 0].values
-                upper_bound = conf_int.iloc[:, 1].values
-            except:
-                # Fall back to ARIMA if SARIMA fails
-                model_type = "arima"
+                z_value = 1.28  # Approximately 80% confidence interval
+                lower_bound = forecast_values - z_value * forecast_std
+                upper_bound = forecast_values + z_value * forecast_std
+            except Exception as e:
+                # Fall back to SARIMA if Holt-Winters fails
+                print(f"Holt-Winters failed: {str(e)}")
+                model_type = "sarima"
                 try:
-                    model = ARIMA(data['quantity'], order=(1, 1, 1))
-                    results = model.fit()
+                    # Simple SARIMA model
+                    model = SARIMAX(
+                        data['quantity'],
+                        order=(1, 1, 1),
+                        seasonal_order=(1, 1, 1, 12),
+                        enforce_stationarity=False,
+                        enforce_invertibility=False
+                    )
+                    results = model.fit(disp=False)
                     forecast_obj = results.get_forecast(steps=forecast_periods)
                     forecast_values = forecast_obj.predicted_mean.values
                     conf_int = forecast_obj.conf_int(alpha=0.1)
                     lower_bound = conf_int.iloc[:, 0].values
                     upper_bound = conf_int.iloc[:, 1].values
-                except:
-                    # Fall back to moving average if ARIMA fails
-                    model_type = "moving_average"
-                    window = min(6, len(data) - 1)
-                    forecast = data['quantity'].rolling(window=window).mean().iloc[-1]
-                    forecast_values = [forecast] * forecast_periods
-                    lower_bound = [max(0, forecast * 0.7)] * forecast_periods
-                    upper_bound = [forecast * 1.3] * forecast_periods
+                except Exception as e:
+                    # Fall back to ARIMA if SARIMA fails
+                    print(f"SARIMA failed: {str(e)}")
+                    model_type = "arima"
+                    try:
+                        model = ARIMA(data['quantity'], order=(1, 1, 1))
+                        results = model.fit()
+                        forecast_obj = results.get_forecast(steps=forecast_periods)
+                        forecast_values = forecast_obj.predicted_mean.values
+                        conf_int = forecast_obj.conf_int(alpha=0.1)
+                        lower_bound = conf_int.iloc[:, 0].values
+                        upper_bound = conf_int.iloc[:, 1].values
+                    except Exception as e:
+                        # Fall back to moving average if ARIMA fails
+                        print(f"ARIMA failed: {str(e)}")
+                        model_type = "moving_average"
+                        window = min(6, len(data) - 1)
+                        forecast = data['quantity'].rolling(window=window).mean().iloc[-1]
+                        forecast_values = [forecast] * forecast_periods
+                        lower_bound = [max(0, forecast * 0.7)] * forecast_periods
+                        upper_bound = [forecast * 1.3] * forecast_periods
     else:
         # For non-seasonal data, try ARIMA or Prophet
         if len(data) >= 24:
@@ -475,8 +478,9 @@ def select_best_model(sku_data, forecast_periods=12):
                 forecast_values = forecast_df['yhat'].values
                 lower_bound = forecast_df['yhat_lower'].values
                 upper_bound = forecast_df['yhat_upper'].values
-            except:
+            except Exception as e:
                 # Fall back to ARIMA if Prophet fails
+                print(f"Prophet failed: {str(e)}")
                 model_type = "arima"
                 try:
                     model = ARIMA(data['quantity'], order=(1, 1, 1))
