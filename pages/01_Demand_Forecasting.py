@@ -809,7 +809,7 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                     }
 
                     # Get model forecast data
-                    if model == forecast_data_for_sku['model']:
+                    if model.lower() == forecast_data_for_sku['model']:
                         # Use the primary model forecast
                         model_forecast = forecast_data_for_sku['forecast']
                     elif ('model_evaluation' in forecast_data_for_sku and 
@@ -833,21 +833,10 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                     # Add forecast values (no prefix, just the date) - ensuring dates match
                     for date, col_name in zip(forecast_dates, forecast_date_cols):
                         forecast_col_name = col_name  # Just use the date as column name
-
-                        # For the primary/best model
-                        if model == forecast_data_for_sku['model'].upper() and date in model_forecast.index:
+                        
+                        # Check if model forecast contains this date
+                        if date in model_forecast.index:
                             row[forecast_col_name] = int(model_forecast[date])
-
-                        # For non-primary models, get data from all_models_forecasts
-                        elif ('model_evaluation' in forecast_data_for_sku and 
-                              'all_models_forecasts' in forecast_data_for_sku['model_evaluation'] and 
-                              model.lower() in forecast_data_for_sku['model_evaluation']['all_models_forecasts']):
-
-                            non_primary_model_forecast = forecast_data_for_sku['model_evaluation']['all_models_forecasts'][model.lower()]
-                            if date in non_primary_model_forecast.index:
-                                row[forecast_col_name] = int(non_primary_model_forecast[date])
-                            else:
-                                row[forecast_col_name] = 0
                         else:
                             row[forecast_col_name] = 0
 

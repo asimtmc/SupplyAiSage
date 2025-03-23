@@ -859,52 +859,56 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
             elif model_type == "holtwinters":
                 # Check if we have enough data
                 if len(train_data) >= 12:
-                    # Determine seasonal period if possible
-                    if len(train_data) >= 24:
-                        seasonal_periods = 12  # Monthly data, annual seasonality
-                    else:
-                        seasonal_periods = 4   # Quarterly-like pattern for shorter data
+                    try:
+                        # Determine seasonal period if possible
+                        if len(train_data) >= 24:
+                            seasonal_periods = 12  # Monthly data, annual seasonality
+                        else:
+                            seasonal_periods = 4   # Quarterly-like pattern for shorter data
 
-                    # Train Holt-Winters Exponential Smoothing model
-                    model = ExponentialSmoothing(
-                        train_data['quantity'],
-                        trend='add',               # Additive trend
-                        seasonal='add',            # Additive seasonality
-                        seasonal_periods=seasonal_periods,
-                        damped=True                # Damped trend to avoid over-forecasting
-                    )
-                    model_fit = model.fit(
-                        optimized=True,            # Find optimal parameters
-                        use_brute=False            # Use gradient descent for speed
-                    )
+                        # Train Holt-Winters Exponential Smoothing model
+                        model = ExponentialSmoothing(
+                            train_data['quantity'],
+                            trend='add',               # Additive trend
+                            seasonal='add',            # Additive seasonality
+                            seasonal_periods=seasonal_periods,
+                            damped=True                # Damped trend to avoid over-forecasting
+                        )
+                        model_fit = model.fit(
+                            optimized=True,            # Find optimal parameters
+                            use_brute=False            # Use gradient descent for speed
+                        )
 
-                    # Generate test forecasts
-                    y_pred = model_fit.forecast(steps=len(test_data))
+                        # Generate test forecasts
+                        y_pred = model_fit.forecast(steps=len(test_data))
 
-                    # Convert to NumPy array for consistency
-                    y_pred = y_pred.values
+                        # Convert to NumPy array for consistency
+                        y_pred = y_pred.values
 
-                    # Store test predictions
-                    all_models_test_pred[model_type] = pd.Series(y_pred, index=test_data['date'])
+                        # Store test predictions
+                        all_models_test_pred[model_type] = pd.Series(y_pred, index=test_data['date'])
 
-                    # Train on all data for future forecast
-                    full_model = ExponentialSmoothing(
-                        data['quantity'],
-                        trend='add',
-                        seasonal='add',
-                        seasonal_periods=seasonal_periods,
-                        damped=True
-                    )
-                    full_model_fit = full_model.fit(
-                        optimized=True,
-                        use_brute=False
-                    )
+                        # Train on all data for future forecast
+                        full_model = ExponentialSmoothing(
+                            data['quantity'],
+                            trend='add',
+                            seasonal='add',
+                            seasonal_periods=seasonal_periods,
+                            damped=True
+                        )
+                        full_model_fit = full_model.fit(
+                            optimized=True,
+                            use_brute=False
+                        )
 
-                    # Generate future forecasts
-                    future_values = full_model_fit.forecast(steps=forecast_periods)
+                        # Generate future forecasts
+                        future_values = full_model_fit.forecast(steps=forecast_periods)
 
-                    # Store future forecasts
-                    all_models_forecasts[model_type] = pd.Series(future_values, index=future_dates)
+                        # Store future forecasts
+                        all_models_forecasts[model_type] = pd.Series(future_values, index=future_dates)
+                    except Exception as e:
+                        print(f"Holt-Winters model failed: {str(e)}")
+                        continue
                 else:
                     # Skip if not enough data
                     continue
