@@ -626,9 +626,11 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
 
                     # Add each selected model's forecast as a column
                     for model in models_to_display:
-                        model_forecast = model_forecasts[model]
-                        if len(model_forecast) == len(forecast_table):
-                            forecast_table[f'{model.upper()} Forecast'] = model_forecast.values.round(0).astype(int)
+                        if model in model_forecasts:
+                            model_forecast = model_forecasts[model]
+                            if len(model_forecast) == len(forecast_table):
+                                # Ensure we're getting proper values from the Series
+                                forecast_table[f'{model.upper()} Forecast'] = model_forecast.values.round(0).astype(int)
 
                 # Format the date column to be more readable
                 forecast_table['Date'] = forecast_table['Date'].dt.strftime('%Y-%m-%d')
@@ -864,15 +866,20 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                         
                         # Check if model forecast contains this date
                         if date in model_forecast.index:
-                            row[forecast_col_name] = int(model_forecast[date]) if not pd.isna(model_forecast[date]) else 0
+                            # Handle the case directly
+                            forecast_value = model_forecast[date]
+                            # Debug: print the value type and contents
+                            # st.write(f"Type: {type(forecast_value)}, Value: {forecast_value}")
+                            row[forecast_col_name] = int(forecast_value) if not pd.isna(forecast_value) else 0
                         else:
                             # Try to get a forecast from all models' forecasts if available
                             if ('model_evaluation' in forecast_data_for_sku and 
                                 'all_models_forecasts' in forecast_data_for_sku['model_evaluation'] and 
                                 model.lower() in forecast_data_for_sku['model_evaluation']['all_models_forecasts']):
-                                model_forecast = forecast_data_for_sku['model_evaluation']['all_models_forecasts'][model.lower()]
-                                if date in model_forecast.index:
-                                    row[forecast_col_name] = int(model_forecast[date]) if not pd.isna(model_forecast[date]) else 0
+                                specific_model_forecast = forecast_data_for_sku['model_evaluation']['all_models_forecasts'][model.lower()]
+                                if date in specific_model_forecast.index:
+                                    forecast_value = specific_model_forecast[date]
+                                    row[forecast_col_name] = int(forecast_value) if not pd.isna(forecast_value) else 0
                                 else:
                                     row[forecast_col_name] = 0
                             else:
