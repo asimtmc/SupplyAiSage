@@ -6,6 +6,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error
 from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
+from statsmodels.tsa.seasonal import seasonal_decompose
 from prophet import Prophet
 import warnings
 import matplotlib.pyplot as plt
@@ -843,7 +844,7 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
 
     # Default models to evaluate if none specified
     if models_to_evaluate is None or len(models_to_evaluate) == 0:
-        models_to_evaluate = ["arima", "sarima", "prophet", "lstm", "holtwinters", "ensemble"]
+        models_to_evaluate = ["arima", "sarima", "prophet", "lstm", "holtwinters", "decomposition", "ensemble"]
 
     # Print list of models being evaluated (for debugging)
     print(f"Evaluating models: {models_to_evaluate}")
@@ -1212,6 +1213,109 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                             
                     except Exception as e:
                         print(f"Holt-Winters model failed: {str(e)}")
+                        continue
+                else:
+                    # Skip if not enough data
+                    continue
+                    
+            elif model_type == "decomposition":
+                # Check if we have enough data
+                if len(train_data) >= 12:  # Need at least a year of data for decomposition
+                    try:
+                        # Prepare data for decomposition
+                        ts_data = train_data.set_index('date')['quantity']
+                        
+                        # Determine frequency (period) based on data length
+                        if len(ts_data) >= 24:
+                            period = 12  # Annual seasonality
+                        else:
+                            period = min(4, len(ts_data) // 3)  # Shorter period for limited data
+                            
+                        # Decompose the time series into trend, seasonal, and residual components
+                        decomposition = seasonal_decompose(
+                            ts_data, 
+                            model='additive',  # Additive decomposition
+                            period=period
+                        )
+                        
+                        # Extract components
+                        trend = decomposition.trend
+                        seasonal = decomposition.seasonal
+                        residual = decomposition.resid
+                        
+                        # Handle NaN values in components
+                        trend = trend.fillna(method='bfill').fillna(method='ffill')
+                        seasonal = seasonal.fillna(method='bfill').fillna(method='ffill')
+                        residual = residual.fillna(method='bfill').fillna(method='ffill')
+                        
+                        # Fit ARIMA model to residuals for future prediction
+                        residual_model = ARIMA(residual.dropna(), order=(1, 0, 1))
+                        residual_fit = residual_model.fit()
+                        
+                        # Forecast residuals for test period
+                        residual_forecast = residual_fit.forecast(steps=len(test_data))
+                        
+                        # Extract trend component's growth rate (simple linear approximation)
+                        trend_values = trend.values
+                        if len(trend_values) > 1:
+                            # Use last n points to calculate trend slope
+                            last_n = min(6, len(trend_values))
+                            trend_end = trend_values[-last_n:]
+                            trend_indices = np.arange(len(trend_end))
+                            trend_fit = np.polyfit(trend_indices, trend_end, 1)
+                            trend_slope = trend_fit[0]
+                        else:
+                            trend_slope = 0
+                        
+                        # Get last trend value
+                        last_trend = trend.iloc[-1]
+                        
+                        # Generate trend forecast for test period
+                        trend_forecast = np.array([last_trend + i * trend_slope for i in range(1, len(test_data) + 1)])
+                        
+                        # Get seasonal pattern (using modulo arithmetic to repeat the pattern)
+                        seasonal_pattern = seasonal.values[-period:]
+                        
+                        # Generate test predictions by recombining components
+                        y_pred = []
+                        for i in range(len(test_data)):
+                            # Get seasonal component using modulo to repeat the pattern
+                            seasonal_idx = i % len(seasonal_pattern)
+                            seasonal_component = seasonal_pattern[seasonal_idx]
+                            
+                            # Combine trend, seasonal, and residual forecasts
+                            pred = trend_forecast[i] + seasonal_component + residual_forecast[i]
+                            y_pred.append(max(0, pred))  # Ensure non-negative values
+                        
+                        # Store test predictions
+                        all_models_test_pred[model_type] = pd.Series(y_pred, index=test_data['date'])
+                        
+                        # Now generate future forecasts with the model
+                        # Forecast residuals for future periods
+                        future_residual_forecast = residual_fit.forecast(steps=forecast_periods)
+                        
+                        # Generate trend forecast for future periods
+                        future_trend_forecast = np.array([
+                            last_trend + (len(test_data) + i) * trend_slope 
+                            for i in range(1, forecast_periods + 1)
+                        ])
+                        
+                        # Generate future predictions by recombining components
+                        future_values = []
+                        for i in range(forecast_periods):
+                            # Get seasonal component
+                            seasonal_idx = (len(train_data) + i) % len(seasonal_pattern)
+                            seasonal_component = seasonal_pattern[seasonal_idx]
+                            
+                            # Combine trend, seasonal, and residual forecasts
+                            pred = future_trend_forecast[i] + seasonal_component + future_residual_forecast[i]
+                            future_values.append(max(0, pred))  # Ensure non-negative values
+                        
+                        # Store future forecasts
+                        all_models_forecasts[model_type] = pd.Series(future_values, index=future_dates)
+                        
+                    except Exception as e:
+                        print(f"Decomposition model failed: {str(e)}")
                         continue
                 else:
                     # Skip if not enough data
