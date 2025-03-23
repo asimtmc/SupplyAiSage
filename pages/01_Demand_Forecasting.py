@@ -167,6 +167,9 @@ with st.sidebar:
     if st.checkbox("Holt-Winters", value=True):
         models_to_evaluate.append("holtwinters")
         
+    if st.checkbox("Decomposition", value=True, help="Uses time series decomposition to separate trend, seasonal, and residual components"):
+        models_to_evaluate.append("decomposition")
+        
     if st.checkbox("Ensemble Model", value=True, help="Combines multiple forecasting models for improved accuracy"):
         models_to_evaluate.append("ensemble")
 

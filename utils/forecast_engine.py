@@ -274,30 +274,125 @@ def select_best_model(sku_data, forecast_periods=12):
         upper_bound = [forecast * 1.4] * forecast_periods
 
     elif seasonality:
-        # For seasonal data, try Holt-Winters first
-        model_type = "holtwinters"
-        try:
-            # Determine seasonal period based on data length
-            if len(data) >= 24:
+        # For seasonal data, either use Holt-Winters or decomposition based on data length
+        if len(data) >= 24:
+            # For longer data, try a decomposition model
+            model_type = "decomposition"
+            try:
+                # Prepare data for decomposition
+                ts_data = data.set_index('date')['quantity']
+                
+                # Use annual seasonality for longer time series
+                period = 12
+                
+                # Decompose the time series
+                decomposition = seasonal_decompose(
+                    ts_data, 
+                    model='additive',
+                    period=period
+                )
+                
+                # Extract components
+                trend = decomposition.trend
+                seasonal = decomposition.seasonal
+                residual = decomposition.resid
+                
+                # Handle NaN values in components
+                trend = trend.fillna(method='bfill').fillna(method='ffill')
+                seasonal = seasonal.fillna(method='bfill').fillna(method='ffill')
+                residual = residual.fillna(method='bfill').fillna(method='ffill')
+                
+                # Fit ARIMA model to residuals for future prediction
+                residual_model = ARIMA(residual.dropna(), order=(1, 0, 1))
+                residual_fit = residual_model.fit()
+                
+                # Forecast residuals
+                residual_forecast = residual_fit.forecast(steps=forecast_periods)
+                
+                # Extract trend component's growth rate
+                trend_values = trend.values
+                # Use last n points to calculate trend slope
+                last_n = min(6, len(trend_values))
+                trend_end = trend_values[-last_n:]
+                trend_indices = np.arange(len(trend_end))
+                trend_fit = np.polyfit(trend_indices, trend_end, 1)
+                trend_slope = trend_fit[0]
+                
+                # Get last trend value
+                last_trend = trend.iloc[-1]
+                
+                # Get seasonal pattern
+                seasonal_pattern = seasonal.values[-period:]
+                
+                # Generate forecasts by recombining components
+                forecast_values = []
+                for i in range(forecast_periods):
+                    # Get seasonal component using modulo to repeat the pattern
+                    seasonal_idx = i % len(seasonal_pattern)
+                    seasonal_component = seasonal_pattern[seasonal_idx]
+                    
+                    # Combine trend, seasonal, and residual forecasts
+                    pred = last_trend + i * trend_slope + seasonal_component + residual_forecast[i]
+                    forecast_values.append(max(0, pred))  # Ensure non-negative values
+                
+                forecast_values = np.array(forecast_values)
+                
+                # Create confidence intervals
+                forecast_std = np.std(data['quantity'])
+                z_value = 1.28  # Approximately 80% confidence interval
+                lower_bound = forecast_values - z_value * forecast_std
+                upper_bound = forecast_values + z_value * forecast_std
+                
+            except Exception as e:
+                print(f"Decomposition model failed: {str(e)}")
+                # Fall back to Holt-Winters if decomposition fails
+                model_type = "holtwinters"
+                # Continue to Holt-Winters code below
+                
+                # Determine seasonal period based on data length
                 seasonal_periods = 12  # Monthly data, annual seasonality
-            else:
+                
+                # Fit Holt-Winters model
+                model = ExponentialSmoothing(
+                    data['quantity'],
+                    trend='add',               # Additive trend
+                    seasonal='add',            # Additive seasonality
+                    seasonal_periods=seasonal_periods,
+                    damped=True                # Damped trend to avoid over-forecasting
+                )
+                results = model.fit(optimized=True, use_brute=False)
+                
+                # Generate forecasts
+                forecast_values = results.forecast(steps=forecast_periods).values
+                
+                # Create confidence intervals (80% by default)
+                forecast_std = np.std(data['quantity'])
+                z_value = 1.28  # Approximately 80% confidence interval
+                lower_bound = forecast_values - z_value * forecast_std
+                upper_bound = forecast_values + z_value * forecast_std
+                
+        else:
+            # For shorter data, use Holt-Winters
+            model_type = "holtwinters"
+            try:
+                # Determine seasonal period based on data length
                 seasonal_periods = 4   # Quarterly-like pattern for shorter data
-
-            # Fit Holt-Winters model
-            model = ExponentialSmoothing(
-                data['quantity'],
-                trend='add',               # Additive trend
-                seasonal='add',            # Additive seasonality
-                seasonal_periods=seasonal_periods,
-                damped=True                # Damped trend to avoid over-forecasting
-            )
-            results = model.fit(optimized=True, use_brute=False)
-
-            # Generate forecasts
-            forecast_values = results.forecast(steps=forecast_periods).values
-
-            # Create confidence intervals (80% by default)
-            forecast_std = np.std(data['quantity'])
+                
+                # Fit Holt-Winters model
+                model = ExponentialSmoothing(
+                    data['quantity'],
+                    trend='add',               # Additive trend
+                    seasonal='add',            # Additive seasonality
+                    seasonal_periods=seasonal_periods,
+                    damped=True                # Damped trend to avoid over-forecasting
+                )
+                results = model.fit(optimized=True, use_brute=False)
+                
+                # Generate forecasts
+                forecast_values = results.forecast(steps=forecast_periods).values
+                
+                # Create confidence intervals (80% by default)
+                forecast_std = np.std(data['quantity'])
             z_value = 1.28  # Approximately 80% confidence interval
             lower_bound = forecast_values - z_value * forecast_std
             upper_bound = forecast_values + z_value * forecast_std
@@ -1520,6 +1615,79 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                             ma_future = np.array([data['quantity'].rolling(window=window).mean().iloc[-1]] * forecast_periods)
                             all_models_forecasts[model_lower] = pd.Series(ma_future, index=future_dates)
                             
+                    elif model_lower == "decomposition":
+                        # Create decomposition forecast if data is sufficient
+                        if len(data) >= 12:  # Need at least a year of data
+                            try:
+                                # Prepare data for decomposition
+                                ts_data = data.set_index('date')['quantity']
+                                
+                                # Determine frequency (period) based on data length
+                                if len(ts_data) >= 24:
+                                    period = 12  # Annual seasonality
+                                else:
+                                    period = min(4, len(ts_data) // 3)  # Shorter period for limited data
+                                    
+                                # Decompose the time series
+                                decomposition = seasonal_decompose(
+                                    ts_data, 
+                                    model='additive',
+                                    period=period
+                                )
+                                
+                                # Extract components
+                                trend = decomposition.trend
+                                seasonal = decomposition.seasonal
+                                
+                                # Handle NaN values in components
+                                trend = trend.fillna(method='bfill').fillna(method='ffill')
+                                seasonal = seasonal.fillna(method='bfill').fillna(method='ffill')
+                                
+                                # Extract trend slope
+                                trend_values = trend.values
+                                if len(trend_values) > 1:
+                                    # Use last n points to calculate trend slope
+                                    last_n = min(6, len(trend_values))
+                                    trend_end = trend_values[-last_n:]
+                                    trend_indices = np.arange(len(trend_end))
+                                    trend_fit = np.polyfit(trend_indices, trend_end, 1)
+                                    trend_slope = trend_fit[0]
+                                else:
+                                    trend_slope = 0
+                                
+                                # Get last trend value
+                                last_trend = trend.iloc[-1]
+                                
+                                # Get seasonal pattern
+                                seasonal_pattern = seasonal.values[-period:]
+                                
+                                # Generate future forecasts
+                                future_values = []
+                                for i in range(forecast_periods):
+                                    # Get seasonal component
+                                    seasonal_idx = i % len(seasonal_pattern)
+                                    seasonal_component = seasonal_pattern[seasonal_idx]
+                                    
+                                    # Combine trend and seasonal components
+                                    pred = last_trend + i * trend_slope + seasonal_component
+                                    future_values.append(max(0, pred))  # Ensure non-negative values
+                                
+                                # Store forecast
+                                all_models_forecasts[model_lower] = pd.Series(future_values, index=future_dates)
+                                
+                            except Exception as e:
+                                print(f"Cannot create decomposition forecast: {str(e)}")
+                                # Add moving average as a fallback
+                                window = min(3, len(data) // 2)
+                                ma_future = np.array([data['quantity'].rolling(window=window).mean().iloc[-1]] * forecast_periods)
+                                all_models_forecasts[model_lower] = pd.Series(ma_future, index=future_dates)
+                        else:
+                            print(f"Cannot create decomposition forecast: insufficient data")
+                            # Add moving average as a fallback
+                            window = min(3, len(data) // 2)
+                            ma_future = np.array([data['quantity'].rolling(window=window).mean().iloc[-1]] * forecast_periods)
+                            all_models_forecasts[model_lower] = pd.Series(ma_future, index=future_dates)
+                                
                     elif model_lower == "lstm":
                         # Train LSTM model if data is sufficient
                         if len(data) >= sequence_length + 2:
