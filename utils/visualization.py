@@ -179,8 +179,10 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
 
     # Add a vertical line separating historical and forecast periods
     max_date = sku_data['date'].max()
+    # Convert to string format that Plotly can handle
+    max_date_str = max_date.strftime('%Y-%m-%d')
     fig.add_vline(
-        x=max_date, 
+        x=max_date_str, 
         line_dash="dash",
         line_color="gray",
         annotation_text="Forecast Start",
