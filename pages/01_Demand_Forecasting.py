@@ -727,9 +727,10 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
     else:
         st.warning("No forecast data available. Please run a forecast first.")
 
-    # Add the forecast data table outside of the tabs to take full width
-    st.header("Forecast Data Table")
-    st.info("This table shows historical and forecasted values with dates as columns. The table includes actual sales data and forecasts for each SKU/model combination.")
+    # Add a large, clear section break to separate the forecast data table
+    st.markdown("---")
+    st.markdown("## Comprehensive Forecast Data Table")
+    st.info("📊 This table shows historical and forecasted values with dates as columns. The table includes actual sales data and forecasts for each SKU/model combination.")
 
     # Prepare comprehensive data table
     if st.session_state.forecasts:
@@ -759,17 +760,19 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
             # Add SKU selector for the table
             all_skus = sorted(list(st.session_state.forecasts.keys()))
 
-            # Add multi-select for table SKUs
+            # Add multi-select for table SKUs with clearer labeling
+            st.subheader("Select Data for Table View")
             table_skus = st.multiselect(
-                "Select SKUs to include in the table",
+                "Choose SKUs to Include",
                 options=all_skus,
-                default=[selected_sku] if selected_sku in all_skus else [],
-                help="Select specific SKUs to include in the table below"
+                default=all_skus[:min(5, len(all_skus))],  # Default to first 5 SKUs or less
+                help="Select one or more SKUs to include in the table below"
             )
-
-            # If no SKUs selected, use the currently selected one
+            
+            # If no SKUs selected, default to showing all (up to a reasonable limit)
             if not table_skus:
-                table_skus = [selected_sku] if selected_sku in all_skus else []
+                table_skus = all_skus[:min(5, len(all_skus))]
+                st.info(f"Showing first {len(table_skus)} SKUs by default. Select specific SKUs above if needed.")
 
             # Process each selected SKU
             for sku in table_skus:
