@@ -120,18 +120,19 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
     line_styles = ['solid', 'dash', 'dot', 'dashdot', 'longdash', 'longdashdot']
     
     # Only use models that were actually selected by the user
-    if selected_models is None or len(selected_models) == 0:
+    if selected_models is None:
         # Don't default to any model if none selected
         selected_models = []
     
-    # Get forecast data for the primary (best) model
+    # Get forecast data for the model chosen by the algorithm
     primary_model = forecast_data['model']
     forecast = forecast_data['forecast']
     lower_bound = forecast_data['lower_bound']
     upper_bound = forecast_data['upper_bound']
     
-    # Only include the primary model if it's in the selected models or if no models are selected
-    show_primary_model = (len(selected_models) == 0 or primary_model in selected_models)
+    # Only include the primary model if it's explicitly in the selected models
+    # This ensures no model shows up unless explicitly selected
+    show_primary_model = (primary_model in selected_models)
     
     # Check if we should show multiple models
     show_multiple_models = (selected_models is not None and 
@@ -146,15 +147,15 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
             if 'model_evaluation' in forecast_data and 'all_models_forecasts' in forecast_data['model_evaluation'] and model_name in forecast_data['model_evaluation']['all_models_forecasts']:
                 model_forecast = forecast_data['model_evaluation']['all_models_forecasts'][model_name]
                 
-                # Choose color - primary model gets red, others get different colors
-                color_idx = 0 if model_name == primary_model else (i % (len(model_colors) - 1) + 1)
+                # Choose color based on model index, no model gets special treatment
+                color_idx = i % len(model_colors)
                 
                 # Calculate dash pattern index (use different patterns for different models)
                 dash_idx = i % len(line_styles)
                 dash_pattern = line_styles[dash_idx]
                 
                 # Different marker symbols for different models
-                marker_symbols = ['diamond', 'circle', 'square', 'triangle-up', 'star', 'x']
+                marker_symbols = ['circle', 'diamond', 'square', 'triangle-up', 'star', 'x']
                 marker_symbol = marker_symbols[i % len(marker_symbols)]
                 
                 # Create hover text with model name and exact values
@@ -170,11 +171,11 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
                     name=f'{model_name.upper()} Forecast',
                     line=dict(
                         color=model_colors[color_idx], 
-                        width=3 if model_name == primary_model else 2,
+                        width=2.5,  # All models get same line width 
                         dash=dash_pattern
                     ),
                     marker=dict(
-                        size=8 if model_name == primary_model else 6, 
+                        size=7,  # All models get same marker size
                         symbol=marker_symbol,
                         color=model_colors[color_idx]
                     ),
@@ -183,17 +184,7 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
                     hoverlabel=dict(bgcolor=model_colors[color_idx], font=dict(color='white')),
                 ))
                 
-                # Only add confidence interval for primary model
-                if model_name == primary_model:
-                    fig.add_trace(go.Scatter(
-                        x=list(upper_bound.index) + list(lower_bound.index)[::-1],
-                        y=list(upper_bound.values) + list(lower_bound.values)[::-1],
-                        fill='toself',
-                        fillcolor='rgba(214, 39, 40, 0.2)',
-                        line=dict(color='rgba(214, 39, 40, 0)'),
-                        name='95% Confidence Interval',
-                        showlegend=True
-                    ))
+                # Confidence interval removed for all models to ensure equality
             elif model_name == primary_model:
                 # If primary model isn't in all_models_forecasts, still show it
                 fig.add_trace(go.Scatter(
