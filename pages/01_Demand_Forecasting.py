@@ -769,7 +769,7 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                 default=all_skus[:min(5, len(all_skus))],  # Default to first 5 SKUs or less
                 help="Select one or more SKUs to include in the table below"
             )
-            
+
             # If no SKUs selected, default to showing all (up to a reasonable limit)
             if not table_skus:
                 table_skus = all_skus[:min(5, len(all_skus))]
@@ -829,10 +829,22 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
 
                     # Add forecast values (no prefix, just the date) - ensuring dates match
                     for date, col_name in zip(forecast_dates, forecast_date_cols):
-                        # Remove "Forecast:" prefix but track these columns separately for styling
                         forecast_col_name = col_name  # Just use the date as column name
-                        if date in model_forecast.index:
+
+                        # For the primary/best model
+                        if model == forecast_data_for_sku['model'].upper() and date in model_forecast.index:
                             row[forecast_col_name] = int(model_forecast[date])
+
+                        # For non-primary models, get data from all_models_forecasts
+                        elif ('model_evaluation' in forecast_data_for_sku and 
+                              'all_models_forecasts' in forecast_data_for_sku['model_evaluation'] and 
+                              model.lower() in forecast_data_for_sku['model_evaluation']['all_models_forecasts']):
+
+                            non_primary_model_forecast = forecast_data_for_sku['model_evaluation']['all_models_forecasts'][model.lower()]
+                            if date in non_primary_model_forecast.index:
+                                row[forecast_col_name] = int(non_primary_model_forecast[date])
+                            else:
+                                row[forecast_col_name] = 0
                         else:
                             row[forecast_col_name] = 0
 
@@ -845,7 +857,7 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                 # Identify column groups for styling
                 all_cols = all_sku_df.columns.tolist()
                 info_cols = ['sku_code', 'sku_name', 'model', 'best_model']
-                
+
                 # Since we removed prefixes, we need a different way to identify historical vs forecast columns
                 # Use the fact that historical columns come from historical_cols and forecast columns from forecast_date_cols
                 actual_cols = historical_cols
@@ -859,26 +871,26 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                     # Apply background colors to different column types
                     for col in info_cols:
                         styles[col] = 'background-color: #F5F5F5; font-weight: 500'  # Light gray for info columns
-                        
+
                     for col in actual_cols:
                         styles[col] = 'background-color: #E3F2FD'  # Lighter blue for actual values
-                    
+
                     for col in forecast_cols:
                         styles[col] = 'background-color: #FFF8E1'  # Lighter yellow for forecast values
-                    
+
                     # Highlight best model rows
                     for i, val in enumerate(df['best_model']):
                         if val == '✓':
                             for col in df.columns:
                                 styles.iloc[i, df.columns.get_loc(col)] += '; font-weight: bold'
-                                
+
                     # Add text alignment
                     for col in all_cols:
                         if col in info_cols:
                             styles[col] += '; text-align: left'
                         else:
                             styles[col] += '; text-align: right'
-                                
+
                     return styles
 
                 # Add column group headers using expander
@@ -890,7 +902,7 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                 """
                 with st.expander("Understanding the Table", expanded=False):
                     st.markdown(forecast_explanation)
-                
+
                 # Use styling to highlight data column types with frozen columns till model name
                 st.dataframe(
                     all_sku_df.style.apply(highlight_data_columns, axis=None),
@@ -926,11 +938,11 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                 excel_buffer = io.BytesIO()
                 with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
                     all_sku_df.to_excel(writer, sheet_name='Forecast Data', index=False)
-                    
+
                     # Get the xlsxwriter workbook and worksheet objects
                     workbook = writer.book
                     worksheet = writer.sheets['Forecast Data']
-                    
+
                     # Add formats
                     header_format = workbook.add_format({
                         'bold': True,
@@ -939,28 +951,28 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                         'fg_color': '#D7E4BC',
                         'border': 1
                     })
-                    
+
                     info_format = workbook.add_format({
                         'bg_color': '#F5F5F5',
                         'border': 1
                     })
-                    
+
                     actual_format = workbook.add_format({
                         'bg_color': '#E3F2FD',
                         'border': 1,
                         'num_format': '#,##0'
                     })
-                    
+
                     forecast_format = workbook.add_format({
                         'bg_color': '#FFF8E1',
                         'border': 1,
                         'num_format': '#,##0'
                     })
-                    
+
                     # Apply formats to the header
                     for col_num, value in enumerate(all_sku_df.columns.values):
                         worksheet.write(0, col_num, value, header_format)
-                    
+
                     # Set column formats based on data type
                     for i, col in enumerate(all_sku_df.columns):
                         col_idx = all_sku_df.columns.get_loc(col)
@@ -970,9 +982,9 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                             worksheet.set_column(col_idx, col_idx, 12, actual_format)
                         elif col in forecast_cols:
                             worksheet.set_column(col_idx, col_idx, 12, forecast_format)
-                    
+
                 excel_buffer.seek(0)
-                
+
                 # Provide download buttons for the table in multiple formats
                 col1, col2 = st.columns(2)
                 with col1:
@@ -984,13 +996,13 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                         mime="application/vnd.ms-excel",
                         help="Download a formatted Excel spreadsheet with the table data"
                     )
-                
+
                 with col2:
                     # CSV download
                     csv_buffer = io.BytesIO()
                     all_sku_df.to_csv(csv_buffer, index=False)
                     csv_buffer.seek(0)
-                    
+
                     st.download_button(
                         label="📄 Download as CSV",
                         data=csv_buffer,
