@@ -690,7 +690,7 @@ def plot_model_comparison(sku, forecast_data):
     best_model = forecast_data['model_evaluation']['best_model']
 
     # Create data for bar chart
-    models = list(metrics.keys())
+    models = sorted(list(metrics.keys()))  # Sort alphabetically for consistent ordering
     rmse_values = [metrics[m].get('rmse', 0) for m in models]
     mape_values = [metrics[m].get('mape', 0) if not np.isnan(metrics[m].get('mape', 0)) else 0 for m in models]
     mae_values = [metrics[m].get('mae', 0) for m in models]
@@ -725,7 +725,7 @@ def plot_model_comparison(sku, forecast_data):
         name='MAPE (%)',
         mode='lines+markers',
         marker=dict(size=10, color='#ff7f0e'),
-        line=dict(width=3, color='#ff7f0e'),
+        line=dict(width=3, color='#ff7f0e', shape='linear'),  # Use linear shape for straight lines
         text=[f"{v:.2f}%" for v in mape_values],
         yaxis='y2'
     ))
