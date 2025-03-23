@@ -130,9 +130,12 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
     lower_bound = forecast_data['lower_bound']
     upper_bound = forecast_data['upper_bound']
     
+    # Only include the primary model if it's in the selected models or if no models are selected
+    show_primary_model = (len(selected_models) == 0 or primary_model in selected_models)
+    
     # Check if we should show multiple models
     show_multiple_models = (selected_models is not None and 
-                           len(selected_models) > 1 and 
+                           len(selected_models) > 0 and 
                            'model_evaluation' in forecast_data and 
                            'all_models_forecasts' in forecast_data['model_evaluation'])
     
@@ -204,24 +207,25 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
                 
                 # Confidence interval removed as requested
     else:
-        # Only add the primary model forecast
-        # Create hover text with model name and exact values
-        hover_text = [f"<b>Model:</b> {primary_model.upper()}<br>" +
-                     f"<b>Date:</b> {date.strftime('%Y-%m-%d')}<br>" +
-                     f"<b>Value:</b> {int(value) if not np.isnan(value) else 'N/A'}" 
-                     for date, value in zip(forecast.index, forecast.values)]
-                
-        fig.add_trace(go.Scatter(
-            x=forecast.index,
-            y=forecast.values,
-            mode='lines+markers',
-            name=f'{primary_model.upper()} Forecast',
-            line=dict(color='#d62728', width=2, dash='dash'),
-            marker=dict(size=8, symbol='diamond'),
-            hoverinfo='text',
-            hovertext=hover_text,
-            hoverlabel=dict(bgcolor='#d62728', font=dict(color='white')),
-        ))
+        # Only add the primary model forecast if it's in selected models or if none are selected
+        if show_primary_model:
+            # Create hover text with model name and exact values
+            hover_text = [f"<b>Model:</b> {primary_model.upper()}<br>" +
+                         f"<b>Date:</b> {date.strftime('%Y-%m-%d')}<br>" +
+                         f"<b>Value:</b> {int(value) if not np.isnan(value) else 'N/A'}" 
+                         for date, value in zip(forecast.index, forecast.values)]
+                    
+            fig.add_trace(go.Scatter(
+                x=forecast.index,
+                y=forecast.values,
+                mode='lines+markers',
+                name=f'{primary_model.upper()} Forecast',
+                line=dict(color='#d62728', width=2, dash='dash'),
+                marker=dict(size=8, symbol='diamond'),
+                hoverinfo='text',
+                hovertext=hover_text,
+                hoverlabel=dict(bgcolor='#d62728', font=dict(color='white')),
+            ))
         
         # Confidence interval removed as requested
     

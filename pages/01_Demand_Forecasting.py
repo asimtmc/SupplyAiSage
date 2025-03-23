@@ -807,10 +807,15 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
 
                     # Get model forecast data
                     if model == forecast_data_for_sku['model']:
+                        # Use the primary model forecast
                         model_forecast = forecast_data_for_sku['forecast']
-                    elif 'model_evaluation' in forecast_data_for_sku and 'all_models_forecasts' in forecast_data_for_sku['model_evaluation']:
-                        model_forecast = forecast_data_for_sku['model_evaluation']['all_models_forecasts'].get(model, pd.Series())
+                    elif ('model_evaluation' in forecast_data_for_sku and 
+                          'all_models_forecasts' in forecast_data_for_sku['model_evaluation'] and 
+                          model.lower() in forecast_data_for_sku['model_evaluation']['all_models_forecasts']):
+                        # Get the specific model forecast data
+                        model_forecast = forecast_data_for_sku['model_evaluation']['all_models_forecasts'][model.lower()]
                     else:
+                        # If the model isn't available, use an empty Series
                         model_forecast = pd.Series()
 
                     # Add historical/actual values (no prefix, just the date)
