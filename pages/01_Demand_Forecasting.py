@@ -618,8 +618,6 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                     use_container_width=True,
                     height=min(35 * (len(forecast_table) + 1), 400)  # Dynamically size table height with scrolling
                 )
-        else:
-            st.warning("No forecast data available. Please run a forecast first.")
         with forecast_tabs[1]:
             # Model comparison visualization
             if 'model_evaluation' in forecast_data and forecast_data['model_evaluation']['metrics']:
