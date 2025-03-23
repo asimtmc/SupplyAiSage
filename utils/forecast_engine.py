@@ -360,7 +360,19 @@ def select_best_model(sku_data, forecast_periods=12):
 
                 # Create future dataframe and make predictions
                 last_date = data['date'].max()
-                future_dates = [last_date + timedelta(days=30*i) for i in range(1, forecast_periods+1)]
+                # Get the first day of the next month
+                next_month = last_date.replace(day=1) + timedelta(days=32)
+                first_day_next_month = next_month.replace(day=1)
+
+                # Generate a sequence of first days of months
+                future_dates = []
+                for i in range(forecast_periods):
+                    # Add months by creating a date on the 1st of each subsequent month
+                    next_date = first_day_next_month.replace(month=((first_day_next_month.month + i - 1) % 12) + 1)
+                    # Adjust the year if we wrapped around December
+                    if next_date.month < first_day_next_month.month:
+                        next_date = next_date.replace(year=next_date.year + 1)
+                    future_dates.append(next_date)
                 future = pd.DataFrame({'ds': future_dates})
 
                 forecast_df = m.predict(future)
@@ -412,7 +424,19 @@ def select_best_model(sku_data, forecast_periods=12):
 
     # Create output dict
     last_date = data['date'].max()
-    forecast_dates = [last_date + timedelta(days=30*i) for i in range(1, forecast_periods+1)]
+    # Get the first day of the next month
+    next_month = last_date.replace(day=1) + timedelta(days=32)
+    first_day_next_month = next_month.replace(day=1)
+
+    # Generate a sequence of first days of months
+    forecast_dates = []
+    for i in range(forecast_periods):
+        # Add months by creating a date on the 1st of each subsequent month
+        next_date = first_day_next_month.replace(month=((first_day_next_month.month + i - 1) % 12) + 1)
+        # Adjust the year if we wrapped around December
+        if next_date.month < first_day_next_month.month:
+            next_date = next_date.replace(year=next_date.year + 1)
+        forecast_dates.append(next_date)
 
     result = {
         "model": model_type,
@@ -797,6 +821,20 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                 full_m.fit(prophet_full)
 
                 # Create future dataframe for forecast period
+                last_date = data['date'].max()
+                # Get the first day of thenext month
+                next_month = last_date.replace(day=1) + timedelta(days=32)
+                first_day_next_month = next_month.replace(day=1)
+
+                # Generate a sequence of first days of months
+                future_dates = []
+                for i in range(forecast_periods):
+                    # Add months by creating a date on the 1st of each subsequent month
+                    next_date = first_day_next_month.replace(month=((first_day_next_month.month + i - 1) % 12) + 1)
+                    # Adjust the year if we wrapped around December
+                    if next_date.month < first_day_next_month.month:
+                        next_date = next_date.replace(year=next_date.year + 1)
+                    future_dates.append(next_date)
                 future = pd.DataFrame({'ds': future_dates})
 
                 # Generate future forecasts
@@ -1009,14 +1047,14 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                         # Train ARIMA model on all data
                         full_model = ARIMA(data['quantity'], order=(1, 1, 1))
                         full_model_fit = full_model.fit()
-                        
+
                         # Generate future forecasts
                         future_forecast = full_model_fit.get_forecast(steps=forecast_periods)
                         future_values = future_forecast.predicted_mean.values
-                        
+
                         # Store forecast
                         all_models_forecasts[model_lower] = pd.Series(future_values, index=future_dates)
-                        
+
                     elif model_lower == "sarima":
                         # Determine seasonal period based on data length
                         if len(data) >= 24:
@@ -1025,7 +1063,7 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                             seasonal_order = (1, 1, 0, 4)   # Quarterly-like pattern
                         else:
                             seasonal_order = (0, 0, 0, 0)   # No seasonality
-                            
+
                         # Train SARIMA model
                         full_model = SARIMAX(
                             data['quantity'],
@@ -1035,21 +1073,21 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                             enforce_invertibility=False
                         )
                         full_model_fit = full_model.fit(disp=False, maxiter=50, method='powell')
-                        
+
                         # Generate future forecasts
                         future_forecast = full_model_fit.get_forecast(steps=forecast_periods)
                         future_values = future_forecast.predicted_mean.values
-                        
+
                         # Store forecast
                         all_models_forecasts[model_lower] = pd.Series(future_values, index=future_dates)
-                        
+
                     elif model_lower == "prophet":
                         # Prepare data for Prophet
                         prophet_full = pd.DataFrame({
                             'ds': data['date'],
                             'y': data['quantity']
                         })
-                        
+
                         # Train Prophet model
                         full_m = Prophet(
                             changepoint_prior_scale=0.05,
@@ -1059,22 +1097,36 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                             daily_seasonality=False
                         )
                         full_m.fit(prophet_full)
-                        
+
                         # Create future dataframe
+                        last_date = data['date'].max()
+                        # Get the first day of the next month
+                        next_month = last_date.replace(day=1) + timedelta(days=32)
+                        first_day_next_month = next_month.replace(day=1)
+
+                        # Generate a sequence of first days of months
+                        future_dates = []
+                        for i in range(forecast_periods):
+                            # Add months by creating a date on the 1st of each subsequent month
+                            next_date = first_day_next_month.replace(month=((first_day_next_month.month + i - 1) % 12) + 1)
+                            # Adjust the year if we wrapped around December
+                            if next_date.month < first_day_next_month.month:
+                                next_date = next_date.replace(year=next_date.year + 1)
+                            future_dates.append(next_date)
                         future = pd.DataFrame({'ds': future_dates})
-                        
+
                         # Generate forecasts
                         future_forecast = full_m.predict(future)
                         future_values = future_forecast['yhat'].values
-                        
+
                         # Store forecast
                         all_models_forecasts[model_lower] = pd.Series(future_values, index=future_dates)
-                        
+
                     elif model_lower == "lstm":
                         # Train LSTM model if data is sufficient
                         if len(data) >= sequence_length + 2:
                             sequence_length = min(12, len(data) // 3)
-                            
+
                             # Train model
                             full_model, full_scaler, _, _ = train_lstm_model(
                                 data['quantity'].values,
@@ -1082,11 +1134,11 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                                 sequence_length=sequence_length,
                                 epochs=50
                             )
-                            
+
                             # Prepare last sequence
                             full_last_sequence = data['quantity'].values[-sequence_length:]
                             full_last_sequence_scaled = full_scaler.transform(full_last_sequence.reshape(-1, 1)).flatten()
-                            
+
                             # Generate forecasts
                             future_values = forecast_with_lstm(
                                 full_model,
@@ -1094,7 +1146,7 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                                 full_last_sequence_scaled,
                                 forecast_periods=forecast_periods
                             )
-                            
+
                             # Store forecast
                             all_models_forecasts[model_lower] = pd.Series(future_values, index=future_dates)
                         else:
@@ -1105,7 +1157,7 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                                 avg_value = data['quantity'].mean() if len(data) > 0 else 0
                             future_values = [avg_value] * forecast_periods
                             all_models_forecasts[model_lower] = pd.Series(future_values, index=future_dates)
-                            
+
                     elif model_lower == "holtwinters":
                         # Try Holt-Winters if data is sufficient
                         if len(data) >= 12:
@@ -1114,7 +1166,7 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                                 seasonal_periods = 12  # Annual seasonality
                             else:
                                 seasonal_periods = 4   # Quarterly-like pattern
-                                
+
                             # Train model
                             full_model = ExponentialSmoothing(
                                 data['quantity'],
@@ -1127,10 +1179,10 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                                 optimized=True,
                                 use_brute=False
                             )
-                            
+
                             # Generate forecasts
                             future_values = full_model_fit.forecast(steps=forecast_periods)
-                            
+
                             # Store forecast
                             all_models_forecasts[model_lower] = pd.Series(future_values, index=future_dates)
                         else:
@@ -1141,7 +1193,7 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                                 avg_value = data['quantity'].mean() if len(data) > 0 else 0
                             future_values = [avg_value] * forecast_periods
                             all_models_forecasts[model_lower] = pd.Series(future_values, index=future_dates)
-                            
+
                     else:
                         # For other models, use a simple moving average
                         window = min(3, len(data) // 2)
@@ -1150,7 +1202,7 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                             avg_value = data['quantity'].mean() if len(data) > 0 else 0
                         future_values = [avg_value] * forecast_periods
                         all_models_forecasts[model_lower] = pd.Series(future_values, index=future_dates)
-                        
+
                 except Exception as e:
                     # If calculation fails, use a simple average (but log the error)
                     print(f"Error calculating {model_lower} forecast: {str(e)}")
@@ -1160,7 +1212,7 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                         avg_value = data['quantity'].mean() if len(data) > 0 else 0
                     future_values = [avg_value] * forecast_periods
                     all_models_forecasts[model_lower] = pd.Series(future_values, index=future_dates)
-                
+
                 # Also ensure there's an entry in metrics for this model
                 if model_lower not in metrics:
                     metrics[model_lower] = {
@@ -1288,9 +1340,21 @@ def generate_forecasts(sales_data, cluster_info, forecast_periods=12, evaluate_m
                         lower_bound = forecast_values * 0.75
                         upper_bound = forecast_values * 1.25
 
-                        # Create dates for forecast periods
+                        # Create dates for forecast periods (using 1st day of each month)
                         last_date = sku_data['date'].max()
-                        forecast_dates = [last_date + timedelta(days=30*i) for i in range(1, forecast_periods+1)]
+                        # Get the first day of the next month
+                        next_month = last_date.replace(day=1) + timedelta(days=32)
+                        first_day_next_month = next_month.replace(day=1)
+
+                        # Generate a sequence of first days of months
+                        forecast_dates = []
+                        for i in range(forecast_periods):
+                            # Add months by creating a date on the 1st of each subsequent month
+                            next_date = first_day_next_month.replace(month=((first_day_next_month.month + i - 1) % 12) + 1)
+                            # Adjust the year if we wrapped around December
+                            if next_date.month < first_day_next_month.month:
+                                next_date = next_date.replace(year=next_date.year + 1)
+                            forecast_dates.append(next_date)
 
                         # Create forecast result
                         forecast_result = {
