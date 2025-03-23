@@ -386,10 +386,27 @@ def select_best_model(sku_data, forecast_periods=12):
                     seasonal_periods=seasonal_periods,
                     damped=True                # Damped trend to avoid over-forecasting
                 )
-                results = model.fit(optimized=True, use_brute=False)
                 
-                # Generate forecasts
-                forecast_values = results.forecast(steps=forecast_periods).values
+                # Use fixed parameters instead of optimization to avoid numerical issues
+                results = model.fit(
+                    smoothing_level=0.5,      # More conservative smoothing level
+                    smoothing_trend=0.1,      # Conservative trend smoothing
+                    smoothing_seasonal=0.1,   # Conservative seasonal smoothing
+                    damping_trend=0.9,        # Strong damping to prevent explosion
+                    optimized=False           # Don't optimize to avoid numerical issues
+                )
+                
+                # Generate forecasts and handle potential NaN values
+                forecast_raw = results.forecast(steps=forecast_periods).values
+                
+                # Replace any NaN values with the mean of the data
+                data_mean = np.mean(data['quantity'])
+                forecast_values = np.where(np.isnan(forecast_raw), data_mean, forecast_raw)
+                
+                # Ensure forecasts are reasonable (within historical range)
+                data_max = np.max(data['quantity']) * 1.5  # Allow 50% growth
+                data_min = max(0, np.min(data['quantity']) * 0.5)  # Don't go below 0
+                forecast_values = np.clip(forecast_values, data_min, data_max)
                 
                 # Create confidence intervals (80% by default)
                 forecast_std = np.std(data['quantity'])
