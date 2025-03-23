@@ -1071,6 +1071,46 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                 # Store future forecasts
                 all_models_forecasts[model_type] = pd.Series(future_values, index=future_dates)
 
+            elif model_type == "ensemble":
+                # Skip if we don't have at least 2 other models evaluated
+                if len(all_models_test_pred) < 2:
+                    print("Skipping ensemble - need at least 2 models to create ensemble")
+                    continue
+                
+                # Create ensemble of test predictions
+                try:
+                    # Get weights based on inverse RMSE (better models get higher weights)
+                    weights = {}
+                    for model, model_metrics in metrics.items():
+                        if 'rmse' in model_metrics and not np.isnan(model_metrics['rmse']) and model_metrics['rmse'] > 0:
+                            weights[model] = 1.0 / model_metrics['rmse']
+                    
+                    # Create test ensemble forecast
+                    y_pred_ensemble = create_ensemble_forecast(
+                        all_models_test_pred, 
+                        weights=weights,
+                        method="weighted_average"
+                    )
+                    
+                    # Store ensemble test predictions
+                    all_models_test_pred[model_type] = y_pred_ensemble
+                    
+                    # Use ensemble for future forecasts too
+                    if len(all_models_forecasts) >= 2:
+                        future_ensemble = create_ensemble_forecast(
+                            all_models_forecasts,
+                            weights=weights,
+                            method="weighted_average"
+                        )
+                        all_models_forecasts[model_type] = future_ensemble
+                        
+                    # Convert ensemble test predictions to array for metric calculation
+                    y_pred = y_pred_ensemble.values
+                    
+                except Exception as e:
+                    print(f"Ensemble creation failed: {str(e)}")
+                    continue
+                
             elif model_type == "holtwinters":
                 # Check if we have enough data
                 if len(train_data) >= 12:
@@ -1348,6 +1388,34 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                         # Store forecast
                         all_models_forecasts[model_lower] = pd.Series(future_values, index=future_dates)
 
+                    elif model_lower == "ensemble":
+                        # For ensemble, we need at least 2 other models to be available
+                        available_models = {k: v for k, v in all_models_forecasts.items() 
+                                          if k != model_lower and not v.isnull().all()}
+                        
+                        if len(available_models) >= 2:
+                            # Get weights based on RMSE if available
+                            weights = {}
+                            for model, model_metrics in metrics.items():
+                                if model in available_models and 'rmse' in model_metrics and not np.isnan(model_metrics['rmse']) and model_metrics['rmse'] > 0:
+                                    weights[model] = 1.0 / model_metrics['rmse']
+                            
+                            # Create ensemble forecast
+                            future_ensemble = create_ensemble_forecast(
+                                available_models,
+                                weights=weights,
+                                method="weighted_average"
+                            )
+                            
+                            # Store forecast
+                            all_models_forecasts[model_lower] = future_ensemble
+                        else:
+                            print(f"Cannot create ensemble forecast: need at least 2 other models")
+                            # Add moving average as a fallback
+                            window = min(3, len(data) // 2)
+                            ma_future = np.array([data['quantity'].rolling(window=window).mean().iloc[-1]] * forecast_periods)
+                            all_models_forecasts[model_lower] = pd.Series(ma_future, index=future_dates)
+                            
                     elif model_lower == "lstm":
                         # Train LSTM model if data is sufficient
                         if len(data) >= sequence_length + 2:
