@@ -1045,46 +1045,120 @@ if should_show_button and st.sidebar.button(
             if not selected_models:
                 selected_models = ["auto_arima", "prophet", "ets"]
             
-            # Start the forecasting process
-            forecasts = advanced_generate_forecasts(
-                sales_data=sales_data,
-                cluster_info=cluster_info,
-                forecast_periods=st.session_state.advanced_forecast_periods,
-                auto_select=True,
-                models_to_evaluate=selected_models,
-                selected_skus=selected_skus,
-                progress_callback=forecast_progress_callback,
-                hyperparameter_tuning=st.session_state.advanced_hyperparameter_tuning,
-                apply_sense_check=st.session_state.advanced_apply_sense_check
-            )
+            # Create a detailed log area
+            log_area = st.empty()
+            log_container = log_area.container()
+            log_header = log_container.empty()
+            log_content = log_container.empty()
             
-            # Update session state with the generated forecasts
-            st.session_state.advanced_forecasts = forecasts
+            # Initialize a list to store log messages
+            if 'log_messages' not in st.session_state:
+                st.session_state.log_messages = []
+            else:
+                st.session_state.log_messages = []  # Reset log messages for new run
             
-            # Update progress during forecasting
-            while st.session_state.advanced_forecast_progress < 1.0:
-                # Update the progress bar
-                progress_bar.progress(st.session_state.advanced_forecast_progress)
+            # Function to add log messages
+            def add_log_message(message, level="info"):
+                timestamp = datetime.now().strftime("%H:%M:%S")
+                st.session_state.log_messages.append({"timestamp": timestamp, "message": message, "level": level})
                 
-                # Update the status text with current SKU
-                current_sku = st.session_state.advanced_current_sku
-                if current_sku:
-                    status_text.write(f"Processing SKU: {current_sku}")
+                # Format log messages with appropriate styling
+                log_html = '<div style="height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.8em; background-color: #f0f0f0; padding: 10px; border-radius: 5px;">'
                 
-                # Update progress details
-                progress_percentage = int(st.session_state.advanced_forecast_progress * 100)
+                for log in st.session_state.log_messages[-100:]:  # Show last 100 messages to avoid performance issues
+                    if log["level"] == "info":
+                        color = "black"
+                    elif log["level"] == "warning":
+                        color = "orange"
+                    elif log["level"] == "error":
+                        color = "red"
+                    elif log["level"] == "success":
+                        color = "green"
+                    else:
+                        color = "blue"
+                    
+                    log_html += f'<div style="margin-bottom: 3px;"><span style="color: gray;">[{log["timestamp"]}]</span> <span style="color: {color};">{log["message"]}</span></div>'
+                
+                log_html += '</div>'
+                
+                # Update the log display
+                log_header.markdown("### Real-time Processing Log")
+                log_content.markdown(log_html, unsafe_allow_html=True)
+            
+            # Add initial log message
+            add_log_message(f"Starting advanced forecast generation for {len(selected_skus) if selected_skus else 'all'} SKUs", "info")
+            add_log_message(f"Forecast periods: {st.session_state.advanced_forecast_periods}", "info")
+            add_log_message(f"Models to evaluate: {', '.join(selected_models)}", "info")
+            add_log_message(f"Hyperparameter tuning: {'Enabled' if st.session_state.advanced_hyperparameter_tuning else 'Disabled'}", "info")
+            add_log_message(f"Human-like sense check: {'Enabled' if st.session_state.advanced_apply_sense_check else 'Disabled'}", "info")
+            add_log_message("Beginning clustering and feature extraction...", "info")
+            
+            # Create a custom callback that also updates logs
+            def enhanced_progress_callback(current_index, current_sku, total_skus, message=None, level="info"):
+                # Update progress
+                progress = min(float(current_index) / total_skus, 1.0)
+                st.session_state.advanced_forecast_progress = progress
+                st.session_state.advanced_current_sku = current_sku
+                
+                # Add to log if there's a message
+                if message:
+                    add_log_message(f"[{current_sku}] {message}", level)
+                else:
+                    # Default message
+                    add_log_message(f"Processing SKU: {current_sku} ({current_index+1}/{total_skus})", "info")
+                
+                # Update UI elements
+                progress_bar.progress(progress)
+                progress_percentage = int(progress * 100)
                 progress_details.markdown(f"""
                 **Progress:** {progress_percentage}%  
-                **Current SKU:** {current_sku}  
+                **Current SKU:** {current_sku} ({current_index+1}/{total_skus})  
                 **Models being evaluated:** {', '.join(selected_models)}
                 """)
+            
+            # Override print function to capture output to log
+            original_print = print
+            def custom_print(*args, **kwargs):
+                message = " ".join(map(str, args))
+                add_log_message(message)
+                original_print(*args, **kwargs)  # Still print to console for debugging
+            
+            # Monkey patch print function
+            import builtins
+            builtins.print = custom_print
+            
+            try:
+                # Start the forecasting process
+                add_log_message("Starting advanced forecasting process...", "info")
+                forecasts = advanced_generate_forecasts(
+                    sales_data=sales_data,
+                    cluster_info=cluster_info,
+                    forecast_periods=st.session_state.advanced_forecast_periods,
+                    auto_select=True,
+                    models_to_evaluate=selected_models,
+                    selected_skus=selected_skus,
+                    progress_callback=enhanced_progress_callback,
+                    hyperparameter_tuning=st.session_state.advanced_hyperparameter_tuning,
+                    apply_sense_check=st.session_state.advanced_apply_sense_check
+                )
                 
-                # Check if forecasting is complete
-                if st.session_state.advanced_forecast_progress >= 0.99:
-                    break
+                # Update session state with the generated forecasts
+                st.session_state.advanced_forecasts = forecasts
+                add_log_message(f"Successfully generated forecasts for {len(forecasts)} SKUs", "success")
                 
-                # Sleep briefly to avoid excessive updates
-                time.sleep(0.1)
+                # Update progress to 100%
+                progress_bar.progress(1.0)
+                status_text.write("Forecast generation complete!")
+                add_log_message("Forecast generation complete!", "success")
+            
+            except Exception as e:
+                error_message = f"Error during forecast generation: {str(e)}"
+                add_log_message(error_message, "error")
+                st.error(error_message)
+            
+            finally:
+                # Restore original print function
+                builtins.print = original_print
             
             # Set final progress
             progress_bar.progress(1.0)
