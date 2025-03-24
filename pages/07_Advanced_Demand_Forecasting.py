@@ -848,10 +848,11 @@ if st.session_state.run_advanced_forecast and 'advanced_forecasts' in st.session
             future_cols = [date.strftime('%-d %b %Y') for date in future_dates]
             
             # Column header formatting
-            def highlight_data_columns(df):
-                # Apply formatting to distinguish historical and forecast columns
+            def highlight_data_columns(s):
+                # This function is applied to each row, and s is a Series
+                # Get the column names from the index
                 styles = []
-                for col in df.columns:
+                for col in s.index:
                     if col in ['SKU', 'Model', 'Cluster']:
                         styles.append('')
                     elif col in historical_cols:
