@@ -1316,10 +1316,31 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
     best_model = None
     best_mape = float('inf')
     
+    # Log model comparison if callback is provided
+    if progress_callback:
+        progress_callback(0, "model_selection", 1, "Comparing model performance metrics to select best model", "info")
+        # Create a metrics summary for all models
+        model_summary = []
+        for model, metrics in model_results.items():
+            if 'mape' in metrics:
+                model_summary.append(f"{model.upper()}: MAPE={metrics['mape']:.2f}%, RMSE={metrics.get('rmse', 'N/A')}")
+        
+        # Log summary of all models (split into multiple logs if needed)
+        if model_summary:
+            summary_chunks = [model_summary[i:i+3] for i in range(0, len(model_summary), 3)]
+            for i, chunk in enumerate(summary_chunks):
+                progress_callback(i, "model_metrics", len(summary_chunks), 
+                                 f"Model metrics ({i+1}/{len(summary_chunks)}): {', '.join(chunk)}", "info")
+    
     for model, metrics in model_results.items():
         if 'mape' in metrics and metrics['mape'] < best_mape:
             best_mape = metrics['mape']
             best_model = model
+            
+            # Log when a better model is found
+            if progress_callback:
+                progress_callback(0, model, 1, 
+                                 f"Found better model: {model.upper()} with MAPE={metrics['mape']:.2f}%", "success")
     
     # If no models were successfully trained, use a simple fallback
     if best_model is None:
@@ -1619,7 +1640,8 @@ def advanced_generate_forecasts(sales_data, cluster_info=None, forecast_periods=
                     models_to_try=models_to_evaluate,
                     test_size=0.2,
                     forecast_periods=forecast_periods,
-                    hyperparameter_tuning=hyperparameter_tuning
+                    hyperparameter_tuning=hyperparameter_tuning,
+                    progress_callback=progress_callback
                 )
                 
                 best_model_type = model_results['best_model']
