@@ -1553,7 +1553,7 @@ def advanced_generate_forecasts(sales_data, cluster_info=None, forecast_periods=
     for idx, sku in enumerate(sku_list):
         # Report progress if callback is provided
         if progress_callback:
-            progress_callback(idx, sku, total_skus)
+            progress_callback(idx, sku, total_skus, f"Starting forecast generation for SKU: {sku}", "info")
         
         try:
             # Filter data for this SKU
@@ -1561,6 +1561,8 @@ def advanced_generate_forecasts(sales_data, cluster_info=None, forecast_periods=
             
             # Skip if not enough data
             if len(sku_data) < 3:
+                if progress_callback:
+                    progress_callback(idx, sku, total_skus, f"Skipping {sku}: insufficient data (less than 3 points)", "warning")
                 print(f"Skipping {sku}: insufficient data (less than 3 points)")
                 continue
             
@@ -1575,6 +1577,9 @@ def advanced_generate_forecasts(sales_data, cluster_info=None, forecast_periods=
             # 1. Advanced Preprocessing
             # ------------------------
             
+            if progress_callback:
+                progress_callback(idx, sku, total_skus, "Cleaning time series data and detecting outliers", "info")
+                
             # Clean the time series (handle outliers)
             sku_data['quantity_cleaned'] = clean_time_series(sku_data['quantity'])
             
@@ -1594,6 +1599,13 @@ def advanced_generate_forecasts(sales_data, cluster_info=None, forecast_periods=
             # ---------------------------------
             
             if auto_select:
+                # Log model selection process
+                if progress_callback:
+                    progress_callback(idx, sku, total_skus, "Starting automated model selection process", "info")
+                    if hyperparameter_tuning:
+                        progress_callback(idx, sku, total_skus, "Hyperparameter tuning enabled - may take longer but produce better results", "info")
+                    progress_callback(idx, sku, total_skus, f"Testing models: {', '.join(models_to_evaluate)}", "info")
+                
                 # Automatically select and train the best model
                 model_results = auto_select_best_model(
                     sku_data_recent, 
@@ -1605,6 +1617,17 @@ def advanced_generate_forecasts(sales_data, cluster_info=None, forecast_periods=
                 
                 best_model_type = model_results['best_model']
                 best_forecast = model_results['forecasts'][best_model_type]['future']
+                
+                # Log best model selection
+                if progress_callback:
+                    progress_callback(idx, sku, total_skus, f"Selected {best_model_type.upper()} as best model for this SKU", "success")
+                    
+                    # If metrics are available, log them
+                    if 'metrics' in model_results and best_model_type in model_results['metrics']:
+                        metrics = model_results['metrics'][best_model_type]
+                        if 'mape' in metrics and not np.isnan(metrics['mape']):
+                            progress_callback(idx, sku, total_skus, 
+                                            f"Model performance - MAPE: {metrics['mape']:.2f}%, RMSE: {metrics.get('rmse', 'N/A')}", "info")
                 
                 # Get model evaluation metrics
                 evaluation_metrics = model_results['metrics']
