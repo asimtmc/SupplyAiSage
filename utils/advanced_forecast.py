@@ -702,7 +702,7 @@ def create_ensemble_model(models_dict, weights=None):
     return ensemble
 
 def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_periods=12,
-                          hyperparameter_tuning=True, complex_models_threshold=24):
+                          hyperparameter_tuning=True, complex_models_threshold=24, progress_callback=None):
     """
     Automatically select the best forecasting model based on data characteristics
     and test performance.
@@ -721,6 +721,8 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
         Whether to tune hyperparameters
     complex_models_threshold : int, optional
         Minimum number of observations required for complex models
+    progress_callback : function, optional
+        Callback function for progress reporting with parameters (current_idx, current_item, total_items, message, level)
     
     Returns:
     --------
@@ -773,8 +775,13 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
         return {'mae': mae, 'rmse': rmse, 'mape': mape}
     
     # Train and evaluate each model
-    for model_type in models_to_try:
+    for i, model_type in enumerate(models_to_try):
         try:
+            # Report progress if callback is provided
+            if progress_callback:
+                progress_callback(i, model_type, len(models_to_try), 
+                                f"Training and evaluating {model_type.upper()} model", "info")
+                
             if model_type == "auto_arima":
                 # Prepare data for ARIMA
                 y_train = train_data['quantity'].values
@@ -1705,6 +1712,9 @@ def advanced_generate_forecasts(sales_data, cluster_info=None, forecast_periods=
             # ---------------------------
             
             if apply_sense_check:
+                if progress_callback:
+                    progress_callback(idx, sku, total_skus, "Performing human-like sense check on forecast values", "info")
+                
                 adjusted_forecast, issues, adjustments = human_sense_check(
                     best_forecast,
                     sku_data['quantity'].values
@@ -1712,6 +1722,11 @@ def advanced_generate_forecasts(sales_data, cluster_info=None, forecast_periods=
                 
                 # If significant adjustments were made, use the adjusted forecast
                 if len(adjustments) > 0:
+                    if progress_callback:
+                        progress_callback(idx, sku, total_skus, f"Sense check detected {len(issues)} issues and made {len(adjustments)} adjustments", "warning")
+                        for i, issue in enumerate(issues[:3]):  # Show first 3 issues at most
+                            progress_callback(idx, sku, total_skus, f"Issue {i+1}: {issue}", "info")
+                    
                     best_forecast = adjusted_forecast
                     
                     # Update the forecast in all_models_forecasts
@@ -1726,6 +1741,8 @@ def advanced_generate_forecasts(sales_data, cluster_info=None, forecast_periods=
                         'adjustments_made': adjustments
                     }
                 else:
+                    if progress_callback:
+                        progress_callback(idx, sku, total_skus, "Sense check passed - no adjustments needed", "success")
                     sense_check_info = {'issues_detected': [], 'adjustments_made': []}
             else:
                 sense_check_info = {'issues_detected': [], 'adjustments_made': []}
@@ -1738,6 +1755,10 @@ def advanced_generate_forecasts(sales_data, cluster_info=None, forecast_periods=
                 freq='MS'  # Month start frequency
             )
             
+            # Log forecast completion status
+            if progress_callback:
+                progress_callback(idx, sku, total_skus, "Finalizing forecast and generating confidence intervals", "info")
+                
             # Store the forecasts
             forecasts[sku] = {
                 'sku': sku,
@@ -1754,6 +1775,17 @@ def advanced_generate_forecasts(sales_data, cluster_info=None, forecast_periods=
                 'sense_check': sense_check_info,
                 'train_set': sku_data_recent
             }
+            
+            # Log forecast completion status
+            if progress_callback:
+                # Get forecast average and range for summary
+                avg_forecast = np.mean(best_forecast)
+                min_forecast = np.min(best_forecast)
+                max_forecast = np.max(best_forecast)
+                
+                progress_callback(idx, sku, total_skus, 
+                                f"Forecast complete: Avg={avg_forecast:.1f}, Range=[{min_forecast:.1f}, {max_forecast:.1f}]", 
+                                "success")
             
             # Optionally save forecast to database
             try:
@@ -1781,11 +1813,21 @@ def advanced_generate_forecasts(sales_data, cluster_info=None, forecast_periods=
                     model_params=json.dumps({'cluster': int(sku_cluster)})
                 )
             except Exception as e:
-                print(f"Error saving forecast to database: {str(e)}")
+                error_msg = f"Error saving forecast to database: {str(e)}"
+                print(error_msg)
+                if progress_callback:
+                    progress_callback(idx, sku, total_skus, error_msg, "error")
                 # Continue with next SKU even if database save fails
         
         except Exception as e:
-            print(f"Error generating forecast for SKU {sku}: {str(e)}")
+            error_msg = f"Error generating forecast for SKU {sku}: {str(e)}"
+            print(error_msg)
+            if progress_callback:
+                progress_callback(idx, sku, total_skus, error_msg, "error")
+                # Add more detailed error information if available
+                import traceback
+                trace_msg = traceback.format_exc()
+                progress_callback(idx, sku, total_skus, "See details in console output for full traceback", "error")
             # Continue with next SKU
     
     return forecasts
