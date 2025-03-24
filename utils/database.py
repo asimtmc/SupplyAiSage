@@ -7,6 +7,7 @@ from sqlalchemy import create_engine, Column, String, LargeBinary, DateTime, Tex
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
+from sqlalchemy.sql import text
 
 # Get the database URL from environment variable
 DATABASE_URL = os.environ.get("DATABASE_URL")
@@ -18,7 +19,7 @@ Base = declarative_base()
 # Define the tables
 class UploadedFile(Base):
     __tablename__ = 'uploaded_files'
-    
+
     id = Column(String(36), primary_key=True)
     filename = Column(String(255), nullable=False)
     file_type = Column(String(50), nullable=False)
@@ -29,7 +30,7 @@ class UploadedFile(Base):
 
 class ForecastResult(Base):
     __tablename__ = 'forecast_results'
-    
+
     id = Column(String(36), primary_key=True)
     sku = Column(String(100), nullable=False)
     model_type = Column(String(50), nullable=False)
@@ -51,7 +52,7 @@ def save_uploaded_file(file, file_type, description=None):
     """
     Save an uploaded file to the database
     If a file of the same type already exists, delete it first
-    
+
     Parameters:
     -----------
     file : UploadedFile object
@@ -60,7 +61,7 @@ def save_uploaded_file(file, file_type, description=None):
         Type of file (e.g., 'sales_data', 'bom_data', 'supplier_data')
     description : str, optional
         Optional description of the file
-    
+
     Returns:
     --------
     str
@@ -68,26 +69,26 @@ def save_uploaded_file(file, file_type, description=None):
     """
     try:
         session = SessionFactory()
-        
+
         # Check if file of this type already exists
         existing_files = session.query(UploadedFile).filter(
             UploadedFile.file_type == file_type
         ).all()
-        
+
         # Delete existing files if any
         if existing_files:
             for existing_file in existing_files:
                 session.delete(existing_file)
-            
+
             # Use confirm_deleted_rows=False to suppress the warning
             session.commit()
-            
+
         # Generate a unique ID
         file_id = str(uuid.uuid4())
-        
+
         # Read the file data
         file_data = file.read()
-        
+
         # Create a new UploadedFile record
         new_file = UploadedFile(
             id=file_id,
@@ -96,11 +97,11 @@ def save_uploaded_file(file, file_type, description=None):
             description=description,
             file_data=file_data
         )
-        
+
         # Add to session and commit
         session.add(new_file)
         session.commit()
-        
+
         return file_id
     except Exception as e:
         if session:
@@ -113,7 +114,7 @@ def save_uploaded_file(file, file_type, description=None):
 def get_all_files():
     """
     Get all files from the database
-    
+
     Returns:
     --------
     list
@@ -128,7 +129,7 @@ def get_all_files():
             UploadedFile.description, 
             UploadedFile.created_at
         ).all()
-        
+
         # Convert to list of dictionaries
         files_list = []
         for file in files:
@@ -139,7 +140,7 @@ def get_all_files():
                 'description': file.description,
                 'created_at': file.created_at.strftime('%Y-%m-%d %H:%M:%S')
             })
-        
+
         return files_list
     except Exception as e:
         raise e
@@ -150,12 +151,12 @@ def get_all_files():
 def get_file_by_id(file_id):
     """
     Get a file by its ID
-    
+
     Parameters:
     -----------
     file_id : str
         ID of the file to retrieve
-    
+
     Returns:
     --------
     tuple
@@ -164,7 +165,7 @@ def get_file_by_id(file_id):
     try:
         session = SessionFactory()
         file = session.query(UploadedFile).filter(UploadedFile.id == file_id).first()
-        
+
         if file:
             return (file.filename, file.file_data)
         else:
@@ -178,12 +179,12 @@ def get_file_by_id(file_id):
 def get_file_by_type(file_type):
     """
     Get the most recent file of a specific type
-    
+
     Parameters:
     -----------
     file_type : str
         Type of file to retrieve (e.g., 'sales_data', 'bom_data', 'supplier_data')
-    
+
     Returns:
     --------
     tuple
@@ -196,7 +197,7 @@ def get_file_by_type(file_type):
         ).order_by(
             UploadedFile.created_at.desc()
         ).first()
-        
+
         if file:
             # Convert bytes data to pandas DataFrame
             file_bytes = io.BytesIO(file.file_data)
@@ -209,16 +210,16 @@ def get_file_by_type(file_type):
     finally:
         if session:
             session.close()
-            
+
 def file_type_exists(file_type):
     """
     Check if a file of a specific type already exists in the database
-    
+
     Parameters:
     -----------
     file_type : str
         Type of file to check (e.g., 'sales_data', 'bom_data', 'supplier_data')
-    
+
     Returns:
     --------
     bool
@@ -229,7 +230,7 @@ def file_type_exists(file_type):
         file_exists = session.query(UploadedFile).filter(
             UploadedFile.file_type == file_type
         ).first() is not None
-        
+
         return file_exists
     except Exception as e:
         raise e
@@ -240,12 +241,12 @@ def file_type_exists(file_type):
 def delete_file(file_id):
     """
     Delete a file by its ID
-    
+
     Parameters:
     -----------
     file_id : str
         ID of the file to delete
-    
+
     Returns:
     --------
     bool
@@ -254,7 +255,7 @@ def delete_file(file_id):
     try:
         session = SessionFactory()
         file = session.query(UploadedFile).filter(UploadedFile.id == file_id).first()
-        
+
         if file:
             session.delete(file)
             session.commit()
@@ -271,73 +272,91 @@ def delete_file(file_id):
 
 def save_forecast_result(sku, model_type, forecast_periods, mape, rmse, mae, forecast_data, model_params):
     """
-    Save a forecast result to the database
-    
+    Save forecast results to the database
+
     Parameters:
     -----------
     sku : str
         SKU identifier
     model_type : str
-        Type of forecasting model used
+        Type of forecasting model used (e.g., 'arima', 'prophet')
     forecast_periods : int
         Number of periods forecasted
     mape : float
         Mean Absolute Percentage Error
     rmse : float
-        Root Mean Square Error
+        Root Mean Squared Error
     mae : float
         Mean Absolute Error
     forecast_data : str
-        JSON string of forecast values
+        JSON string containing forecast data
     model_params : str
-        JSON string of model parameters
-    
+        JSON string containing model parameters
+
     Returns:
     --------
-    str
-        ID of the saved forecast result
+    bool
+        True if save successful, False otherwise
     """
     try:
-        session = SessionFactory()
-        
-        # Generate a unique ID
+        # Create a database engine
+        engine = create_engine(DATABASE_URL) #Use existing engine
+
+        # Generate a unique ID for this forecast
         forecast_id = str(uuid.uuid4())
-        
-        # Create a new ForecastResult record
-        new_forecast = ForecastResult(
-            id=forecast_id,
-            sku=sku,
-            model_type=model_type,
-            forecast_periods=forecast_periods,
-            mape=mape,
-            rmse=rmse,
-            mae=mae,
-            forecast_data=forecast_data,
-            model_params=model_params
-        )
-        
-        # Add to session and commit
-        session.add(new_forecast)
-        session.commit()
-        
-        return forecast_id
+
+        # Convert numpy types to Python native types
+        import numpy as np
+        if isinstance(mape, (np.float64, np.float32, np.int64, np.int32)):
+            mape = float(mape)
+        if isinstance(rmse, (np.float64, np.float32, np.int64, np.int32)):
+            rmse = float(rmse)
+        if isinstance(mae, (np.float64, np.float32, np.int64, np.int32)):
+            mae = float(mae)
+
+        # Create a new forecast record
+        new_forecast = {
+            'id': forecast_id,
+            'sku': sku,
+            'model_type': model_type,
+            'forecast_date': datetime.now(),
+            'forecast_periods': forecast_periods,
+            'mape': mape,
+            'rmse': rmse,
+            'mae': mae,
+            'forecast_data': forecast_data,
+            'model_params': model_params
+        }
+
+        # Insert the record using text() to prevent SQL injection vulnerabilities.
+        with engine.connect() as conn:
+            conn.execute(
+                text("""
+                INSERT INTO forecast_results 
+                (id, sku, model_type, forecast_date, forecast_periods, mape, rmse, mae, forecast_data, model_params)
+                VALUES 
+                (:id, :sku, :model_type, :forecast_date, :forecast_periods, :mape, :rmse, :mae, :forecast_data, :model_params)
+                """),
+                new_forecast
+            )
+            conn.commit()
+
+        return True
+
     except Exception as e:
-        if session:
-            session.rollback()
-        raise e
-    finally:
-        if session:
-            session.close()
+        print(f"Error saving forecast to database: {str(e)}")
+        return False
+
 
 def get_forecast_history(sku=None):
     """
     Get forecast history from the database
-    
+
     Parameters:
     -----------
     sku : str, optional
         SKU identifier to filter results. If None, returns all forecasts.
-    
+
     Returns:
     --------
     list
@@ -345,7 +364,7 @@ def get_forecast_history(sku=None):
     """
     try:
         session = SessionFactory()
-        
+
         query = session.query(
             ForecastResult.id,
             ForecastResult.sku,
@@ -355,12 +374,12 @@ def get_forecast_history(sku=None):
             ForecastResult.rmse,
             ForecastResult.mae
         )
-        
+
         if sku:
             query = query.filter(ForecastResult.sku == sku)
-            
+
         forecasts = query.order_by(ForecastResult.forecast_date.desc()).all()
-        
+
         # Convert to list of dictionaries
         forecasts_list = []
         for forecast in forecasts:
@@ -373,7 +392,7 @@ def get_forecast_history(sku=None):
                 'rmse': forecast.rmse,
                 'mae': forecast.mae
             })
-        
+
         return forecasts_list
     except Exception as e:
         raise e
@@ -384,12 +403,12 @@ def get_forecast_history(sku=None):
 def get_forecast_details(forecast_id):
     """
     Get detailed forecast information by its ID
-    
+
     Parameters:
     -----------
     forecast_id : str
         ID of the forecast to retrieve
-    
+
     Returns:
     --------
     dict
@@ -398,7 +417,7 @@ def get_forecast_details(forecast_id):
     try:
         session = SessionFactory()
         forecast = session.query(ForecastResult).filter(ForecastResult.id == forecast_id).first()
-        
+
         if forecast:
             return {
                 'id': forecast.id,

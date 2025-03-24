@@ -881,9 +881,13 @@ if st.session_state.run_advanced_forecast and 'advanced_forecasts' in st.session
                         sku_row[date_str] = None
                 
                 # Add forecast values
-                for date in future_dates:
+                for i, date in enumerate(future_dates):
                     date_str = date.strftime('%-d %b %Y')
-                    sku_row[date_str] = forecast['forecast'][date]
+                    # Use integer indexing instead of direct date lookup to avoid potential index mismatches
+                    if i < len(forecast['forecast']):
+                        sku_row[date_str] = forecast['forecast'].iloc[i]
+                    else:
+                        sku_row[date_str] = None
                 
                 all_sku_data.append(sku_row)
             
@@ -1125,9 +1129,22 @@ if should_show_button and st.sidebar.button(
                 st.session_state.advanced_forecast_progress = progress
                 st.session_state.advanced_current_sku = current_sku
                 
+                # Extract current model from message if present
+                current_model = ""
+                if message and "model" in message.lower():
+                    # Try to extract model name from messages like "Training and evaluating MODEL model"
+                    model_indicators = ["training", "evaluating", "testing", "selected"]
+                    for indicator in model_indicators:
+                        if indicator in message.lower():
+                            parts = message.split()
+                            for i, part in enumerate(parts):
+                                if part.lower() in [m.lower() for m in selected_models]:
+                                    current_model = part.upper()
+                                    break
+                
                 # Add to log if there's a message
                 if message:
-                    add_log_message(f"[{current_sku}] {message}", level)
+                    add_log_message(f"[SKU: {current_sku}] {message}", level)
                 else:
                     # Default message
                     add_log_message(f"Processing SKU: {current_sku} ({current_index+1}/{total_skus})", "info")
@@ -1138,6 +1155,7 @@ if should_show_button and st.sidebar.button(
                 progress_details.markdown(f"""
                 **Progress:** {progress_percentage}%  
                 **Current SKU:** {current_sku} ({current_index+1}/{total_skus})  
+                **Current Model:** {current_model if current_model else "Initializing..."}  
                 **Models being evaluated:** {', '.join(selected_models)}
                 """)
             
