@@ -207,12 +207,36 @@ def update_selected_skus():
         ]['sku'].tolist()
         st.session_state.advanced_selected_skus = cluster_skus
 
-def forecast_progress_callback(current_index, current_sku, total_skus):
-    """Callback function to update progress during forecasting"""
+def forecast_progress_callback(current_index, current_sku, total_skus, message=None, level="info"):
+    """
+    Enhanced callback function to update progress during forecasting and log detailed messages
+    
+    Parameters:
+    -----------
+    current_index : int
+        Current SKU index being processed
+    current_sku : str
+        SKU identifier currently being processed
+    total_skus : int
+        Total number of SKUs to process
+    message : str, optional
+        Specific message to log about the current process
+    level : str, optional
+        Message level ('info', 'warning', 'error', 'success')
+    """
     # Calculate progress percentage
     progress = min(float(current_index) / total_skus, 1.0)
     st.session_state.advanced_forecast_progress = progress
     st.session_state.advanced_current_sku = current_sku
+    
+    # If we have log_messages in session state and a message was provided, add it to logs
+    if 'log_messages' in st.session_state and message:
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        st.session_state.log_messages.append({
+            "timestamp": timestamp,
+            "message": message,
+            "level": level
+        })
 
 # Main content
 if st.session_state.run_advanced_forecast and 'advanced_forecasts' in st.session_state and st.session_state.advanced_forecasts:
