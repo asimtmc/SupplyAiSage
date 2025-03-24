@@ -45,6 +45,8 @@ if 'advanced_forecast_progress' not in st.session_state:
     st.session_state.advanced_forecast_progress = 0
 if 'advanced_current_sku' not in st.session_state:
     st.session_state.advanced_current_sku = ""
+if 'advanced_current_model' not in st.session_state:
+    st.session_state.advanced_current_model = ""
 
 # Set page config
 st.set_page_config(
@@ -228,6 +230,23 @@ def forecast_progress_callback(current_index, current_sku, total_skus, message=N
     progress = min(float(current_index) / total_skus, 1.0)
     st.session_state.advanced_forecast_progress = progress
     st.session_state.advanced_current_sku = current_sku
+    
+    # Extract current model from message if present
+    current_model = ""
+    if message and "model" in message.lower():
+        # Try to extract model name from messages like "Training and evaluating MODEL model"
+        model_indicators = ["training", "evaluating", "testing", "selected"]
+        for indicator in model_indicators:
+            if indicator in message.lower():
+                parts = message.split()
+                for i, part in enumerate(parts):
+                    if part.lower() in ["auto_arima", "prophet", "ets", "theta", "lstm", "tcn", "ensemble", "moving_average"]:
+                        current_model = part.upper()
+                        break
+    
+    # Store current model in session state
+    if current_model:
+        st.session_state.advanced_current_model = current_model
     
     # If we have log_messages in session state and a message was provided, add it to logs
     if 'log_messages' in st.session_state and message:
@@ -841,39 +860,26 @@ if st.session_state.run_advanced_forecast and 'advanced_forecasts' in st.session
                 historical_dates = historical_dates[-6:]
             
             # Format dates for column names
-            historical_cols = [date.strftime('%-d %b %Y') for date in historical_dates]
+            historical_cols = [f"Actual: {date.strftime('%-d %b %Y')}" for date in historical_dates]
             
             # Get future dates from the first forecast
             future_dates = first_forecast['forecast'].index
-            future_cols = [date.strftime('%-d %b %Y') for date in future_dates]
-            
-            # Column header formatting
-            def highlight_data_columns(s):
-                # This function is applied to each row, and s is a Series
-                # Get the column names from the index
-                styles = []
-                for col in s.index:
-                    if col in ['SKU', 'Model', 'Cluster']:
-                        styles.append('')
-                    elif col in historical_cols:
-                        styles.append('background-color: rgba(144, 238, 144, 0.2)')  # Light green for historical
-                    else:
-                        styles.append('background-color: rgba(135, 206, 250, 0.2)')  # Light blue for forecast
-                return styles
+            future_cols = [f"Forecast: {date.strftime('%-d %b %Y')}" for date in future_dates]
             
             # Process each SKU
             for sku, forecast in st.session_state.advanced_forecasts.items():
                 # Create a row for this SKU
                 sku_row = {
-                    'SKU': sku,
-                    'Model': forecast['model'].upper(),
-                    'Cluster': forecast['cluster_name']
+                    'sku_code': sku,
+                    'sku_name': sku,  # Using SKU as name since we don't have name mapping
+                    'model': forecast['model'].upper(),
+                    'best_model': '✓'  # Mark all as best model since we've already selected the best
                 }
                 
                 # Add historical values
                 sku_historical = st.session_state.sales_data[st.session_state.sales_data['sku'] == sku]
-                for date in historical_dates:
-                    date_str = date.strftime('%-d %b %Y')
+                for i, date in enumerate(historical_dates):
+                    date_str = historical_cols[i]
                     matching_rows = sku_historical[sku_historical['date'] == date]
                     if not matching_rows.empty:
                         sku_row[date_str] = matching_rows['quantity'].iloc[0]
@@ -882,7 +888,7 @@ if st.session_state.run_advanced_forecast and 'advanced_forecasts' in st.session
                 
                 # Add forecast values
                 for i, date in enumerate(future_dates):
-                    date_str = date.strftime('%-d %b %Y')
+                    date_str = future_cols[i]
                     # Use integer indexing instead of direct date lookup to avoid potential index mismatches
                     if i < len(forecast['forecast']):
                         sku_row[date_str] = forecast['forecast'].iloc[i]
@@ -891,12 +897,35 @@ if st.session_state.run_advanced_forecast and 'advanced_forecasts' in st.session
                 
                 all_sku_data.append(sku_row)
             
-            # Create DataFrame and style it
+            # Create DataFrame
             if all_sku_data:
                 all_sku_df = pd.DataFrame(all_sku_data)
                 
-                # Apply styling to the header
-                styled_df = all_sku_df.style.apply(highlight_data_columns, axis=1)
+                # Identify column groups for styling
+                all_cols = all_sku_df.columns.tolist()
+                info_cols = ['sku_code', 'sku_name', 'model', 'best_model']
+                actual_cols = [col for col in all_cols if col.startswith('Actual:')]
+                forecast_cols = [col for col in all_cols if col.startswith('Forecast:')]
+                
+                # Define a function for styling the dataframe
+                def highlight_data_columns(df):
+                    # Create a DataFrame of styles
+                    styles = pd.DataFrame('', index=df.index, columns=df.columns)
+                    
+                    # Apply background colors to different column types
+                    for col in actual_cols:
+                        styles[col] = 'background-color: #E8F4F9'  # Light blue for actual values
+                    
+                    for col in forecast_cols:
+                        styles[col] = 'background-color: #FFF9C4'  # Light yellow for forecast values
+                    
+                    # Highlight best model rows
+                    for i, val in enumerate(df['best_model']):
+                        if val == '✓':
+                            for col in info_cols:
+                                styles.loc[i, col] = 'font-weight: bold'
+                    
+                    return styles
                 
                 # Create an expander for the table
                 with st.expander("Forecast Data Table (Click to Expand)", expanded=False):
@@ -904,7 +933,35 @@ if st.session_state.run_advanced_forecast and 'advanced_forecasts' in st.session
                     col1, col2 = st.columns([4, 1])
                     
                     with col1:
-                        st.dataframe(styled_df, use_container_width=True)
+                        # Display styled dataframe with improved configuration
+                        st.dataframe(
+                            all_sku_df.style.apply(highlight_data_columns, axis=None),
+                            use_container_width=True,
+                            height=600,  # Increased height for better visibility
+                            column_config={
+                                # Configure the info columns (SKU code, SKU name, model, best model)
+                                "sku_code": st.column_config.TextColumn(
+                                    "SKU Code",
+                                    width="medium",
+                                    help="Unique identifier for the SKU"
+                                ),
+                                "sku_name": st.column_config.TextColumn(
+                                    "SKU Name",
+                                    width="medium",
+                                    help="Name of the SKU"
+                                ),
+                                "model": st.column_config.TextColumn(
+                                    "Model",
+                                    width="medium",
+                                    help="Forecasting model used"
+                                ),
+                                "best_model": st.column_config.TextColumn(
+                                    "Best",
+                                    width="small",
+                                    help="Check mark indicates best performing model"
+                                )
+                            }
+                        )
                     
                     with col2:
                         # CSV download
@@ -919,6 +976,13 @@ if st.session_state.run_advanced_forecast and 'advanced_forecasts' in st.session
                             mime="text/csv",
                             help="Download a CSV file with the table data"
                         )
+                        
+                        # Add explanation
+                        st.markdown("""
+                        **Column Legend:**
+                        - **Actual:** Historical data
+                        - **Forecast:** Future predictions
+                        """)
             else:
                 st.warning("No data available for the selected SKUs.")
         else:
@@ -1155,7 +1219,7 @@ if should_show_button and st.sidebar.button(
                 progress_details.markdown(f"""
                 **Progress:** {progress_percentage}%  
                 **Current SKU:** {current_sku} ({current_index+1}/{total_skus})  
-                **Current Model:** {current_model if current_model else "Initializing..."}  
+                **Current Model:** {st.session_state.advanced_current_model if st.session_state.advanced_current_model else "Initializing..."}  
                 **Models being evaluated:** {', '.join(selected_models)}
                 """)
             
