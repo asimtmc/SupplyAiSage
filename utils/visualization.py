@@ -687,7 +687,14 @@ def plot_model_comparison(sku, forecast_data):
 
     # Get model evaluation metrics
     metrics = forecast_data['model_evaluation']['metrics']
-    best_model = forecast_data['model_evaluation']['best_model']
+    
+    # Check if best_model key exists
+    if 'best_model' in forecast_data['model_evaluation']:
+        best_model = forecast_data['model_evaluation']['best_model']
+    else:
+        # Fallback to the model with the lowest error metric (MAPE if available)
+        best_model = min(metrics.keys(), key=lambda m: metrics[m].get('mape', float('inf')) 
+                         if not pd.isna(metrics[m].get('mape', float('inf'))) else float('inf'))
 
     # Create data for bar chart
     models = sorted(list(metrics.keys()))  # Sort alphabetically for consistent ordering
@@ -730,29 +737,32 @@ def plot_model_comparison(sku, forecast_data):
         yaxis='y2'
     ))
 
-    # Highlight the best model
+    # Highlight the best model if it exists
     for i, model in enumerate(models):
         if model == best_model:
-            fig.add_annotation(
-                x=model,
-                y=max(rmse_values) * 1.1,
-                text="Best Model",
-                showarrow=True,
-                arrowhead=1,
-                arrowsize=1,
-                arrowwidth=2,
-                arrowcolor="#d62728",
-                font=dict(
-                    family="Arial",
-                    size=12,
-                    color="#d62728"
-                ),
-                bordercolor="#d62728",
-                borderwidth=2,
-                borderpad=4,
-                bgcolor="white",
-                opacity=0.8
-            )
+            # Only add annotation if there are RMSE values
+            if rmse_values and max(rmse_values) > 0:
+                y_pos = max(rmse_values) * 1.1
+                fig.add_annotation(
+                    x=model,
+                    y=y_pos,
+                    text="Best Model",
+                    showarrow=True,
+                    arrowhead=1,
+                    arrowsize=1,
+                    arrowwidth=2,
+                    arrowcolor="#d62728",
+                    font=dict(
+                        family="Arial",
+                        size=12,
+                        color="#d62728"
+                    ),
+                    bordercolor="#d62728",
+                    borderwidth=2,
+                    borderpad=4,
+                    bgcolor="white",
+                    opacity=0.8
+                )
 
     # Update layout with dual y-axis
     fig.update_layout(
