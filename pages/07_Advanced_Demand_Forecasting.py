@@ -838,155 +838,313 @@ if st.session_state.run_advanced_forecast and 'advanced_forecasts' in st.session
             else:
                 st.info("No sense check information available for this forecast.")
 
-    # Show comprehensive data table
-    st.header("Comprehensive Forecast Data Table")
-    
+    # Add a large, clear section break to separate the forecast data table
+    st.markdown("---")
+    st.markdown("## Comprehensive Forecast Data Table")
+    st.info("📊 This table shows historical and forecasted values with dates as columns. The table includes actual sales data and forecasts for each SKU/model combination.")
+
     # Prepare comprehensive data table
     if st.session_state.advanced_forecasts:
         # Create a dataframe to store all SKUs data with reoriented structure
         all_sku_data = []
-        
+
         # Get historical dates (use the first forecast as reference for dates)
         first_sku = list(st.session_state.advanced_forecasts.keys())[0]
         first_forecast = st.session_state.advanced_forecasts[first_sku]
-        
-        # Make sure we have train data to extract historical dates
-        if 'train_set' in first_forecast:
+
+        # Use sales data for historical dates instead of relying on train_set
+        if 'sales_data' in st.session_state and st.session_state.sales_data is not None:
             # Identify unique dates in historical data
             historical_dates = pd.to_datetime(sorted(st.session_state.sales_data['date'].unique()))
-            
-            # Limit to a reasonable number of historical columns (e.g., last 6 months)
-            if len(historical_dates) > 6:
-                historical_dates = historical_dates[-6:]
-            
+
+            # Show all historical data points as requested by the user
             # Format dates for column names
-            historical_cols = [f"Actual: {date.strftime('%-d %b %Y')}" for date in historical_dates]
-            
-            # Get future dates from the first forecast
-            future_dates = first_forecast['forecast'].index
-            future_cols = [f"Forecast: {date.strftime('%-d %b %Y')}" for date in future_dates]
-            
-            # Process each SKU
-            for sku, forecast in st.session_state.advanced_forecasts.items():
-                # Create a row for this SKU
-                sku_row = {
-                    'sku_code': sku,
-                    'sku_name': sku,  # Using SKU as name since we don't have name mapping
-                    'model': forecast['model'].upper(),
-                    'best_model': '✓'  # Mark all as best model since we've already selected the best
-                }
-                
-                # Add historical values
-                sku_historical = st.session_state.sales_data[st.session_state.sales_data['sku'] == sku]
-                for i, date in enumerate(historical_dates):
-                    date_str = historical_cols[i]
-                    matching_rows = sku_historical[sku_historical['date'] == date]
-                    if not matching_rows.empty:
-                        sku_row[date_str] = matching_rows['quantity'].iloc[0]
+            historical_cols = [date.strftime('%-d %b %Y') for date in historical_dates]
+
+            # Get forecast dates from first SKU (for column headers)
+            forecast_dates = first_forecast['forecast'].index
+            forecast_date_cols = [date.strftime('%-d %b %Y') for date in forecast_dates]
+
+            # Add SKU selector for the table
+            all_skus = sorted(list(st.session_state.advanced_forecasts.keys()))
+
+            # Add multi-select for table SKUs with clearer labeling
+            st.subheader("Select Data for Table View")
+            table_skus = st.multiselect(
+                "Choose SKUs to Include",
+                options=all_skus,
+                default=all_skus[:min(5, len(all_skus))],  # Default to first 5 SKUs or less
+                help="Select one or more SKUs to include in the table below"
+            )
+
+            # If no SKUs selected, default to showing all (up to a reasonable limit)
+            if not table_skus:
+                table_skus = all_skus[:min(5, len(all_skus))]
+                st.info(f"Showing first {len(table_skus)} SKUs by default. Select specific SKUs above if needed.")
+
+            # Process each selected SKU
+            for sku in table_skus:
+                forecast_data_for_sku = st.session_state.advanced_forecasts[sku]
+
+                # Get all models for this SKU based on what was selected in the sidebar
+                # Only include models that are in selected_models from the sidebar
+                models_to_include = []
+
+                # Get available models for this SKU
+                available_models = []
+                if 'model_evaluation' in forecast_data_for_sku and 'all_models_forecasts' in forecast_data_for_sku['model_evaluation']:
+                    # Add available models to the list
+                    available_models = list(forecast_data_for_sku['model_evaluation']['all_models_forecasts'].keys())
+
+                # Only include models that were selected in the sidebar
+                for model in st.session_state.advanced_models:
+                    model_lower = model.lower()
+                    # Include the model if it was selected and is available
+                    if model_lower in available_models:
+                        models_to_include.append(model_lower)
+
+                # Get actual sales data for this SKU
+                sku_sales = st.session_state.sales_data[st.session_state.sales_data['sku'] == sku].copy()
+                sku_sales.set_index('date', inplace=True)
+
+                # For each model, create a row in the table
+                for model in models_to_include:
+                    # Mark if this is the best model
+                    is_best_model = (model == forecast_data_for_sku['model'])
+
+                    # Create base row info
+                    row = {
+                        'sku_code': sku,
+                        'sku_name': sku,  # Using SKU as name, replace with actual name if available
+                        'model': model.upper(),
+                        'best_model': '✓' if is_best_model else ''
+                    }
+
+                    # Get model forecast data
+                    if model.lower() == forecast_data_for_sku['model']:
+                        # Use the primary model forecast
+                        model_forecast = forecast_data_for_sku['forecast']
+                    elif ('model_evaluation' in forecast_data_for_sku and 
+                          'all_models_forecasts' in forecast_data_for_sku['model_evaluation'] and 
+                          model.lower() in forecast_data_for_sku['model_evaluation']['all_models_forecasts']):
+                        # Get the specific model forecast data
+                        model_forecast = forecast_data_for_sku['model_evaluation']['all_models_forecasts'][model.lower()]
                     else:
-                        sku_row[date_str] = None
-                
-                # Add forecast values
-                for i, date in enumerate(future_dates):
-                    date_str = future_cols[i]
-                    # Use integer indexing instead of direct date lookup to avoid potential index mismatches
-                    if i < len(forecast['forecast']):
-                        sku_row[date_str] = forecast['forecast'].iloc[i]
-                    else:
-                        sku_row[date_str] = None
-                
-                all_sku_data.append(sku_row)
-            
-            # Create DataFrame
+                        # If the model isn't available, use an empty Series
+                        model_forecast = pd.Series()
+
+                    # Add historical/actual values (no prefix, just the date)
+                    for date, col_name in zip(historical_dates, historical_cols):
+                        # Remove "Actual:" prefix but track these columns separately for styling
+                        actual_col_name = col_name  # Just use the date as column name
+                        if date in sku_sales.index:
+                            row[actual_col_name] = int(sku_sales.loc[date, 'quantity']) if not pd.isna(sku_sales.loc[date, 'quantity']) else 0
+                        else:
+                            row[actual_col_name] = 0
+
+                    # Add forecast values (no prefix, just the date) - ensuring dates match
+                    for date, col_name in zip(forecast_dates, forecast_date_cols):
+                        forecast_col_name = col_name  # Just use the date as column name
+
+                        # Check if this forecast exists in all_models_forecasts
+                        model_forecast_series = None
+
+                        if ('model_evaluation' in forecast_data_for_sku and 
+                            'all_models_forecasts' in forecast_data_for_sku['model_evaluation'] and 
+                            model.lower() in forecast_data_for_sku['model_evaluation']['all_models_forecasts']):
+                            model_forecast_series = forecast_data_for_sku['model_evaluation']['all_models_forecasts'][model.lower()]
+
+                        # Now check if date exists in the model's forecast
+                        try:
+                            if model_forecast_series is not None and date in model_forecast_series.index:
+                                forecast_value = model_forecast_series[date]
+                                try:
+                                    # Check if value is NaN before conversion
+                                    if not pd.isna(forecast_value) and not np.isnan(forecast_value):
+                                        row[forecast_col_name] = int(round(forecast_value))
+                                    else:
+                                        # Handle NaN values
+                                        print(f"Warning: NaN value detected for {model} at {date}")
+                                        row[forecast_col_name] = 0
+                                except Exception as e:
+                                    # Log the error with details
+                                    print(f"Error converting forecast value for {model} at {date}: {str(e)}")
+                                    row[forecast_col_name] = 0
+                            else:
+                                # If we can't find the forecast, set to 0
+                                print(f"No forecast found for {model} at {date}")
+                                row[forecast_col_name] = 0
+                        except Exception as e:
+                            # Catch any unexpected errors and use a safe fallback
+                            print(f"Error processing forecast for {model} at {date}: {str(e)}")
+                            row[forecast_col_name] = 0
+
+                    all_sku_data.append(row)
+
+            # Create DataFrame from all data
             if all_sku_data:
                 all_sku_df = pd.DataFrame(all_sku_data)
-                
+
                 # Identify column groups for styling
                 all_cols = all_sku_df.columns.tolist()
                 info_cols = ['sku_code', 'sku_name', 'model', 'best_model']
-                actual_cols = [col for col in all_cols if col.startswith('Actual:')]
-                forecast_cols = [col for col in all_cols if col.startswith('Forecast:')]
-                
+
+                # Since we removed prefixes, we need a different way to identify historical vs forecast columns
+                # Use the fact that historical columns come from historical_cols and forecast columns from forecast_date_cols
+                actual_cols = historical_cols
+                forecast_cols = forecast_date_cols
+
                 # Define a function for styling the dataframe
                 def highlight_data_columns(df):
                     # Create a DataFrame of styles
                     styles = pd.DataFrame('', index=df.index, columns=df.columns)
-                    
+
                     # Apply background colors to different column types
+                    for col in info_cols:
+                        styles[col] = 'background-color: #F5F5F5; font-weight: 500'  # Light gray for info columns
+
                     for col in actual_cols:
-                        styles[col] = 'background-color: #E8F4F9'  # Light blue for actual values
-                    
+                        styles[col] = 'background-color: #E3F2FD'  # Lighter blue for actual values
+
                     for col in forecast_cols:
-                        styles[col] = 'background-color: #FFF9C4'  # Light yellow for forecast values
-                    
+                        styles[col] = 'background-color: #FFF8E1'  # Lighter yellow for forecast values
+
                     # Highlight best model rows
                     for i, val in enumerate(df['best_model']):
                         if val == '✓':
-                            for col in info_cols:
-                                styles.loc[i, col] = 'font-weight: bold'
-                    
+                            for col in df.columns:
+                                styles.iloc[i, df.columns.get_loc(col)] += '; font-weight: bold'
+
+                    # Add text alignment
+                    for col in all_cols:
+                        if col in info_cols:
+                            styles[col] += '; text-align: left'
+                        else:
+                            styles[col] += '; text-align: right'
+
                     return styles
-                
-                # Create an expander for the table
-                with st.expander("Forecast Data Table (Click to Expand)", expanded=False):
-                    # Create two columns for the table and download button
-                    col1, col2 = st.columns([4, 1])
-                    
-                    with col1:
-                        # Display styled dataframe with improved configuration
-                        st.dataframe(
-                            all_sku_df.style.apply(highlight_data_columns, axis=None),
-                            use_container_width=True,
-                            height=600,  # Increased height for better visibility
-                            column_config={
-                                # Configure the info columns (SKU code, SKU name, model, best model)
-                                "sku_code": st.column_config.TextColumn(
-                                    "SKU Code",
-                                    width="medium",
-                                    help="Unique identifier for the SKU"
-                                ),
-                                "sku_name": st.column_config.TextColumn(
-                                    "SKU Name",
-                                    width="medium",
-                                    help="Name of the SKU"
-                                ),
-                                "model": st.column_config.TextColumn(
-                                    "Model",
-                                    width="medium",
-                                    help="Forecasting model used"
-                                ),
-                                "best_model": st.column_config.TextColumn(
-                                    "Best",
-                                    width="small",
-                                    help="Check mark indicates best performing model"
-                                )
-                            }
+
+                # Add column group headers using expander
+                forecast_explanation = """
+                - **SKU Info**: Basic product information
+                - **Actual Values**: Historical sales shown with blue background
+                - **Forecast Values**: Predicted sales shown with yellow background
+                - **✓**: Indicates the best performing model for each SKU
+                """
+                with st.expander("Understanding the Table", expanded=False):
+                    st.markdown(forecast_explanation)
+
+                # Use styling to highlight data column types with frozen columns till model name
+                st.dataframe(
+                    all_sku_df.style.apply(highlight_data_columns, axis=None),
+                    use_container_width=True,
+                    height=600,  # Increased height for better visibility
+                    column_config={
+                        # Configure the info columns (SKU code, SKU name, model, best model)
+                        "sku_code": st.column_config.TextColumn(
+                            "SKU Code",
+                            width="medium",
+                            help="Unique identifier for the SKU"
+                        ),
+                        "sku_name": st.column_config.TextColumn(
+                            "SKU Name",
+                            width="medium",
+                            help="Name of the SKU"
+                        ),
+                        "model": st.column_config.TextColumn(
+                            "Model",
+                            width="medium",
+                            help="Forecasting model used"
+                        ),
+                        "best_model": st.column_config.TextColumn(
+                            "Best",
+                            width="small",
+                            help="Check mark indicates best performing model"
                         )
-                    
-                    with col2:
-                        # CSV download
-                        csv_buffer = io.BytesIO()
-                        all_sku_df.to_csv(csv_buffer, index=False)
-                        csv_buffer.seek(0)
-                        
-                        st.download_button(
-                            label="📄 Download as CSV",
-                            data=csv_buffer,
-                            file_name=f"advanced_forecast_data_{datetime.now().strftime('%Y%m%d')}.csv",
-                            mime="text/csv",
-                            help="Download a CSV file with the table data"
-                        )
-                        
-                        # Add explanation
-                        st.markdown("""
-                        **Column Legend:**
-                        - **Actual:** Historical data
-                        - **Forecast:** Future predictions
-                        """)
+                    },
+                    hide_index=True
+                )
+
+                # Create Excel file with nice formatting for download
+                excel_buffer = io.BytesIO()
+                with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
+                    all_sku_df.to_excel(writer, sheet_name='Forecast Data', index=False)
+
+                    # Get the xlsxwriter workbook and worksheet objects
+                    workbook = writer.book
+                    worksheet = writer.sheets['Forecast Data']
+
+                    # Add formats
+                    header_format = workbook.add_format({
+                        'bold': True,
+                        'text_wrap': True,
+                        'valign': 'top',
+                        'fg_color': '#D7E4BC',
+                        'border': 1
+                    })
+
+                    info_format = workbook.add_format({
+                        'bg_color': '#F5F5F5',
+                        'border': 1
+                    })
+
+                    actual_format = workbook.add_format({
+                        'bg_color': '#E3F2FD',
+                        'border': 1,
+                        'num_format': '#,##0'
+                    })
+
+                    forecast_format = workbook.add_format({
+                        'bg_color': '#FFF8E1',
+                        'border': 1,
+                        'num_format': '#,##0'
+                    })
+
+                    # Apply formats to the header
+                    for col_num, value in enumerate(all_sku_df.columns.values):
+                        worksheet.write(0, col_num, value, header_format)
+
+                    # Set column formats based on data type
+                    for i, col in enumerate(all_sku_df.columns):
+                        col_idx = all_sku_df.columns.get_loc(col)
+                        if col in info_cols:
+                            worksheet.set_column(col_idx, col_idx, 15, info_format)
+                        elif col in actual_cols:
+                            worksheet.set_column(col_idx, col_idx, 12, actual_format)
+                        elif col in forecast_cols:
+                            worksheet.set_column(col_idx, col_idx, 12, forecast_format)
+
+                excel_buffer.seek(0)
+
+                # Provide download buttons for the table in multiple formats
+                col1, col2 = st.columns(2)
+                with col1:
+                    # Excel download
+                    st.download_button(
+                        label="📊 Download as Excel",
+                        data=excel_buffer,
+                        file_name=f"sku_forecast_data_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                        mime="application/vnd.ms-excel",
+                        help="Download a formatted Excel spreadsheet with the table data"
+                    )
+
+                with col2:
+                    # CSV download
+                    csv_buffer = io.BytesIO()
+                    all_sku_df.to_csv(csv_buffer, index=False)
+                    csv_buffer.seek(0)
+
+                    st.download_button(
+                        label="📄 Download as CSV",
+                        data=csv_buffer,
+                        file_name=f"sku_forecast_data_{datetime.now().strftime('%Y%m%d')}.csv",
+                        mime="text/csv",
+                        help="Download a CSV file with the table data"
+                    )
             else:
                 st.warning("No data available for the selected SKUs.")
         else:
-            st.warning("No training data available to construct the comprehensive data table. Please upload sales data first.")
+            st.warning("No sales data available to construct the comprehensive data table. Please upload sales data first.")
     else:
         st.warning("No forecast data available. Please run a forecast first.")
 
