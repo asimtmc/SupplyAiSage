@@ -882,35 +882,27 @@ if st.session_state.run_advanced_forecast and 'advanced_forecasts' in st.session
                 table_skus = all_skus[:min(5, len(all_skus))]
                 st.info(f"Showing first {len(table_skus)} SKUs by default. Select specific SKUs above if needed.")
 
+            # List all selected models in the sidebar for use in the table
+            selected_models_for_table = st.session_state.advanced_models
+            if not selected_models_for_table:
+                # If no models were selected, include default models
+                selected_models_for_table = ["auto_arima", "prophet", "ets", "theta"]
+                st.info(f"No models were selected in the sidebar. Using default models: {', '.join([m.upper() for m in selected_models_for_table])}")
+
             # Process each selected SKU
             for sku in table_skus:
                 forecast_data_for_sku = st.session_state.advanced_forecasts[sku]
-
-                # Get all models for this SKU based on what was selected in the sidebar
-                # Only include models that are in selected_models from the sidebar
-                models_to_include = []
-
-                # Get available models for this SKU
-                available_models = []
-                if 'model_evaluation' in forecast_data_for_sku and 'all_models_forecasts' in forecast_data_for_sku['model_evaluation']:
-                    # Add available models to the list
-                    available_models = list(forecast_data_for_sku['model_evaluation']['all_models_forecasts'].keys())
-
-                # Only include models that were selected in the sidebar
-                for model in st.session_state.advanced_models:
-                    model_lower = model.lower()
-                    # Include the model if it was selected and is available
-                    if model_lower in available_models:
-                        models_to_include.append(model_lower)
 
                 # Get actual sales data for this SKU
                 sku_sales = st.session_state.sales_data[st.session_state.sales_data['sku'] == sku].copy()
                 sku_sales.set_index('date', inplace=True)
 
-                # For each model, create a row in the table
-                for model in models_to_include:
+                # For each selected model (from sidebar), create a row in the table
+                for model in selected_models_for_table:
+                    model_lower = model.lower()
+                    
                     # Mark if this is the best model
-                    is_best_model = (model == forecast_data_for_sku['model'])
+                    is_best_model = (model_lower == forecast_data_for_sku['model'])
 
                     # Create base row info
                     row = {
@@ -919,19 +911,6 @@ if st.session_state.run_advanced_forecast and 'advanced_forecasts' in st.session
                         'model': model.upper(),
                         'best_model': '✓' if is_best_model else ''
                     }
-
-                    # Get model forecast data
-                    if model.lower() == forecast_data_for_sku['model']:
-                        # Use the primary model forecast
-                        model_forecast = forecast_data_for_sku['forecast']
-                    elif ('model_evaluation' in forecast_data_for_sku and 
-                          'all_models_forecasts' in forecast_data_for_sku['model_evaluation'] and 
-                          model.lower() in forecast_data_for_sku['model_evaluation']['all_models_forecasts']):
-                        # Get the specific model forecast data
-                        model_forecast = forecast_data_for_sku['model_evaluation']['all_models_forecasts'][model.lower()]
-                    else:
-                        # If the model isn't available, use an empty Series
-                        model_forecast = pd.Series()
 
                     # Add historical/actual values (no prefix, just the date)
                     for date, col_name in zip(historical_dates, historical_cols):
@@ -942,43 +921,44 @@ if st.session_state.run_advanced_forecast and 'advanced_forecasts' in st.session
                         else:
                             row[actual_col_name] = 0
 
-                    # Add forecast values (no prefix, just the date) - ensuring dates match
+                    # Find forecast data for this model
+                    model_forecast_series = None
+                    
+                    # First check if this is the best model
+                    if model_lower == forecast_data_for_sku['model']:
+                        model_forecast_series = forecast_data_for_sku['forecast']
+                    
+                    # If not the best model or we couldn't find its forecast, check in all_models_forecasts
+                    if model_forecast_series is None and 'model_evaluation' in forecast_data_for_sku:
+                        if 'all_models_forecasts' in forecast_data_for_sku['model_evaluation']:
+                            all_models = forecast_data_for_sku['model_evaluation']['all_models_forecasts']
+                            if model_lower in all_models:
+                                model_forecast_series = all_models[model_lower]
+
+                    # Add forecast values for each date
                     for date, col_name in zip(forecast_dates, forecast_date_cols):
-                        forecast_col_name = col_name  # Just use the date as column name
-
-                        # Check if this forecast exists in all_models_forecasts
-                        model_forecast_series = None
-
-                        if ('model_evaluation' in forecast_data_for_sku and 
-                            'all_models_forecasts' in forecast_data_for_sku['model_evaluation'] and 
-                            model.lower() in forecast_data_for_sku['model_evaluation']['all_models_forecasts']):
-                            model_forecast_series = forecast_data_for_sku['model_evaluation']['all_models_forecasts'][model.lower()]
-
-                        # Now check if date exists in the model's forecast
-                        try:
-                            if model_forecast_series is not None and date in model_forecast_series.index:
+                        forecast_value = None
+                        
+                        # Check if we have forecast data for this model
+                        if model_forecast_series is not None:
+                            # Check if this date exists in the forecast
+                            if date in model_forecast_series.index:
                                 forecast_value = model_forecast_series[date]
-                                try:
-                                    # Check if value is NaN before conversion
-                                    if not pd.isna(forecast_value) and not np.isnan(forecast_value):
-                                        row[forecast_col_name] = int(round(forecast_value))
-                                    else:
-                                        # Handle NaN values
-                                        print(f"Warning: NaN value detected for {model} at {date}")
-                                        row[forecast_col_name] = 0
-                                except Exception as e:
-                                    # Log the error with details
-                                    print(f"Error converting forecast value for {model} at {date}: {str(e)}")
-                                    row[forecast_col_name] = 0
+                                
+                                # Make sure the value is valid
+                                if pd.notna(forecast_value) and not np.isnan(forecast_value):
+                                    row[col_name] = int(round(forecast_value))
+                                else:
+                                    # Default to 0 for NaN values
+                                    row[col_name] = 0
                             else:
-                                # If we can't find the forecast, set to 0
-                                print(f"No forecast found for {model} at {date}")
-                                row[forecast_col_name] = 0
-                        except Exception as e:
-                            # Catch any unexpected errors and use a safe fallback
-                            print(f"Error processing forecast for {model} at {date}: {str(e)}")
-                            row[forecast_col_name] = 0
-
+                                # Date not found in forecast
+                                row[col_name] = 0
+                        else:
+                            # No forecast data for this model
+                            row[col_name] = 0
+                    
+                    # Add the row to our data collection
                     all_sku_data.append(row)
 
             # Create DataFrame from all data
@@ -993,6 +973,23 @@ if st.session_state.run_advanced_forecast and 'advanced_forecasts' in st.session
                 # Use the fact that historical columns come from historical_cols and forecast columns from forecast_date_cols
                 actual_cols = historical_cols
                 forecast_cols = forecast_date_cols
+
+                # Add column categorization for better visualization
+                st.subheader("Table Column Explanation")
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.markdown("**🔷 SKU Info Columns**")
+                    for col in info_cols:
+                        st.markdown(f"- {col}")
+                    
+                with col2:
+                    st.markdown("**🔹 Historical Data**")
+                    st.markdown(f"- {len(actual_cols)} date columns showing past sales")
+                    
+                with col3:
+                    st.markdown("**🔶 Forecast Data**")  
+                    st.markdown(f"- {len(forecast_cols)} future date columns")
 
                 # Define a function for styling the dataframe
                 def highlight_data_columns(df):
@@ -1021,18 +1018,25 @@ if st.session_state.run_advanced_forecast and 'advanced_forecasts' in st.session
                             styles[col] += '; text-align: left'
                         else:
                             styles[col] += '; text-align: right'
+                            
+                    # Highlight zeros in forecast columns with a different style to make them more visible
+                    for i in range(len(df)):
+                        for col in forecast_cols:
+                            if col in df.columns and df.iloc[i][col] == 0:
+                                styles.iloc[i, df.columns.get_loc(col)] += '; color: #999999; font-style: italic'
 
                     return styles
 
                 # Add column group headers using expander
-                forecast_explanation = """
-                - **SKU Info**: Basic product information
-                - **Actual Values**: Historical sales shown with blue background
-                - **Forecast Values**: Predicted sales shown with yellow background
-                - **✓**: Indicates the best performing model for each SKU
-                """
-                with st.expander("Understanding the Table", expanded=False):
-                    st.markdown(forecast_explanation)
+                with st.expander("Understanding the Table", expanded=True):
+                    st.markdown("""
+                    ### Table Legend
+                    - **SKU Info**: Basic product information (gray background)
+                    - **Historical Data**: Past sales values (blue background)
+                    - **Forecast Data**: Predicted sales values (yellow background)
+                    - **✓**: Indicates the best performing model for each SKU
+                    - **Zero forecasts**: Values showing as 0 may indicate the model did not generate a forecast for that date
+                    """)
 
                 # Use styling to highlight data column types with frozen columns till model name
                 st.dataframe(
@@ -1064,6 +1068,11 @@ if st.session_state.run_advanced_forecast and 'advanced_forecasts' in st.session
                     },
                     hide_index=True
                 )
+
+                # Add a note about any zero values
+                zero_count = (all_sku_df[forecast_cols] == 0).sum().sum()
+                if zero_count > 0:
+                    st.info(f"📝 There are {zero_count} forecast values showing as 0 in the table. This could be because those models didn't generate forecasts for some dates, or the generated forecasts were exactly 0.")
 
                 # Create Excel file with nice formatting for download
                 excel_buffer = io.BytesIO()
