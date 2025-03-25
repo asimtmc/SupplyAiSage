@@ -443,46 +443,25 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
     # Forecast explorer
     st.header("Forecast Explorer")
 
-    # Create a more prominent SKU selection area with columns
-    col1, col2 = st.columns([2, 1])
+    # Create a SKU selection area
+    # Allow user to select a SKU to view detailed forecast
+    sku_list = list(st.session_state.forecasts.keys())
 
-    with col1:
-        # Allow user to select a SKU to view detailed forecast
-        sku_list = list(st.session_state.forecasts.keys())
-
-        # Safely get an index for the selected SKU
-        if st.session_state.selected_sku is None or st.session_state.selected_sku not in sku_list:
+    # Safely get an index for the selected SKU
+    if st.session_state.selected_sku is None or st.session_state.selected_sku not in sku_list:
+        default_index = 0
+    else:
+        try:
+            default_index = sku_list.index(st.session_state.selected_sku)
+        except (ValueError, IndexError):
             default_index = 0
-        else:
-            try:
-                default_index = sku_list.index(st.session_state.selected_sku)
-            except (ValueError, IndexError):
-                default_index = 0
 
-        selected_sku = st.selectbox(
-            "Select a SKU to view forecast details",
-            options=sku_list,
-            index=default_index
-        )
-        st.session_state.selected_sku = selected_sku
-
-    with col2:
-        # Show basic info about the selected SKU
-        if selected_sku and selected_sku in st.session_state.forecasts:
-            forecast_data = st.session_state.forecasts[selected_sku]
-            model_name = forecast_data['model'].upper()
-            cluster_name = forecast_data['cluster_name']
-
-            st.write(f"**Model:** {model_name}")
-            st.write(f"**Cluster:** {cluster_name}")
-
-            # Show a quick metric if available
-            if 'model_evaluation' in forecast_data and 'metrics' in forecast_data['model_evaluation']:
-                best_model = forecast_data['model_evaluation']['best_model']
-                if best_model in forecast_data['model_evaluation']['metrics']:
-                    metrics = forecast_data['model_evaluation']['metrics'][best_model]
-                    if 'mape' in metrics and not np.isnan(metrics['mape']):
-                        st.metric("Forecast Accuracy", f"{(100-metrics['mape']):.1f}%", help="Based on test data evaluation")
+    selected_sku = st.selectbox(
+        "Select a SKU to view forecast details",
+        options=sku_list,
+        index=default_index
+    )
+    st.session_state.selected_sku = selected_sku
 
     # Show forecast details for selected SKU
     if selected_sku:
@@ -492,212 +471,221 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
         forecast_tabs = st.tabs(["Forecast Chart", "Model Comparison", "Forecast Metrics"])
 
         with forecast_tabs[0]:
-            # Forecast visualization section
-            col1, col2 = st.columns([3, 1])
+            # Forecast visualization section - full width
+            # Get list of models to display
+            # If we have multiple models selected, use them for visualization
+            available_models = []
+            selected_models_for_viz = []
 
-            with col1:
-                # Get list of models to display
-                # If we have multiple models selected, use them for visualization
-                available_models = []
-                selected_models_for_viz = []
+            if 'model_evaluation' in forecast_data and 'all_models_forecasts' in forecast_data['model_evaluation']:
+                # Get all available models from the forecast data
+                available_models = list(forecast_data['model_evaluation']['all_models_forecasts'].keys())
+                
+                # Create checkboxes for display options
+                st.subheader("Display Options")
 
-                if 'model_evaluation' in forecast_data and 'all_models_forecasts' in forecast_data['model_evaluation']:
-                    # Get all available models from the forecast data
-                    available_models = list(forecast_data['model_evaluation']['all_models_forecasts'].keys())
+                # Create columns for the checkboxes
+                col_options1, col_options2 = st.columns(2)
+
+                with col_options1:
+                    # Option to show test predictions
+                    show_test_predictions = st.checkbox(
+                        "Show Test Predictions", 
+                        value=False,
+                        help="Display forecast line for test data period"
+                    )
+
+                    # Option to show all models or best model
+                    show_all_models = st.checkbox(
+                        "Show All Selected Models", 
+                        value=False,
+                        help="Show forecasts from all selected models"
+                    )
+
+                with col_options2:
+                    # Custom model selection (only show if not showing all models)
+                    if not show_all_models:
+                        # Get model options capitalized - include ALL available models
+                        model_options = [model.upper() for model in available_models]
+
+                        # Ensure best model is included in the options
+                        default_model = forecast_data['model'].upper()
+                        if default_model not in model_options:
+                            model_options.append(default_model)
+
+                        # Get the selected models from sidebar (also in uppercase)
+                        selected_sidebar_models = [m.upper() for m in st.session_state.selected_models 
+                                                 if m.lower() in available_models]
+
+                        # If none of the sidebar selected models are available, default to the best model
+                        if not selected_sidebar_models:
+                            selected_sidebar_models = [default_model]
+
+                        # Create multiselect for custom model selection
+                        custom_models = st.multiselect(
+                            "Select Models to Display",
+                            options=model_options,
+                            default=selected_sidebar_models,
+                            help="Select one or more models to display on chart"
+                        )
+                        # Convert back to lowercase
+                        custom_models_lower = [model.lower() for model in custom_models]
+                    else:
+                        custom_models_lower = []
+
+                # Determine which models to display based on selections
+                if show_all_models:
+                    # Use ALL models that were selected in the sidebar AND are available in the forecast data
+                    selected_models_for_viz = []
+                    for model in st.session_state.selected_models:
+                        model_lower = model.lower()
+                        # Check if this model exists in the forecast data
+                        if model_lower in available_models:
+                            selected_models_for_viz.append(model_lower)
+                elif custom_models_lower:
+                    # Use custom selection from multiselect
+                    selected_models_for_viz = custom_models_lower
+                else:
+                    # Default to the primary model if nothing is explicitly selected
+                    selected_models_for_viz = [forecast_data['model']]
+
+                # Ensure we have at least one model in the list
+                if not selected_models_for_viz and available_models:
+                    selected_models_for_viz = [available_models[0]]
+
+                # Set test prediction flag based on checkbox
+                if show_test_predictions:
+                    forecast_data['show_test_predictions'] = True
+                else:
+                    forecast_data['show_test_predictions'] = False
+
+            # Display forecast chart with selected models (FULL WIDTH)
+            forecast_fig = plot_forecast(st.session_state.sales_data, forecast_data, selected_sku, selected_models_for_viz)
+            st.plotly_chart(forecast_fig, use_container_width=True)
+
+            # Show training/test split information if available
+            if 'train_set' in forecast_data and 'test_set' in forecast_data:
+                train_count = len(forecast_data['train_set'])
+                test_count = len(forecast_data['test_set'])
+                total_points = train_count + test_count
+                train_pct = int((train_count / total_points) * 100)
+                test_pct = int((test_count / total_points) * 100)
+
+                st.caption(f"Data split: {train_count} training points ({train_pct}%) and {test_count} test points ({test_pct}%)")
+
+            # Add Forecast Details as expandable section (collapsed by default)
+            with st.expander("Forecast Details", expanded=False):
+                if selected_sku and selected_sku in st.session_state.forecasts:
+                    # Basic metrics at the top
+                    col1, col2, col3 = st.columns(3)
                     
-                    # Create checkboxes for display options
-                    st.subheader("Display Options")
+                    with col1:
+                        st.markdown(f"**SKU:** {selected_sku}")
+                    
+                    with col2:
+                        st.markdown(f"**Cluster:** {forecast_data['cluster_name']}")
+                    
+                    with col3:
+                        st.markdown(f"**Model Used:** {forecast_data['model'].upper()}")
+                    
+                    # Show accuracy metric if available
+                    if 'model_evaluation' in forecast_data and 'metrics' in forecast_data['model_evaluation']:
+                        best_model = forecast_data['model_evaluation']['best_model']
+                        if best_model in forecast_data['model_evaluation']['metrics']:
+                            metrics = forecast_data['model_evaluation']['metrics'][best_model]
+                            if 'mape' in metrics and not np.isnan(metrics['mape']):
+                                st.metric("Forecast Accuracy", f"{(100-metrics['mape']):.1f}%", help="Based on test data evaluation")
+                    
+                    # Forecast confidence
+                    confidence_color = "green" if forecast_data['model'] != 'moving_average' else "orange"
+                    confidence_text = "High" if forecast_data['model'] != 'moving_average' else "Medium"
+                    st.markdown(f"**Forecast Confidence:** <span style='color:{confidence_color}'>{confidence_text}</span>", unsafe_allow_html=True)
 
-                    # Create columns for the checkboxes
-                    col_options1, col_options2 = st.columns(2)
+                    # Create basic forecast table - without confidence intervals as requested
+                    forecast_table = pd.DataFrame({
+                        'Date': forecast_data['forecast'].index,
+                        'Forecast': forecast_data['forecast'].values.round(0).astype(int)
+                    })
 
-                    with col_options1:
-                        # Option to show test predictions
-                        show_test_predictions = st.checkbox(
-                            "Show Test Predictions", 
-                            value=False,
-                            help="Display forecast line for test data period"
-                        )
+                    # If we have model evaluation data for multiple models, show them side by side in the table
+                    if 'model_evaluation' in forecast_data and 'all_models_forecasts' in forecast_data['model_evaluation']:
+                        model_forecasts = forecast_data['model_evaluation']['all_models_forecasts']
 
-                        # Option to show all models or best model
-                        show_all_models = st.checkbox(
-                            "Show All Selected Models", 
-                            value=False,
-                            help="Show forecasts from all selected models"
-                        )
-
-                    with col_options2:
-                        # Custom model selection (only show if not showing all models)
-                        if not show_all_models:
-                            # Get model options capitalized - include ALL available models
-                            model_options = [model.upper() for model in available_models]
-
-                            # Ensure best model is included in the options
-                            default_model = forecast_data['model'].upper()
-                            if default_model not in model_options:
-                                model_options.append(default_model)
-
-                            # Get the selected models from sidebar (also in uppercase)
-                            selected_sidebar_models = [m.upper() for m in st.session_state.selected_models 
-                                                     if m.lower() in available_models]
-
-                            # If none of the sidebar selected models are available, default to the best model
-                            if not selected_sidebar_models:
-                                selected_sidebar_models = [default_model]
-
-                            # Create multiselect for custom model selection
-                            custom_models = st.multiselect(
-                                "Select Models to Display",
-                                options=model_options,
-                                default=selected_sidebar_models,
-                                help="Select one or more models to display on chart"
-                            )
-                            # Convert back to lowercase
-                            custom_models_lower = [model.lower() for model in custom_models]
+                        # Show models explicitly selected by the user
+                        if show_all_models:
+                            # Use ALL models from sidebar that are available in the forecasts
+                            models_to_display = []
+                            for model in st.session_state.selected_models:
+                                model_lower = model.lower()
+                                if model_lower in model_forecasts:
+                                    models_to_display.append(model_lower)
+                        elif custom_models_lower:
+                            # Use custom selection from multiselect
+                            models_to_display = [m for m in custom_models_lower 
+                                              if m in model_forecasts]
                         else:
-                            custom_models_lower = []
+                            # If no models selected, use the best model (from model_evaluation)
+                            if 'model_evaluation' in forecast_data and 'best_model' in forecast_data['model_evaluation']:
+                                models_to_display = [forecast_data['model_evaluation']['best_model']]
+                            else:
+                                models_to_display = [forecast_data['model']]
 
-                    # Determine which models to display based on selections
-                    if show_all_models:
-                        # Use ALL models that were selected in the sidebar AND are available in the forecast data
-                        selected_models_for_viz = []
-                        for model in st.session_state.selected_models:
-                            model_lower = model.lower()
-                            # Check if this model exists in the forecast data
-                            if model_lower in available_models:
-                                selected_models_for_viz.append(model_lower)
-                    elif custom_models_lower:
-                        # Use custom selection from multiselect
-                        selected_models_for_viz = custom_models_lower
-                    else:
-                        # Default to the primary model if nothing is explicitly selected
-                        selected_models_for_viz = [forecast_data['model']]
+                        # Add each selected model's forecast as a column - ensuring each value is properly obtained
+                        for model in models_to_display:
+                            if model in model_forecasts:
+                                model_forecast = model_forecasts[model]
 
-                    # Ensure we have at least one model in the list
-                    if not selected_models_for_viz and available_models:
-                        selected_models_for_viz = [available_models[0]]
-
-                    # Set test prediction flag based on checkbox
-                    if show_test_predictions:
-                        forecast_data['show_test_predictions'] = True
-                    else:
-                        forecast_data['show_test_predictions'] = False
-
-                # Display forecast chart with selected models
-                forecast_fig = plot_forecast(st.session_state.sales_data, forecast_data, selected_sku, selected_models_for_viz)
-                st.plotly_chart(forecast_fig, use_container_width=True)
-
-                # Show training/test split information if available
-                if 'train_set' in forecast_data and 'test_set' in forecast_data:
-                    train_count = len(forecast_data['train_set'])
-                    test_count = len(forecast_data['test_set'])
-                    total_points = train_count + test_count
-                    train_pct = int((train_count / total_points) * 100)
-                    test_pct = int((test_count / total_points) * 100)
-
-                    st.caption(f"Data split: {train_count} training points ({train_pct}%) and {test_count} test points ({test_pct}%)")
-
-
-            with col2:
-                # Show forecast details (same as before)
-                st.subheader("Forecast Details")
-
-                st.markdown(f"**SKU:** {selected_sku}")
-                st.markdown(f"**Cluster:** {forecast_data['cluster_name']}")
-                st.markdown(f"**Model Used:** {forecast_data['model'].upper()}")
-
-                # Forecast confidence
-                confidence_color = "green" if forecast_data['model'] != 'moving_average' else "orange"
-                confidence_text = "High" if forecast_data['model'] != 'moving_average' else "Medium"
-                st.markdown(f"**Forecast Confidence:** <span style='color:{confidence_color}'>{confidence_text}</span>", unsafe_allow_html=True)
-
-                # Enhanced forecast table with additional details
-                st.subheader("Forecast Data Table")
-
-                # Create basic forecast table - without confidence intervals as requested
-                forecast_table = pd.DataFrame({
-                    'Date': forecast_data['forecast'].index,
-                    'Forecast': forecast_data['forecast'].values.round(0).astype(int)
-                })
-
-                # If we have model evaluation data for multiple models, show them side by side in the table
-                if 'model_evaluation' in forecast_data and 'all_models_forecasts' in forecast_data['model_evaluation']:
-                    model_forecasts = forecast_data['model_evaluation']['all_models_forecasts']
-
-                    # Show models explicitly selected by the user
-                    if show_all_models:
-                        # Use ALL models from sidebar that are available in the forecasts
-                        models_to_display = []
-                        for model in st.session_state.selected_models:
-                            model_lower = model.lower()
-                            if model_lower in model_forecasts:
-                                models_to_display.append(model_lower)
-                    elif custom_models_lower:
-                        # Use custom selection from multiselect
-                        models_to_display = [m for m in custom_models_lower 
-                                           if m in model_forecasts]
-                    else:
-                        # If no models selected, use the best model (from model_evaluation)
-                        if 'model_evaluation' in forecast_data and 'best_model' in forecast_data['model_evaluation']:
-                            models_to_display = [forecast_data['model_evaluation']['best_model']]
-                        else:
-                            models_to_display = [forecast_data['model']]
-
-                    # Add each selected model's forecast as a column - ensuring each value is properly obtained
-                    for model in models_to_display:
-                        if model in model_forecasts:
-                            model_forecast = model_forecasts[model]
-
-                            # Add each selected model's forecast as a column
-                            forecast_values = []
-                            for date in forecast_table['Date']:
-                                try:
-                                    date_obj = pd.to_datetime(date)
-                                    # First check if the exact date is in the model forecast index
-                                    if date_obj in model_forecast.index:
-                                        forecast_val = model_forecast[date_obj]
-                                    # If not, try to get closest date if it's a forecast model with different index
-                                    else:
-                                        # Print debugging information
-                                        closest_dates = model_forecast.index[model_forecast.index <= date_obj]
-                                        if len(closest_dates) > 0:
-                                            closest_date = closest_dates[-1]  # Get the most recent date before this one
-                                            forecast_val = model_forecast[closest_date]
+                                # Add each selected model's forecast as a column
+                                forecast_values = []
+                                for date in forecast_table['Date']:
+                                    try:
+                                        date_obj = pd.to_datetime(date)
+                                        # First check if the exact date is in the model forecast index
+                                        if date_obj in model_forecast.index:
+                                            forecast_val = model_forecast[date_obj]
+                                        # If not, try to get closest date if it's a forecast model with different index
                                         else:
-                                            forecast_val = np.nan
-                                            
-                                    # Handle NaN values before conversion to int
-                                    if pd.isna(forecast_val) or np.isnan(forecast_val):
-                                        forecast_values.append(0)
-                                    else:
-                                        # Double-check to ensure we're not trying to convert NaN
-                                        try:
-                                            forecast_values.append(int(round(forecast_val)))
-                                        except (ValueError, TypeError):
-                                            # If conversion fails for any reason, use 0
+                                            # Print debugging information
+                                            closest_dates = model_forecast.index[model_forecast.index <= date_obj]
+                                            if len(closest_dates) > 0:
+                                                closest_date = closest_dates[-1]  # Get the most recent date before this one
+                                                forecast_val = model_forecast[closest_date]
+                                            else:
+                                                forecast_val = np.nan
+                                                
+                                        # Handle NaN values before conversion to int
+                                        if pd.isna(forecast_val) or np.isnan(forecast_val):
                                             forecast_values.append(0)
-                                except Exception as e:
-                                    # Catch any unexpected errors
-                                    print(f"Error processing forecast date {date} for model {model}: {str(e)}")
-                                    forecast_values.append(0)
+                                        else:
+                                            # Double-check to ensure we're not trying to convert NaN
+                                            try:
+                                                forecast_values.append(int(round(forecast_val)))
+                                            except (ValueError, TypeError):
+                                                # If conversion fails for any reason, use 0
+                                                forecast_values.append(0)
+                                    except Exception as e:
+                                        # Catch any unexpected errors
+                                        print(f"Error processing forecast date {date} for model {model}: {str(e)}")
+                                        forecast_values.append(0)
 
-                            # Add the values to the forecast table with proper NaN handling
-                            forecast_table[f'{model.upper()} Forecast'] = forecast_values
+                                # Add the values to the forecast table with proper NaN handling
+                                forecast_table[f'{model.upper()} Forecast'] = forecast_values
 
-                            # Ensure there are no NaN values in the table
-                            forecast_table.fillna(0, inplace=True)
+                                # Ensure there are no NaN values in the table
+                                forecast_table.fillna(0, inplace=True)
 
-                # Format the date column to be more readable
-                forecast_table['Date'] = forecast_table['Date'].dt.strftime('%Y-%m-%d')
+                    # Format the date column to be more readable
+                    forecast_table['Date'] = forecast_table['Date'].dt.strftime('%Y-%m-%d')
 
-                # Display the enhanced table with styling
-                st.dataframe(
-                    forecast_table.style.highlight_max(subset=['Forecast'], color='#d6eaf8')
-                                      .highlight_min(subset=['Forecast'], color='#fadbd8')
-                                      .format({'Range (±)': '{} units'}),
-                    use_container_width=True,
-                    height=min(35 * (len(forecast_table) + 1), 400)  # Dynamically size table height with scrolling
-                )
+                    # Display the enhanced table with styling
+                    st.subheader("Forecast Data Table")
+                    st.dataframe(
+                        forecast_table.style.highlight_max(subset=['Forecast'], color='#d6eaf8')
+                                         .highlight_min(subset=['Forecast'], color='#fadbd8')
+                                         .format({'Range (±)': '{} units'}),
+                        use_container_width=True,
+                        height=min(35 * (len(forecast_table) + 1), 400)  # Dynamically size table height with scrolling
+                    )
         with forecast_tabs[1]:
             # Model comparison visualization
             if 'model_evaluation' in forecast_data and forecast_data['model_evaluation']['metrics']:
