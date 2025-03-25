@@ -580,6 +580,8 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                     # Set test prediction flag based on checkbox
                     if show_test_predictions:
                         forecast_data['show_test_predictions'] = True
+                    else:
+                        forecast_data['show_test_predictions'] = False
 
                 # Display forecast chart with selected models
                 forecast_fig = plot_forecast(st.session_state.sales_data, forecast_data, selected_sku, selected_models_for_viz)

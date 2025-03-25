@@ -117,24 +117,52 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
 
     # Add test predictions if available and requested
     if 'show_test_predictions' in forecast_data and forecast_data['show_test_predictions']:
-        if 'model_evaluation' in forecast_data and 'test_set' in forecast_data:
-            test_set = forecast_data['test_set']
-            test_predictions = forecast_data['model_evaluation']['test_predictions']
-
-            if not test_predictions.empty:
-                fig.add_trace(
-                    go.Scatter(
-                        x=test_predictions.index,
-                        y=test_predictions.values,
-                        mode='lines+markers',
-                        name='Test Predictions',
-                        line=dict(color='orange', dash='dot'),
-                        marker=dict(size=6, symbol='circle'),
-                        hovertemplate='%{x|%b %Y}: %{y:,.0f} units'
+        if 'model_evaluation' in forecast_data:
+            # Get test data
+            test_set = forecast_data['model_evaluation']['test_set'] if 'test_set' in forecast_data['model_evaluation'] else forecast_data.get('test_set', None)
+            
+            # Get test predictions for the selected models
+            if 'all_models_test_pred' in forecast_data['model_evaluation']:
+                for model in selected_models:
+                    if model.lower() in forecast_data['model_evaluation']['all_models_test_pred']:
+                        test_predictions = forecast_data['model_evaluation']['all_models_test_pred'][model.lower()]
+                        
+                        # Choose a color for this model that matches the forecast
+                        color = model_colors.get(model.lower(), 'orange')
+                        
+                        if not isinstance(test_predictions, pd.Series) or test_predictions.empty:
+                            continue
+                            
+                        fig.add_trace(
+                            go.Scatter(
+                                x=test_predictions.index,
+                                y=test_predictions.values,
+                                mode='lines+markers',
+                                name=f"{model.upper()} Test Predictions",
+                                line=dict(color=color, dash='dot'),
+                                marker=dict(size=6, symbol='circle'),
+                                hovertemplate='%{x|%b %Y}: %{y:,.0f} units'
+                            )
+                        )
+            elif 'test_predictions' in forecast_data['model_evaluation']:
+                # Fall back to the best model's predictions
+                test_predictions = forecast_data['model_evaluation']['test_predictions']
+                
+                if not isinstance(test_predictions, pd.Series) or not test_predictions.empty:
+                    fig.add_trace(
+                        go.Scatter(
+                            x=test_predictions.index,
+                            y=test_predictions.values,
+                            mode='lines+markers',
+                            name='Test Predictions',
+                            line=dict(color='orange', dash='dot'),
+                            marker=dict(size=6, symbol='circle'),
+                            hovertemplate='%{x|%b %Y}: %{y:,.0f} units'
+                        )
                     )
-                )
-
-                # Add test actuals
+            
+            # Add test actuals if available
+            if test_set is not None and not isinstance(test_set, pd.Series) or not test_set.empty:
                 fig.add_trace(
                     go.Scatter(
                         x=test_set.index,
