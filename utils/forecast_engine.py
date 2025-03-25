@@ -1526,6 +1526,7 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
         print(f"Ensuring forecasts for all selected models: {models_to_evaluate}")
         for model in models_to_evaluate:
             model_lower = model.lower()
+            # Make sure every selected model gets a forecast, even if it's not in the forecasts yet
             if model_lower not in all_models_forecasts or all_models_forecasts[model_lower].isnull().all():
                 # Try to actually calculate a forecast for the missing model
                 try:

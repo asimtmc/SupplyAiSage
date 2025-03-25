@@ -502,8 +502,9 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                 selected_models_for_viz = []
 
                 if 'model_evaluation' in forecast_data and 'all_models_forecasts' in forecast_data['model_evaluation']:
+                    # Get all available models from the forecast data
                     available_models = list(forecast_data['model_evaluation']['all_models_forecasts'].keys())
-
+                    
                     # Create checkboxes for display options
                     st.subheader("Display Options")
 
@@ -527,20 +528,18 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
 
                     with col_options2:
                         # Custom model selection (only show if not showing all models)
-                        if not show_all_models and len(available_models) > 1:
-                            # Get model options capitalized
+                        if not show_all_models:
+                            # Get model options capitalized - include ALL available models
                             model_options = [model.upper() for model in available_models]
-                            # Get all available models in uppercase
-                            model_options = [model.upper() for model in available_models]
-
-                            # Get the selected models from sidebar (also in uppercase)
-                            selected_sidebar_models = [m.upper() for m in st.session_state.selected_models 
-                                                     if m.lower() in available_models]
 
                             # Ensure best model is included in the options
                             default_model = forecast_data['model'].upper()
                             if default_model not in model_options:
                                 model_options.append(default_model)
+
+                            # Get the selected models from sidebar (also in uppercase)
+                            selected_sidebar_models = [m.upper() for m in st.session_state.selected_models 
+                                                     if m.lower() in available_models]
 
                             # If none of the sidebar selected models are available, default to the best model
                             if not selected_sidebar_models:
@@ -560,8 +559,13 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
 
                     # Determine which models to display based on selections
                     if show_all_models:
-                        # Use only the models explicitly selected from sidebar
-                        selected_models_for_viz = [m.lower() for m in st.session_state.selected_models if m.lower() in available_models]
+                        # Use ALL models that were selected in the sidebar AND are available in the forecast data
+                        selected_models_for_viz = []
+                        for model in st.session_state.selected_models:
+                            model_lower = model.lower()
+                            # Check if this model exists in the forecast data
+                            if model_lower in available_models:
+                                selected_models_for_viz.append(model_lower)
                     elif custom_models_lower:
                         # Use custom selection from multiselect
                         selected_models_for_viz = custom_models_lower
@@ -620,9 +624,12 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
 
                     # Show models explicitly selected by the user
                     if show_all_models:
-                        # Use all models from sidebar that are available
-                        models_to_display = [m.lower() for m in st.session_state.selected_models 
-                                           if m.lower() in model_forecasts]
+                        # Use ALL models from sidebar that are available in the forecasts
+                        models_to_display = []
+                        for model in st.session_state.selected_models:
+                            model_lower = model.lower()
+                            if model_lower in model_forecasts:
+                                models_to_display.append(model_lower)
                     elif custom_models_lower:
                         # Use custom selection from multiselect
                         models_to_display = [m for m in custom_models_lower 
