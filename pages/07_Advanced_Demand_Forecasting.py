@@ -18,6 +18,7 @@ from utils.advanced_forecast import (
 )
 from utils.visualization import plot_forecast, plot_cluster_summary, plot_model_comparison
 from utils.parameter_optimizer import optimize_parameters_async, get_optimization_status
+from utils.error_analysis import analyze_forecast_errors, analyze_model_performance, generate_error_report
 
 # Initialize session state variables
 if 'advanced_forecast_periods' not in st.session_state:
@@ -390,7 +391,7 @@ if st.session_state.run_advanced_forecast and 'advanced_forecasts' in st.session
         forecast_data = st.session_state.advanced_forecasts[selected_sku]
 
         # Tab section for forecast views
-        forecast_tabs = st.tabs(["Forecast Chart", "Model Comparison", "Forecast Metrics", "Pattern Analysis", "Sense Check", "Parameter Tuning"])
+        forecast_tabs = st.tabs(["Forecast Chart", "Model Comparison", "Forecast Metrics", "Pattern Analysis", "Sense Check", "Error Analysis", "Parameter Tuning"])
 
         with forecast_tabs[0]:
             # Forecast visualization section
@@ -852,6 +853,287 @@ if st.session_state.run_advanced_forecast and 'advanced_forecasts' in st.session
                 st.info("No sense check information available for this forecast.")
                 
         with forecast_tabs[5]:
+            # Error Analysis section
+            st.subheader(f"Error Analysis for {selected_sku}")
+            
+            # Add tabs for different error analysis views
+            error_analysis_tabs = st.tabs(["Summary Report", "Detailed Analysis", "Error Patterns"])
+            
+            with error_analysis_tabs[0]:
+                # Summary report section
+                if 'model_evaluation' in forecast_data and 'test_actuals' in forecast_data and 'test_predictions' in forecast_data:
+                    # Get actuals and predictions
+                    actuals = forecast_data['test_actuals']
+                    predictions = forecast_data['test_predictions']
+                    
+                    if len(actuals) > 0 and len(predictions) > 0:
+                        # Run error analysis
+                        error_analysis = analyze_forecast_errors(actuals, predictions)
+                        
+                        # Generate and display the error report
+                        report = generate_error_report(error_analysis, model_name=forecast_data['model'])
+                        st.markdown(f"```\n{report}\n```")
+                        
+                        # Show recommendations based on error analysis
+                        st.subheader("Recommendations")
+                        
+                        patterns = error_analysis.get('patterns', {})
+                        if patterns.get('systematic_bias', False):
+                            st.warning("⚠️ **Systematic Bias Detected**: The forecast consistently over/underestimates demand.")
+                            st.markdown("""
+                            **Recommendations:**
+                            - Check for missing variables or trends in the data
+                            - Consider adding external factors that might affect demand
+                            - Try different model types that can better capture the patterns
+                            """)
+                        
+                        if patterns.get('autocorrelation', False):
+                            st.warning("⚠️ **Error Autocorrelation Detected**: Errors follow a pattern over time.")
+                            st.markdown("""
+                            **Recommendations:**
+                            - Your model is missing important seasonal patterns
+                            - Try models with stronger seasonal components
+                            - Consider adding calendar features or external regressors
+                            """)
+                        
+                        if patterns.get('extreme_errors', False):
+                            st.warning("⚠️ **Large Error Spikes Detected**: Some periods have unusually large errors.")
+                            st.markdown("""
+                            **Recommendations:**
+                            - Identify and handle outliers in the historical data
+                            - Use robust preprocessing techniques
+                            - Consider ensemble methods to reduce extreme errors
+                            """)
+                    else:
+                        st.info("Insufficient test data for error analysis.")
+                else:
+                    st.info("No test data available for error analysis.")
+            
+            with error_analysis_tabs[1]:
+                # Detailed analysis section
+                if 'model_evaluation' in forecast_data and 'test_actuals' in forecast_data and 'test_predictions' in forecast_data:
+                    # Get actuals and predictions
+                    actuals = forecast_data['test_actuals']
+                    predictions = forecast_data['test_predictions']
+                    
+                    if len(actuals) > 0 and len(predictions) > 0:
+                        # Run error analysis
+                        error_analysis = analyze_forecast_errors(actuals, predictions)
+                        
+                        # Display detailed metrics
+                        st.subheader("Error Metrics")
+                        
+                        # Create columns for metrics display
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            # Basic error statistics
+                            error_stats = error_analysis.get('error_stats', {})
+                            stats_df = pd.DataFrame({
+                                'Metric': [
+                                    'Mean Error', 
+                                    'Mean Absolute Error', 
+                                    'Root Mean Square Error', 
+                                    'Mean Absolute Percentage Error',
+                                    'Median Absolute Error'
+                                ],
+                                'Value': [
+                                    f"{error_stats.get('mean_error', 0):.2f}",
+                                    f"{error_stats.get('mean_abs_error', 0):.2f}",
+                                    f"{error_stats.get('rmse', 0):.2f}",
+                                    f"{error_stats.get('mape', 0):.2f}%",
+                                    f"{error_stats.get('median_abs_error', 0):.2f}"
+                                ]
+                            })
+                            
+                            st.dataframe(stats_df, use_container_width=True, hide_index=True)
+                        
+                        with col2:
+                            # Error distribution
+                            error_dist = error_analysis.get('error_distribution', {})
+                            dist_df = pd.DataFrame({
+                                'Metric': [
+                                    '25th Percentile', 
+                                    'Median Error', 
+                                    '75th Percentile', 
+                                    'IQR',
+                                    'Max Error'
+                                ],
+                                'Value': [
+                                    f"{error_dist.get('q25', 0):.2f}",
+                                    f"{error_dist.get('median', 0):.2f}",
+                                    f"{error_dist.get('q75', 0):.2f}",
+                                    f"{error_dist.get('iqr', 0):.2f}",
+                                    f"{error_stats.get('max_error', 0):.2f}"
+                                ]
+                            })
+                            
+                            st.dataframe(dist_df, use_container_width=True, hide_index=True)
+                        
+                        # Display error distribution histogram
+                        st.subheader("Error Distribution")
+                        if 'error_details' in error_analysis:
+                            error_details = error_analysis['error_details']
+                            
+                            # Create histogram of errors
+                            fig = px.histogram(
+                                error_details, 
+                                x='error',
+                                nbins=20,
+                                title="Distribution of Forecast Errors",
+                                labels={'error': 'Error', 'count': 'Frequency'},
+                                color_discrete_sequence=['rgba(75, 192, 192, 0.6)']
+                            )
+                            
+                            # Add a vertical line at zero
+                            fig.add_vline(x=0, line_dash="dash", line_color="red")
+                            
+                            st.plotly_chart(fig, use_container_width=True)
+                            
+                            # Create scatter plot of predicted vs actual
+                            fig = px.scatter(
+                                error_details,
+                                x='actual',
+                                y='predicted',
+                                title="Actual vs Predicted Values",
+                                labels={'actual': 'Actual', 'predicted': 'Predicted'},
+                                color_discrete_sequence=['rgba(75, 192, 192, 0.6)']
+                            )
+                            
+                            # Add a diagonal line (perfect prediction)
+                            min_val = min(error_details['actual'].min(), error_details['predicted'].min())
+                            max_val = max(error_details['actual'].max(), error_details['predicted'].max())
+                            fig.add_trace(go.Scatter(
+                                x=[min_val, max_val],
+                                y=[min_val, max_val],
+                                mode='lines',
+                                line=dict(color='red', dash='dash'),
+                                name='Perfect Prediction'
+                            ))
+                            
+                            st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("Insufficient test data for detailed error analysis.")
+                else:
+                    st.info("No test data available for error analysis.")
+            
+            with error_analysis_tabs[2]:
+                # Error patterns section
+                if 'model_evaluation' in forecast_data and 'test_actuals' in forecast_data and 'test_predictions' in forecast_data:
+                    # Get actuals and predictions
+                    actuals = forecast_data['test_actuals']
+                    predictions = forecast_data['test_predictions']
+                    dates = None
+                    
+                    if 'test_dates' in forecast_data:
+                        dates = forecast_data['test_dates']
+                    
+                    if len(actuals) > 0 and len(predictions) > 0:
+                        # Run error analysis with dates if available
+                        error_analysis = analyze_forecast_errors(actuals, predictions, dates)
+                        
+                        # Display error patterns over time
+                        st.subheader("Error Patterns Over Time")
+                        
+                        if 'error_details' in error_analysis and dates is not None:
+                            error_details = error_analysis['error_details']
+                            
+                            # Create a line plot of errors over time
+                            fig = px.line(
+                                error_details,
+                                x='date',
+                                y='error',
+                                title="Forecast Errors Over Time",
+                                labels={'date': 'Date', 'error': 'Error'},
+                                color_discrete_sequence=['rgba(75, 192, 192, 0.8)']
+                            )
+                            
+                            # Add a horizontal line at zero
+                            fig.add_hline(y=0, line_dash="dash", line_color="red")
+                            
+                            st.plotly_chart(fig, use_container_width=True)
+                            
+                            # Create a plot of percentage errors
+                            fig = px.line(
+                                error_details,
+                                x='date',
+                                y='percent_error',
+                                title="Percentage Errors Over Time",
+                                labels={'date': 'Date', 'percent_error': 'Percentage Error (%)'},
+                                color_discrete_sequence=['rgba(255, 99, 132, 0.8)']
+                            )
+                            
+                            # Add a horizontal line at zero
+                            fig.add_hline(y=0, line_dash="dash", line_color="red")
+                            
+                            st.plotly_chart(fig, use_container_width=True)
+                            
+                            # Check for autocorrelation in errors
+                            autocorr = error_analysis.get('autocorrelation', None)
+                            if autocorr is not None and isinstance(autocorr, np.ndarray) and len(autocorr) > 1:
+                                st.subheader("Error Autocorrelation")
+                                
+                                # Create a bar plot of autocorrelation
+                                fig = px.bar(
+                                    x=list(range(len(autocorr))),
+                                    y=autocorr,
+                                    title="Autocorrelation of Forecast Errors",
+                                    labels={'x': 'Lag', 'y': 'Autocorrelation'},
+                                    color_discrete_sequence=['rgba(54, 162, 235, 0.8)']
+                                )
+                                
+                                # Add confidence bounds (approximate 95% confidence)
+                                n = len(error_details)
+                                conf_level = 1.96 / np.sqrt(n)
+                                fig.add_hline(y=conf_level, line_dash="dash", line_color="red")
+                                fig.add_hline(y=-conf_level, line_dash="dash", line_color="red")
+                                
+                                st.plotly_chart(fig, use_container_width=True)
+                                
+                                # Interpret autocorrelation
+                                if autocorr[1] > conf_level:
+                                    st.warning(f"Significant autocorrelation detected at lag 1 ({autocorr[1]:.2f}). This suggests the model is missing important patterns in the data.")
+                                else:
+                                    st.success("No significant autocorrelation detected in the forecast errors.")
+                        else:
+                            st.info("Insufficient data to analyze error patterns over time.")
+                        
+                        # Show bias analysis
+                        bias_analysis = error_analysis.get('bias_analysis', {})
+                        if bias_analysis:
+                            st.subheader("Bias Analysis")
+                            
+                            bias = bias_analysis.get('bias', 0)
+                            bias_pct = bias_analysis.get('bias_pct', 0)
+                            pos_errors = bias_analysis.get('positive_errors', 0)
+                            neg_errors = bias_analysis.get('negative_errors', 0)
+                            
+                            col1, col2 = st.columns(2)
+                            
+                            with col1:
+                                st.metric("Average Bias", f"{bias:.2f}")
+                                st.metric("Bias Percentage", f"{bias_pct:.2f}%")
+                            
+                            with col2:
+                                total_errors = pos_errors + neg_errors
+                                pos_pct = (pos_errors / total_errors * 100) if total_errors > 0 else 0
+                                neg_pct = (neg_errors / total_errors * 100) if total_errors > 0 else 0
+                                
+                                st.metric("Overestimations", f"{pos_errors} ({pos_pct:.1f}%)")
+                                st.metric("Underestimations", f"{neg_errors} ({neg_pct:.1f}%)")
+                            
+                            # Interpret bias
+                            if abs(bias_pct) > 10:
+                                direction = "overestimating" if bias < 0 else "underestimating"
+                                st.warning(f"Significant bias detected! Your model is consistently {direction} by {abs(bias_pct):.1f}% on average.")
+                            else:
+                                st.success(f"No significant bias detected. Average bias is {bias_pct:.1f}%.")
+                    else:
+                        st.info("Insufficient test data for error pattern analysis.")
+                else:
+                    st.info("No test data available for error pattern analysis.")
+                
+        with forecast_tabs[6]:  # Parameter Tuning tab
             # Parameter Tuning section
             st.subheader(f"Parameter Tuning for {selected_sku}")
             

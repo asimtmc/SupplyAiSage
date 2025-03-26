@@ -1,0 +1,41 @@
+Comprehensive Forecasting Improvements
+1. Enhanced Data Preprocessing
+• Robust Outlier Detection: Implement Isolation Forest to identify anomalies more effectively than z-score/IQR
+• Outlier Replacement: Replace detected outliers with rolling median values instead of dropping them
+• Change Point Detection: Add PELT algorithm from ruptures library to identify structural breaks in time series
+2. Advanced Feature Engineering
+• Lag Features: Create lag features (t-1, t-3, t-12) to capture different temporal patterns
+• Rolling Statistics: Add rolling means, medians, and volatility over multiple windows
+• Seasonality Features: Implement Fourier terms to capture cyclical patterns
+• Variance Stabilization: Apply Box-Cox or Yeo-Johnson transformations
+3. Improved Cross-Validation
+• Rolling Window Validation: Implement time-series cross-validation with incrementing training windows
+• Multiple Evaluation Points: Test models at different points in time series history
+• Robust Metrics: Calculate MAPE, weighted MAPE (wMAPE), and RMSE at each validation point
+• Cross-Validation Framework:
+• Split data into training, validation, and test sets using time-based splits
+• For each model type, conduct k-fold time series cross-validation
+• Average performance across folds to reduce selection bias
+4. Model Enhancements
+• ARIMA Improvements: Expand parameter space and use AIC/BIC for model selection
+• Advanced Prophet: Fine-tune changepoint_prior_scale and seasonality parameters
+• XGBoost Integration: Train gradient boosting models using engineered lag features
+• Croston's Method: Implement for intermittent demand patterns
+5. Ensemble Strategy
+• Weighted Averaging: Combine forecasts with weights based on cross-validation performance
+• Stacking Approach: Train a meta-model (Ridge regression) to optimize the combination of base forecasts
+• Model-Specific Weighting: Apply higher weights to models that perform better for specific SKU characteristics
+6. Background Hyperparameter Tuning
+• Implementation Approach:
+• Create a separate cache system for storing optimized parameters
+• Use a background process to periodically optimize model parameters
+• Store results in database for quick retrieval during forecasting
+• Specific Technique:
+• Implement threading with Python's concurrent.futures for parallel processing
+• Use ThreadPoolExecutor to run hyperparameter tuning jobs in background
+• Create a parameter cache table in the database with columns for SKU, model_type, parameters, and last_updated
+• Add a scheduler that triggers optimization jobs during low-usage periods
+7. Process Improvements
+• Modularized Code: Create separate modules for preprocessing, feature engineering, model training
+• Progress Tracking: Implement callback functions to report on tuning and forecast progress
+• Error Analysis: Add detailed logging of model errors to identify problematic SKUs

@@ -1097,39 +1097,90 @@ def train_vector_autoregression(data, maxlags=None, ic='aic'):
     return fitted_model
 
 
-def create_ensemble_model(models_dict, weights=None):
+def create_ensemble_model(models_dict, weights=None, cv_results=None, performance_metric='mape'):
     """
-    Create an ensemble model from multiple base models
+    Create an ensemble model from multiple base models with optimized weights
+    based on cross-validation or test performance
 
     Parameters:
     -----------
     models_dict : dict
         Dictionary of model objects with model names as keys
     weights : dict, optional
-        Dictionary of weights for each model
+        Dictionary of weights for each model. If None, weights will be calculated
+        based on performance metrics
+    cv_results : dict, optional
+        Dictionary of cross-validation results per model
+    performance_metric : str, optional
+        Metric to use for weighting models ('mape', 'rmse', 'mae', 'wmape')
 
     Returns:
     --------
     dict
         Ensemble model configuration
     """
-    # Normalize weights if provided
+    # If weights are explicitly provided, use them
     if weights:
         total_weight = sum(weights.values())
         normalized_weights = {k: v / total_weight for k, v in weights.items()}
     else:
-        # Equal weights if not provided
+        # Calculate weights based on performance if CV results available
         model_names = list(models_dict.keys())
-        normalized_weights = {
-            name: 1.0 / len(model_names)
-            for name in model_names
-        }
+        
+        if cv_results and all(model in cv_results for model in model_names):
+            # Use CV results to determine weights
+            model_metrics = {}
+            
+            for model in model_names:
+                if cv_results[model] and 'avg_metrics' in cv_results[model]:
+                    # Get the specified metric
+                    metric_value = cv_results[model]['avg_metrics'].get(performance_metric)
+                    
+                    # Skip models with missing or invalid metrics
+                    if metric_value is None or np.isnan(metric_value) or metric_value <= 0:
+                        continue
+                    
+                    # Store inverse of metric (lower is better)
+                    model_metrics[model] = 1.0 / metric_value
+                    
+            # If no valid metrics found, use equal weights
+            if not model_metrics:
+                normalized_weights = {
+                    name: 1.0 / len(model_names)
+                    for name in model_names
+                }
+            else:
+                # Convert to weights (higher value = better model)
+                total_score = sum(model_metrics.values())
+                normalized_weights = {
+                    model: score / total_score 
+                    for model, score in model_metrics.items()
+                }
+                
+                # Add any missing models with small weight
+                small_weight = 0.05
+                for model in model_names:
+                    if model not in normalized_weights:
+                        normalized_weights[model] = small_weight
+                
+                # Re-normalize
+                total_weight = sum(normalized_weights.values())
+                normalized_weights = {
+                    k: v / total_weight for k, v in normalized_weights.items()
+                }
+        else:
+            # Equal weights if no performance data
+            normalized_weights = {
+                name: 1.0 / len(model_names)
+                for name in model_names
+            }
 
     # Create ensemble configuration
     ensemble = {
         'base_models': models_dict,
         'weights': normalized_weights,
-        'type': 'weighted_average'
+        'type': 'weighted_average',
+        'performance_metric': performance_metric
     }
 
     return ensemble
@@ -1236,36 +1287,110 @@ def auto_select_best_model(data,
     model_results = {}
     forecasts = {}
     
-    # Determine validation approach based on data size
-    use_cv = len(data) >= 24 and test_size < 0.5  # Use CV for longer series with reasonable test size
-    
-    if use_cv:
-        # Import TimeSeriesSplit for cross-validation
+    # Function to perform time series cross-validation for a model
+    def perform_timeseries_cv(model_type, train_func, forecast_func, min_train_size=12):
+        """
+        Perform time series cross-validation with expanding window
+        
+        Parameters:
+        -----------
+        model_type : str
+            Type of model being evaluated
+        train_func : function
+            Function to train the model with signature train_func(train_data) -> model
+        forecast_func : function
+            Function to generate forecasts with signature forecast_func(model, forecast_periods) -> forecasts
+        min_train_size : int, optional
+            Minimum training size for cross-validation
+            
+        Returns:
+        --------
+        dict
+            Dictionary with cross-validation results
+        """
+        # Import TimeSeriesSplit
         from sklearn.model_selection import TimeSeriesSplit
         
-        # Determine number of splits based on data size
-        n_splits = min(5, max(3, len(data) // 8))
+        # Create cross-validation splits based on data size
+        n_splits = min(5, max(3, (len(data) - min_train_size) // 4))
+        tscv = TimeSeriesSplit(n_splits=n_splits, test_size=max(2, int(len(data) * test_size / n_splits)))
         
-        # Calculate effective test size for each fold
-        cv_test_size = test_size / n_splits
+        cv_results = {
+            'train_indices': [],
+            'test_indices': [],
+            'metrics': [],
+            'forecasts': []
+        }
         
-        if progress_callback:
-            progress_callback(0, "cv_setup", 1, 
-                             f"Using TimeSeriesSplit with {n_splits} folds for cross-validation", "info")
-        
-        # We'll still need a final train-test split for forecasting
-        split_idx = int(len(data) * (1 - test_size))
-        train_data = data.iloc[:split_idx].copy()
-        test_data = data.iloc[split_idx:].copy()
-    else:
-        # Standard train-test split for smaller datasets or when large test size is requested
-        if len(data) <= 6:
-            test_size = 1 / len(data)
+        # Iterate through CV splits
+        for i, (train_idx, test_idx) in enumerate(tscv.split(data)):
+            if len(train_idx) < min_train_size:
+                continue
+                
+            # Report progress
+            if progress_callback:
+                progress_callback(i, f"{model_type}_cv", n_splits, 
+                                f"Running CV fold {i+1}/{n_splits} for {model_type}", "info")
             
-        # Calculate split index
-        split_idx = int(len(data) * (1 - test_size))
-        train_data = data.iloc[:split_idx].copy()
-        test_data = data.iloc[split_idx:].copy()
+            # Get train/test data for this fold
+            fold_train = data.iloc[train_idx].copy()
+            fold_test = data.iloc[test_idx].copy()
+            
+            try:
+                # Train model
+                model = train_func(fold_train)
+                
+                # Generate forecast
+                forecast = forecast_func(model, len(fold_test))
+                
+                # Evaluate forecast
+                metrics = evaluate_forecast(fold_test['quantity'].values, forecast)
+                
+                # Store results
+                cv_results['train_indices'].append(train_idx)
+                cv_results['test_indices'].append(test_idx)
+                cv_results['metrics'].append(metrics)
+                cv_results['forecasts'].append(forecast)
+            
+            except Exception as e:
+                if progress_callback:
+                    progress_callback(i, f"{model_type}_cv", n_splits, 
+                                    f"Error in CV fold {i+1}: {str(e)}", "warning")
+                continue
+        
+        # Calculate average metrics across folds
+        if cv_results['metrics']:
+            avg_metrics = {}
+            for metric in cv_results['metrics'][0].keys():
+                avg_metrics[metric] = np.mean([fold[metric] for fold in cv_results['metrics'] if not np.isnan(fold[metric])])
+            
+            cv_results['avg_metrics'] = avg_metrics
+        else:
+            cv_results['avg_metrics'] = None
+            
+        return cv_results
+    
+    # Determine validation approach based on data size and settings
+    use_cv = len(data) >= 24 and test_size < 0.5  # Use CV for longer series with reasonable test size
+    
+    # Store cross-validation results if enabled
+    cv_results = {} if use_cv else None
+    
+    # We'll need a final train-test split for forecasting regardless of CV setting
+    if len(data) <= 6:
+        test_size = 1 / len(data)
+        
+    # Calculate split index
+    split_idx = int(len(data) * (1 - test_size))
+    train_data = data.iloc[:split_idx].copy()
+    test_data = data.iloc[split_idx:].copy()
+    
+    # Store the test data in the model_results for later error analysis
+    model_results['test_data'] = test_data
+    
+    if use_cv and progress_callback:
+        progress_callback(0, "cv_setup", 1, 
+                         f"Using time series cross-validation with expanding window", "info")
 
     # Function to evaluate a model's forecasts
     def evaluate_forecast(actual, predicted):
@@ -1281,8 +1406,26 @@ def auto_select_best_model(data,
                 (actual - predicted) / (actual + epsilon))) * 100
         else:
             mape = np.mean(np.abs((actual - predicted) / actual)) * 100
+            
+        # Calculate weighted MAPE (wMAPE) - less affected by outliers
+        sum_actual = np.sum(np.abs(actual))
+        if sum_actual > 0:
+            wmape = np.sum(np.abs(actual - predicted)) / sum_actual * 100
+        else:
+            wmape = np.nan
+            
+        # Calculate Mean Absolute Scaled Error (MASE) if enough data
+        if len(actual) > 1:
+            # Calculate mean absolute error
+            mae_simple = np.mean(np.abs(np.diff(actual)))
+            if mae_simple > 0:
+                mase = mae / mae_simple
+            else:
+                mase = np.nan
+        else:
+            mase = np.nan
 
-        return {'mae': mae, 'rmse': rmse, 'mape': mape}
+        return {'mae': mae, 'rmse': rmse, 'mape': mape, 'wmape': wmape, 'mase': mase}
 
     # Train and evaluate each model
     for i, model_type in enumerate(models_to_try):
@@ -1401,6 +1544,11 @@ def auto_select_best_model(data,
                             'seasonal_order': best_seasonal_order
                         }
                     }
+                    
+                    # Store test forecasts in the model_results for error analysis
+                    if 'forecasts' not in model_results:
+                        model_results['forecasts'] = {}
+                    model_results['forecasts'][model_type] = {'test': test_forecast, 'future': future_forecast}
 
                     # Calculate metrics
                     model_results[model_type] = evaluate_forecast(
@@ -1564,6 +1712,11 @@ def auto_select_best_model(data,
                     'future': future_predictions,
                     'params': prophet_params
                 }
+                
+                # Store test forecasts in the model_results for error analysis
+                if 'forecasts' not in model_results:
+                    model_results['forecasts'] = {}
+                model_results['forecasts'][model_type] = {'test': test_predictions, 'future': future_predictions}
 
                 # Calculate metrics
                 model_results[model_type] = evaluate_forecast(
@@ -1645,6 +1798,11 @@ def auto_select_best_model(data,
                     'future': future_forecast,
                     'params': ets_model.params_formatted
                 }
+                
+                # Store test forecasts in the model_results for error analysis
+                if 'forecasts' not in model_results:
+                    model_results['forecasts'] = {}
+                model_results['forecasts'][model_type] = {'test': test_forecast, 'future': future_forecast}
 
                 # Calculate metrics
                 model_results[model_type] = evaluate_forecast(
@@ -2681,6 +2839,21 @@ def advanced_generate_forecasts(sales_data,
                 'sense_check': sense_check_info,
                 'train_set': sku_data_recent
             }
+            
+            # Store test data and predictions for error analysis
+            if model_results and 'test_data' in model_results and 'forecasts' in model_results:
+                # Get test dates if available
+                if 'test_data' in model_results and 'date' in model_results['test_data']:
+                    forecasts[sku]['test_dates'] = model_results['test_data']['date'].values
+                
+                # Get test actuals
+                if 'test_data' in model_results and 'quantity' in model_results['test_data']:
+                    forecasts[sku]['test_actuals'] = model_results['test_data']['quantity'].values
+                
+                # Get test predictions from the best model
+                if 'forecasts' in model_results and best_model_type in model_results['forecasts']:
+                    if 'test' in model_results['forecasts'][best_model_type]:
+                        forecasts[sku]['test_predictions'] = model_results['forecasts'][best_model_type]['test']
 
             # Log forecast completion status
             if progress_callback:
