@@ -42,6 +42,17 @@ class ForecastResult(Base):
     forecast_data = Column(Text, nullable=False)  # JSON string of forecast values
     model_params = Column(Text, nullable=True)    # JSON string of model parameters
 
+class ModelParameterCache(Base):
+    __tablename__ = 'model_parameter_cache'
+    
+    id = Column(String(36), primary_key=True)
+    sku = Column(String(100), nullable=False)
+    model_type = Column(String(50), nullable=False)
+    parameters = Column(Text, nullable=False)  # JSON string of optimized parameters
+    last_updated = Column(DateTime, default=datetime.now)
+    tuning_iterations = Column(Integer, default=0)  # Number of tuning iterations performed
+    best_score = Column(Float, nullable=True)  # Best score achieved during tuning
+
 # Create the tables
 Base.metadata.create_all(engine)
 
@@ -435,6 +446,201 @@ def get_forecast_details(forecast_id):
             return None
     except Exception as e:
         raise e
+    finally:
+        if session:
+            session.close()
+
+def save_model_parameters(sku, model_type, parameters, best_score=None, tuning_iterations=1):
+    """
+    Save optimized model parameters to the cache
+
+    Parameters:
+    -----------
+    sku : str
+        SKU identifier
+    model_type : str
+        Type of forecasting model (e.g., 'arima', 'prophet', 'xgboost')
+    parameters : dict
+        Dictionary of optimized parameters
+    best_score : float, optional
+        Best score achieved during tuning (lower is better)
+    tuning_iterations : int, optional
+        Number of tuning iterations performed
+
+    Returns:
+    --------
+    bool
+        True if save successful, False otherwise
+    """
+    try:
+        session = SessionFactory()
+        
+        # Check if entry already exists
+        existing = session.query(ModelParameterCache).filter(
+            ModelParameterCache.sku == sku,
+            ModelParameterCache.model_type == model_type
+        ).first()
+        
+        # Convert parameters to JSON string
+        import json
+        if not isinstance(parameters, str):
+            parameters_json = json.dumps(parameters)
+        else:
+            parameters_json = parameters
+        
+        if existing:
+            # Update existing entry
+            existing.parameters = parameters_json
+            existing.last_updated = datetime.now()
+            existing.tuning_iterations += tuning_iterations
+            
+            # Only update best_score if it's better (lower) than the existing one
+            if best_score is not None:
+                if existing.best_score is None or best_score < existing.best_score:
+                    existing.best_score = best_score
+        else:
+            # Create new entry
+            cache_id = str(uuid.uuid4())
+            new_cache = ModelParameterCache(
+                id=cache_id,
+                sku=sku,
+                model_type=model_type,
+                parameters=parameters_json,
+                last_updated=datetime.now(),
+                tuning_iterations=tuning_iterations,
+                best_score=best_score
+            )
+            session.add(new_cache)
+        
+        session.commit()
+        return True
+    
+    except Exception as e:
+        print(f"Error saving model parameters: {str(e)}")
+        if session:
+            session.rollback()
+        return False
+    finally:
+        if session:
+            session.close()
+
+def get_model_parameters(sku, model_type):
+    """
+    Get cached model parameters
+
+    Parameters:
+    -----------
+    sku : str
+        SKU identifier
+    model_type : str
+        Type of forecasting model (e.g., 'arima', 'prophet', 'xgboost')
+
+    Returns:
+    --------
+    dict
+        Dictionary of optimized parameters or None if not found
+    """
+    try:
+        session = SessionFactory()
+        cache = session.query(ModelParameterCache).filter(
+            ModelParameterCache.sku == sku,
+            ModelParameterCache.model_type == model_type
+        ).first()
+        
+        if cache:
+            import json
+            return {
+                'parameters': json.loads(cache.parameters),
+                'last_updated': cache.last_updated,
+                'tuning_iterations': cache.tuning_iterations,
+                'best_score': cache.best_score
+            }
+        
+        return None
+    
+    except Exception as e:
+        print(f"Error retrieving model parameters: {str(e)}")
+        return None
+    finally:
+        if session:
+            session.close()
+
+def get_parameters_update_required(sku, model_type, days_threshold=7):
+    """
+    Check if parameters need updating based on age
+    
+    Parameters:
+    -----------
+    sku : str
+        SKU identifier
+    model_type : str
+        Type of forecasting model
+    days_threshold : int, optional
+        Number of days after which parameters are considered stale
+        
+    Returns:
+    --------
+    bool
+        True if parameters need updating, False otherwise
+    """
+    try:
+        session = SessionFactory()
+        cache = session.query(ModelParameterCache).filter(
+            ModelParameterCache.sku == sku,
+            ModelParameterCache.model_type == model_type
+        ).first()
+        
+        if not cache:
+            return True  # No cached parameters, update required
+        
+        # Check if parameters are older than threshold
+        age = datetime.now() - cache.last_updated
+        return age.days >= days_threshold
+    
+    except Exception as e:
+        print(f"Error checking parameters age: {str(e)}")
+        return True  # Default to updating if error occurs
+    finally:
+        if session:
+            session.close()
+
+def delete_old_parameters(days_threshold=90):
+    """
+    Delete parameter cache entries older than threshold
+    
+    Parameters:
+    -----------
+    days_threshold : int, optional
+        Number of days after which parameters are deleted
+        
+    Returns:
+    --------
+    int
+        Number of entries deleted
+    """
+    try:
+        session = SessionFactory()
+        
+        # Calculate cutoff date
+        cutoff_date = datetime.now() - timedelta(days=days_threshold)
+        
+        # Find and delete old entries
+        old_entries = session.query(ModelParameterCache).filter(
+            ModelParameterCache.last_updated < cutoff_date
+        ).all()
+        
+        count = len(old_entries)
+        for entry in old_entries:
+            session.delete(entry)
+        
+        session.commit()
+        return count
+    
+    except Exception as e:
+        print(f"Error deleting old parameters: {str(e)}")
+        if session:
+            session.rollback()
+        return 0
     finally:
         if session:
             session.close()

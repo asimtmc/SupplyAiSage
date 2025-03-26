@@ -91,46 +91,93 @@ def load_from_cache(cache_key, memory_only=False):
 # ================================
 
 
-def detect_outliers(series, method='zscore', threshold=3):
+def detect_outliers(series, method='zscore', threshold=3, contamination=0.05):
     """
-    Detect outliers in time series data using multiple methods
+    Detect outliers in time series data using multiple methods, including
+    enhanced anomaly detection techniques
 
     Parameters:
     -----------
     series : pandas.Series
         Time series data with potential outliers
     method : str, optional
-        Method to use for outlier detection ('zscore', 'iqr', or 'isolation_forest')
+        Method to use for outlier detection ('zscore', 'iqr', 'robust', or 'isolation_forest')
     threshold : float, optional
         Threshold for outlier detection
+    contamination : float, optional
+        Expected proportion of outliers in the data, used for isolation_forest method
 
     Returns:
     --------
     pandas.Series
         Boolean mask where True indicates an outlier
     """
+    # Handle NaN values
+    clean_series = series.copy().dropna()
+    result = pd.Series(False, index=series.index)
+    
+    if len(clean_series) == 0:
+        return result  # Return all False if series is empty or all NaN
+    
     if method == 'zscore':
-        z_scores = np.abs(stats.zscore(series, nan_policy='omit'))
-        return pd.Series(z_scores > threshold, index=series.index)
-
+        z_scores = np.abs(stats.zscore(clean_series, nan_policy='omit'))
+        result.loc[clean_series.index] = z_scores > threshold
+        
     elif method == 'iqr':
-        q1 = series.quantile(0.25)
-        q3 = series.quantile(0.75)
+        q1 = clean_series.quantile(0.25)
+        q3 = clean_series.quantile(0.75)
         iqr = q3 - q1
         lower_bound = q1 - threshold * iqr
         upper_bound = q3 + threshold * iqr
-        return (series < lower_bound) | (series > upper_bound)
-
+        result.loc[clean_series.index] = (clean_series < lower_bound) | (clean_series > upper_bound)
+    
+    elif method == 'robust':
+        # Robust outlier detection uses median and median absolute deviation
+        # which are less sensitive to extreme values than mean and std
+        median = clean_series.median()
+        mad = np.median(np.abs(clean_series - median))
+        # Scale MAD to be comparable to standard deviation
+        mad_scaled = 1.4826 * mad  # Factor for normal distribution
+        
+        z_robust = np.abs(clean_series - median) / mad_scaled
+        result.loc[clean_series.index] = z_robust > threshold
+    
+    elif method == 'isolation_forest':
+        try:
+            # Use scikit-learn's Isolation Forest
+            from sklearn.ensemble import IsolationForest
+            
+            # Reshape for scikit-learn
+            X = clean_series.values.reshape(-1, 1)
+            
+            # Train isolation forest
+            iso_forest = IsolationForest(
+                contamination=contamination,
+                random_state=42,
+                n_estimators=100
+            )
+            
+            # Predict outliers (-1 for outliers, 1 for inliers)
+            preds = iso_forest.fit_predict(X)
+            result.loc[clean_series.index] = preds == -1
+            
+        except (ImportError, Exception) as e:
+            print(f"Isolation Forest error: {str(e)}. Falling back to robust method.")
+            # Fall back to robust method
+            return detect_outliers(series, method='robust', threshold=threshold)
+    
     else:
-        # Default to Z-score if method not recognized
-        z_scores = np.abs(stats.zscore(series, nan_policy='omit'))
-        return pd.Series(z_scores > threshold, index=series.index)
+        # Default to robust method if method not recognized
+        return detect_outliers(series, method='robust', threshold=threshold)
+    
+    return result
 
 
 def clean_time_series(series,
-                      outlier_method='zscore',
+                      outlier_method='robust',
                       smoothing=False,
-                      smoothing_window=3):
+                      smoothing_window=3,
+                      replace_method='median_window'):
     """
     Clean time series data by handling outliers and applying optional smoothing
 
@@ -139,11 +186,13 @@ def clean_time_series(series,
     series : pandas.Series
         Time series data to clean
     outlier_method : str, optional
-        Method to use for outlier detection ('zscore', 'iqr')
+        Method to use for outlier detection ('zscore', 'iqr', 'robust', 'isolation_forest')
     smoothing : bool, optional
         Whether to apply smoothing after outlier treatment
     smoothing_window : int, optional
         Window size for smoothing if applied
+    replace_method : str, optional
+        Method to use for replacing outliers ('median_window', 'interpolate', 'ewm')
 
     Returns:
     --------
@@ -152,46 +201,81 @@ def clean_time_series(series,
     """
     # Make a copy of the series
     cleaned = series.copy()
-
-    # Detect outliers
+    
+    # Handle empty series
+    if len(cleaned) == 0 or cleaned.isna().all():
+        return cleaned
+    
+    # Detect outliers using the specified method
     outliers = detect_outliers(cleaned, method=outlier_method)
-
-    # Replace outliers with interpolated values or local median
+    
+    # Replace outliers
     if outliers.any():
-        # Get non-outlier values for local statistics
+        # Get non-outlier values for statistics
         non_outliers = cleaned[~outliers]
-
+        
         if len(non_outliers) > 0:
-            # For each outlier, replace with local median or interpolated value
-            for idx in cleaned[outliers].index:
-                # Try to find nearby non-outlier values
-                window = 5  # Look at 5 surrounding points
-
-                # Get slice of original series around outlier
-                slice_start = max(0, cleaned.index.get_loc(idx) - window // 2)
-                slice_end = min(len(cleaned),
-                                cleaned.index.get_loc(idx) + window // 2 + 1)
-                local_slice = cleaned.iloc[slice_start:slice_end]
-
-                # Filter out other outliers from local slice
-                local_non_outliers = local_slice[~outliers.
-                                                 iloc[slice_start:slice_end]]
-
-                if len(local_non_outliers) > 0:
-                    # Replace with local median if available
-                    cleaned.loc[idx] = local_non_outliers.median()
-                else:
-                    # Otherwise use global statistics or interpolation
-                    cleaned.loc[idx] = non_outliers.median()
-
+            if replace_method == 'median_window':
+                # For each outlier, replace with local median
+                window_size = min(7, len(cleaned) // 3)
+                if window_size < 1:
+                    window_size = 1
+                
+                for idx in cleaned[outliers].index:
+                    # Create window around the outlier
+                    idx_pos = cleaned.index.get_loc(idx)
+                    start = max(0, idx_pos - window_size // 2)
+                    end = min(len(cleaned), idx_pos + window_size // 2 + 1)
+                    
+                    # Get local window, excluding outliers
+                    window_values = cleaned.iloc[start:end]
+                    window_non_outliers = window_values[~outliers.iloc[start:end]]
+                    
+                    if len(window_non_outliers) > 0:
+                        # Replace with local median
+                        cleaned.loc[idx] = window_non_outliers.median()
+                    else:
+                        # If no good values in window, use global median
+                        cleaned.loc[idx] = non_outliers.median()
+            
+            elif replace_method == 'interpolate':
+                # Mark outliers as NaN and interpolate
+                cleaned[outliers] = np.nan
+                cleaned = cleaned.interpolate(method='linear')
+                
+                # If interpolation leaves NaNs at the beginning or end, fill with nearest
+                if cleaned.isna().any():
+                    cleaned = cleaned.fillna(method='ffill').fillna(method='bfill')
+                    
+                    # If still have NaNs (all values might be NaN), use median
+                    if cleaned.isna().any():
+                        cleaned = cleaned.fillna(non_outliers.median())
+            
+            elif replace_method == 'ewm':
+                # Use exponentially weighted moving average for replacement
+                ewm_values = cleaned.ewm(span=min(5, len(cleaned) // 2)).mean()
+                cleaned[outliers] = ewm_values[outliers]
+            
+            else:
+                # Default: replace with global median
+                cleaned[outliers] = non_outliers.median()
+    
     # Apply smoothing if requested
     if smoothing and smoothing_window > 1:
-        # Use centered moving average for smoothing
-        cleaned = cleaned.rolling(window=smoothing_window, center=True).mean()
-
-        # For the edges where rolling mean produces NaN, use original values
-        cleaned = cleaned.fillna(series)
-
+        # Use centered moving average with minimal window size for small series
+        window = min(smoothing_window, len(cleaned) // 3)
+        if window < 1:
+            window = 1
+            
+        smoothed = cleaned.rolling(window=window, center=True, min_periods=1).mean()
+        
+        # For the edges where rolling mean might produce poor results, 
+        # use original cleaned values
+        if smoothed.isna().any():
+            smoothed = smoothed.fillna(cleaned)
+        
+        cleaned = smoothed
+    
     return cleaned
 
 
@@ -238,16 +322,16 @@ def extract_calendar_features(dates):
     return dates_df
 
 
-def detect_change_points(series, method='pelt', penalty=15):
+def detect_change_points(series, method='advanced_window', penalty=15):
     """
-    Detect change points in time series data
+    Detect change points in time series data using enhanced methods
 
     Parameters:
     -----------
     series : pandas.Series
         Time series data
     method : str, optional
-        Method to use for change point detection ('pelt', 'binary_segmentation', or 'window')
+        Method to use for change point detection ('advanced_window', 'pelt', 'binary_segmentation', 'window')
     penalty : float, optional
         Penalty parameter for change point detection algorithms
 
@@ -257,15 +341,122 @@ def detect_change_points(series, method='pelt', penalty=15):
         List of indices where change points were detected
     """
     try:
-        # Simple method using rolling statistics
-        if method == 'window':
-            # Use rolling standard deviation and mean
-            roll_std = series.rolling(window=min(5, len(series) // 3)).std()
-            roll_mean = series.rolling(window=min(5, len(series) // 3)).mean()
-
-            # Compute rate of change
+        # Handle edge cases
+        if len(series) < 10:
+            # Too few points to reliably detect change points
+            return []
+            
+        # Try to import ruptures for PELT algorithm
+        if method == 'pelt':
+            try:
+                import ruptures as rpt
+                
+                # Convert to numpy array and handle NaN values
+                data = series.fillna(method='ffill').fillna(method='bfill').values
+                
+                # Apply PELT algorithm
+                algo = rpt.Pelt(model="l2").fit(data.reshape(-1, 1))
+                change_points = algo.predict(pen=penalty)
+                
+                # Return all change points except the last one (which is always the length of the series)
+                return change_points[:-1]
+                
+            except ImportError:
+                print("Ruptures not available, falling back to advanced_window method")
+                method = 'advanced_window'
+                
+        if method == 'binary_segmentation':
+            try:
+                import ruptures as rpt
+                
+                # Convert to numpy array and handle NaN values
+                data = series.fillna(method='ffill').fillna(method='bfill').values
+                
+                # Apply Binary Segmentation algorithm
+                algo = rpt.Binseg(model="l2").fit(data.reshape(-1, 1))
+                change_points = algo.predict(n_bkps=min(5, len(series) // 10))
+                
+                # Return all change points except the last one
+                return change_points[:-1]
+                
+            except ImportError:
+                print("Ruptures not available, falling back to advanced_window method")
+                method = 'advanced_window'
+        
+        # Enhanced window-based method with multiple indicators
+        if method == 'advanced_window':
+            # Series length
+            n = len(series)
+            
+            # Define window sizes based on series length
+            window_size = max(5, min(n // 5, 20))
+            
+            # Use rolling standard deviation, mean, and other indicators
+            roll_std = series.rolling(window=window_size, min_periods=1).std()
+            roll_mean = series.rolling(window=window_size, min_periods=1).mean()
+            
+            # Compute derivatives (rates of change)
             roll_std_change = roll_std.pct_change().abs()
             roll_mean_change = roll_mean.pct_change().abs()
+            
+            # Add trend changes by fitting local regressions
+            trends = []
+            
+            for i in range(n - window_size):
+                if i % window_size == 0:  # Only calculate every window_size steps for efficiency
+                    window = series.iloc[i:i+window_size]
+                    if not window.isna().all():
+                        try:
+                            x = np.arange(len(window))
+                            slope = np.polyfit(x, window.fillna(window.mean()).values, 1)[0]
+                            trends.extend([slope] * window_size)
+                        except:
+                            trends.extend([0] * window_size)
+            
+            # Pad with last value if needed
+            while len(trends) < n:
+                trends.append(trends[-1] if trends else 0)
+            
+            # Convert to pandas series
+            trend_series = pd.Series(trends, index=series.index)
+            trend_change = trend_series.diff().abs()
+            
+            # Identify potential change points from each indicator
+            # Use more aggressive thresholds to capture more potential points
+            std_threshold = np.percentile(roll_std_change.dropna(), 85)
+            mean_threshold = np.percentile(roll_mean_change.dropna(), 85)
+            trend_threshold = np.percentile(trend_change.dropna(), 85)
+            
+            std_changes = np.where(roll_std_change > std_threshold)[0]
+            mean_changes = np.where(roll_mean_change > mean_threshold)[0]
+            trend_changes = np.where(trend_change > trend_threshold)[0]
+            
+            # Combine all potential change points
+            all_changes = np.concatenate([std_changes, mean_changes, trend_changes])
+            
+            # Cluster nearby change points - we don't want multiple points within the window
+            if len(all_changes) > 0:
+                all_changes = np.sort(all_changes)
+                clustered_changes = [all_changes[0]]
+                
+                for change in all_changes[1:]:
+                    # Only add if it's more than half a window away from previous point
+                    if change - clustered_changes[-1] > window_size // 2:
+                        clustered_changes.append(change)
+                
+                return clustered_changes
+            else:
+                return []
+            
+        # Simple rolling window method (fallback)
+        if method == 'window':
+            # Use rolling standard deviation and mean
+            roll_std = series.rolling(window=min(5, len(series) // 3), min_periods=1).std()
+            roll_mean = series.rolling(window=min(5, len(series) // 3), min_periods=1).mean()
+
+            # Compute rate of change
+            roll_std_change = roll_std.pct_change().abs().fillna(0)
+            roll_mean_change = roll_mean.pct_change().abs().fillna(0)
 
             # Detect points where changes exceed threshold
             std_changes = np.where(roll_std_change > np.percentile(
@@ -274,14 +465,15 @@ def detect_change_points(series, method='pelt', penalty=15):
                 roll_mean_change.dropna(), 90))[0]
 
             # Combine the change points
-            change_points = np.unique(
-                np.concatenate([std_changes, mean_changes]))
-            return change_points.tolist()
-        else:
-            # Default to window method if other methods not available
-            return detect_change_points(series,
-                                        method='window',
-                                        penalty=penalty)
+            if len(std_changes) > 0 or len(mean_changes) > 0:
+                change_points = np.unique(
+                    np.concatenate([std_changes, mean_changes]))
+                return change_points.tolist()
+            else:
+                return []
+                
+        # Default to advanced window method if method not recognized
+        return detect_change_points(series, method='advanced_window', penalty=penalty)
 
     except Exception as e:
         print(f"Change point detection error: {str(e)}")
@@ -324,80 +516,223 @@ def segment_time_series(data, column='quantity'):
         return [0, len(data)]
 
 
-def extract_advanced_features(series):
+def extract_advanced_features(series, include_lags=True, include_transformations=True):
     """
-    Extract advanced statistical features from time series
+    Extract advanced statistical features from time series with enhanced lag features
+    and transformations for improved forecasting
 
     Parameters:
     -----------
     series : pandas.Series
         Time series data
+    include_lags : bool, optional
+        Whether to include lag-based features
+    include_transformations : bool, optional
+        Whether to include transformed versions of the series
 
     Returns:
     --------
     dict
         Dictionary of extracted features
     """
+    # Make a copy and ensure no NaN values for feature extraction
+    clean_series = series.copy().fillna(method='ffill').fillna(method='bfill')
+    if len(clean_series) == 0:
+        return {}  # Return empty dict if series is empty
+    
     features = {}
 
     # Basic statistics
-    features['mean'] = series.mean()
-    features['median'] = series.median()
-    features['std'] = series.std()
-    features['min'] = series.min()
-    features['max'] = series.max()
-    features['range'] = series.max() - series.min()
-    features['iqr'] = series.quantile(0.75) - series.quantile(0.25)
+    features['mean'] = clean_series.mean()
+    features['median'] = clean_series.median()
+    features['std'] = clean_series.std()
+    features['min'] = clean_series.min()
+    features['max'] = clean_series.max()
+    features['range'] = clean_series.max() - clean_series.min()
+    features['iqr'] = clean_series.quantile(0.75) - clean_series.quantile(0.25)
 
     # Shape features
-    features['skewness'] = series.skew()
-    features['kurtosis'] = series.kurtosis()
+    features['skewness'] = clean_series.skew()
+    features['kurtosis'] = clean_series.kurtosis()
 
     # Volatility features
-    features['cv'] = features['std'] / features['mean'] if features[
-        'mean'] != 0 else np.nan
-    features['pct_change_mean'] = series.pct_change().mean()
-    features['pct_change_std'] = series.pct_change().std()
+    features['cv'] = features['std'] / features['mean'] if features['mean'] != 0 else np.nan
+    pct_change = clean_series.pct_change().fillna(0)
+    features['pct_change_mean'] = pct_change.mean()
+    features['pct_change_std'] = pct_change.std()
+    features['pct_change_max'] = pct_change.abs().max()
 
-    # Trend features
+    # Enhanced trend features
     try:
-        x = np.arange(len(series))
-        trend_coef = np.polyfit(x, series.values, 1)
-        features['trend_slope'] = trend_coef[0]
-        features['trend_intercept'] = trend_coef[1]
-    except:
+        x = np.arange(len(clean_series))
+        
+        # Linear trend
+        linear_trend = np.polyfit(x, clean_series.values, 1)
+        features['trend_slope'] = linear_trend[0]
+        features['trend_intercept'] = linear_trend[1]
+        
+        # Quadratic trend for non-linear patterns
+        if len(clean_series) >= 10:
+            quad_trend = np.polyfit(x, clean_series.values, 2)
+            features['quad_trend_a'] = quad_trend[0]  # x^2 coefficient
+            features['quad_trend_b'] = quad_trend[1]  # x coefficient
+            features['quad_trend_c'] = quad_trend[2]  # constant
+    except Exception as e:
         features['trend_slope'] = 0
         features['trend_intercept'] = 0
+        features['quad_trend_a'] = 0
+        features['quad_trend_b'] = 0
+        features['quad_trend_c'] = 0
 
     # Stationarity features
     try:
-        adf_result = adfuller(series.dropna())
+        adf_result = adfuller(clean_series.values)
         features['adf_pvalue'] = adf_result[1]
         features['adf_statistic'] = adf_result[0]
-    except:
+        
+        # Add KPSS test (tests for stationarity around deterministic trend)
+        kpss_result = kpss(clean_series.values)
+        features['kpss_pvalue'] = kpss_result[1]
+        features['kpss_statistic'] = kpss_result[0]
+    except Exception as e:
         features['adf_pvalue'] = 1
         features['adf_statistic'] = 0
+        features['kpss_pvalue'] = 1
+        features['kpss_statistic'] = 0
 
-    # Autocorrelation features
+    # Enhanced autocorrelation features
     try:
-        acf_1 = acf(series.dropna(), nlags=1)[1]
-        features['autocorrelation_lag1'] = acf_1
-    except:
-        features['autocorrelation_lag1'] = 0
-
-    try:
-        if len(series) >= 12:
-            acf_12 = acf(series.dropna(), nlags=12)[12]
-            features['autocorrelation_lag12'] = acf_12
+        # Multiple lag autocorrelations
+        acf_values = acf(clean_series.values, nlags=min(24, len(clean_series) // 2), fft=True)
+        
+        # Add key lag autocorrelations
+        features['autocorrelation_lag1'] = acf_values[1] if len(acf_values) > 1 else 0
+        features['autocorrelation_lag2'] = acf_values[2] if len(acf_values) > 2 else 0
+        features['autocorrelation_lag3'] = acf_values[3] if len(acf_values) > 3 else 0
+        
+        # For longer series, add seasonal lags
+        if len(acf_values) > 12:
+            features['autocorrelation_lag12'] = acf_values[12]
         else:
             features['autocorrelation_lag12'] = 0
-    except:
+            
+        # Add partial autocorrelations
+        pacf_values = pacf(clean_series.values, nlags=min(10, len(clean_series) // 3))
+        features['pacf_lag1'] = pacf_values[1] if len(pacf_values) > 1 else 0
+        features['pacf_lag2'] = pacf_values[2] if len(pacf_values) > 2 else 0
+        
+        # Add sum of first N autocorrelations as a measure of total correlation structure
+        features['acf_sum_5'] = sum(np.abs(acf_values[1:6])) if len(acf_values) > 5 else sum(np.abs(acf_values[1:]))
+        
+    except Exception as e:
+        print(f"Error in autocorrelation: {str(e)}")
+        features['autocorrelation_lag1'] = 0
+        features['autocorrelation_lag2'] = 0
+        features['autocorrelation_lag3'] = 0
         features['autocorrelation_lag12'] = 0
+        features['pacf_lag1'] = 0
+        features['pacf_lag2'] = 0
+        features['acf_sum_5'] = 0
 
     # Intermittency features
-    features['zero_count'] = (series == 0).sum()
-    features['zero_ratio'] = features['zero_count'] / len(series)
-
+    features['zero_count'] = (clean_series == 0).sum()
+    features['zero_ratio'] = features['zero_count'] / len(clean_series)
+    
+    # Count consecutive zeros (for intermittent demand)
+    if features['zero_ratio'] > 0:
+        zero_mask = (clean_series == 0).astype(int)
+        zero_runs = (zero_mask.diff() != 0).cumsum()
+        zero_run_lengths = zero_mask.groupby(zero_runs).sum()
+        features['max_zero_run'] = zero_run_lengths.max() if not zero_run_lengths.empty else 0
+        features['mean_zero_run'] = zero_run_lengths.mean() if not zero_run_lengths.empty else 0
+    else:
+        features['max_zero_run'] = 0
+        features['mean_zero_run'] = 0
+    
+    # Additional features for lag structure if requested
+    if include_lags and len(clean_series) >= 4:
+        # Add lag features - relationship between current value and past values
+        lag_features = {}
+        
+        # Create key lags (adjust based on series length)
+        max_lag = min(12, len(clean_series) // 3)
+        
+        for lag in range(1, max_lag + 1):
+            # Skip if lag is too large for the series
+            if lag >= len(clean_series):
+                continue
+                
+            lagged_series = clean_series.shift(lag)
+            # Correlation between series and lagged series
+            lag_features[f'lag_{lag}_corr'] = clean_series.iloc[lag:].corr(lagged_series.iloc[lag:])
+            
+            # Mean absolute difference
+            diff = (clean_series.iloc[lag:] - lagged_series.iloc[lag:]).abs()
+            lag_features[f'lag_{lag}_mad'] = diff.mean()
+            
+            # Ratio of current to lagged (for multiplicative patterns)
+            valid_indices = (lagged_series != 0) & (~lagged_series.isna())
+            if valid_indices.sum() > 0:
+                ratio = clean_series[valid_indices] / lagged_series[valid_indices]
+                lag_features[f'lag_{lag}_ratio_mean'] = ratio.mean()
+                lag_features[f'lag_{lag}_ratio_std'] = ratio.std()
+        
+        # Add rolling statistics
+        for window in [3, 7, 12]:
+            if window < len(clean_series):
+                rolled = clean_series.rolling(window=window, min_periods=1)
+                lag_features[f'roll_{window}_mean'] = rolled.mean().iloc[-1]
+                lag_features[f'roll_{window}_std'] = rolled.std().iloc[-1]
+                
+                # Add trend in rolling statistics
+                roll_means = rolled.mean()
+                if len(roll_means) > 5:
+                    try:
+                        roll_trend = np.polyfit(np.arange(len(roll_means.iloc[-5:])), 
+                                               roll_means.iloc[-5:].values, 1)[0]
+                        lag_features[f'roll_{window}_trend'] = roll_trend
+                    except:
+                        lag_features[f'roll_{window}_trend'] = 0
+        
+        # Add all lag features to main features dictionary
+        features.update(lag_features)
+    
+    # Advanced transformations if requested
+    if include_transformations and len(clean_series) > 0:
+        # Handle non-positive values for log transform
+        min_val = clean_series.min()
+        if min_val <= 0:
+            shift = abs(min_val) + 1
+            log_data = np.log(clean_series + shift)
+        else:
+            log_data = np.log(clean_series)
+        
+        # Calculate statistics of transformed data
+        features['log_mean'] = log_data.mean()
+        features['log_std'] = log_data.std()
+        
+        # Try Box-Cox transformation for variance stabilization
+        try:
+            # Only apply if data is positive
+            if (clean_series > 0).all():
+                from scipy import stats
+                transformed_data, lmbda = stats.boxcox(clean_series.values)
+                features['boxcox_lambda'] = lmbda
+                features['boxcox_mean'] = transformed_data.mean()
+                features['boxcox_std'] = transformed_data.std()
+            else:
+                features['boxcox_lambda'] = np.nan
+                features['boxcox_mean'] = np.nan
+                features['boxcox_std'] = np.nan
+        except Exception as e:
+            print(f"Error in Box-Cox: {str(e)}")
+            features['boxcox_lambda'] = np.nan
+            features['boxcox_mean'] = np.nan
+            features['boxcox_std'] = np.nan
+    
+    # Remove NaN values
+    features = {k: float(v) if not pd.isna(v) else 0 for k, v in features.items()}
+    
     return features
 
 
@@ -807,7 +1142,10 @@ def auto_select_best_model(data,
                            hyperparameter_tuning=True,
                            complex_models_threshold=24,
                            progress_callback=None,
-                           use_cache=True):
+                           use_cache=True,
+                           sku=None,
+                           use_param_cache=True,
+                           schedule_tuning=True):
     """
     Automatically select the best forecasting model based on data characteristics
     and test performance, with optional caching for faster results.
@@ -828,6 +1166,14 @@ def auto_select_best_model(data,
         Minimum number of observations required for complex models
     progress_callback : function, optional
         Callback function for progress reporting with parameters (current_idx, current_item, total_items, message, level)
+    use_cache : bool, optional
+        Whether to use in-memory cache for model results
+    sku : str, optional
+        SKU identifier for parameter caching in database
+    use_param_cache : bool, optional
+        Whether to use database parameter cache for model optimization
+    schedule_tuning : bool, optional
+        Whether to schedule background parameter tuning for future use
 
     Returns:
     --------
@@ -836,6 +1182,18 @@ def auto_select_best_model(data,
     """
     # Copy data to avoid modifying original
     data = data.copy()
+    
+    # Import parameter caching functions if using
+    if use_param_cache and sku is not None:
+        try:
+            from utils.database import get_model_parameters
+            from utils.parameter_optimizer import optimize_parameters_async
+        except ImportError:
+            # If import fails, disable parameter caching
+            use_param_cache = False
+            if progress_callback:
+                progress_callback(0, "warning", 1, 
+                                 "Parameter caching disabled due to missing dependencies", "warning")
     
     # Check cache if enabled
     if use_cache:
@@ -917,10 +1275,92 @@ def auto_select_best_model(data,
             if model_type == "auto_arima":
                 # Prepare data for ARIMA
                 y_train = train_data['quantity'].values
-
-                # Train auto ARIMA model
-                arima_model, best_order, best_seasonal_order = train_auto_arima(
-                    y_train, seasonal=(len(train_data) >= 24), m=12)
+                
+                # Check for cached parameters if enabled
+                cached_params = None
+                if use_param_cache and sku is not None:
+                    try:
+                        cached_result = get_model_parameters(sku, "arima")
+                        if cached_result is not None:
+                            cached_params = cached_result['parameters']
+                            if progress_callback:
+                                progress_callback(
+                                    i, model_type, len(models_to_try),
+                                    f"Using cached ARIMA parameters for {sku}", "info")
+                    except Exception as e:
+                        if progress_callback:
+                            progress_callback(
+                                i, model_type, len(models_to_try),
+                                f"Error retrieving cached parameters: {str(e)}", "warning")
+                
+                if cached_params is not None:
+                    # Use cached parameters to train ARIMA model
+                    from statsmodels.tsa.arima.model import ARIMA
+                    try:
+                        # Extract parameters
+                        order = tuple(cached_params.get('order', (1, 1, 1)))
+                        seasonal_order = tuple(cached_params.get('seasonal_order', (0, 0, 0, 0)))
+                        
+                        # Fit ARIMA model with cached parameters
+                        if len(seasonal_order) == 4 and seasonal_order[3] > 0:
+                            # Use SARIMAX for seasonal models
+                            from statsmodels.tsa.statespace.sarimax import SARIMAX
+                            arima_model = SARIMAX(
+                                y_train, 
+                                order=order,
+                                seasonal_order=seasonal_order
+                            ).fit(disp=False)
+                        else:
+                            # Use regular ARIMA
+                            arima_model = ARIMA(
+                                y_train,
+                                order=order
+                            ).fit()
+                        
+                        best_order = order
+                        best_seasonal_order = seasonal_order
+                    except Exception as e:
+                        # Fall back to auto ARIMA if there's an error with cached parameters
+                        if progress_callback:
+                            progress_callback(
+                                i, model_type, len(models_to_try),
+                                f"Error using cached parameters: {str(e)}, falling back to auto selection", "warning")
+                        arima_model, best_order, best_seasonal_order = train_auto_arima(
+                            y_train, seasonal=(len(train_data) >= 24), m=12)
+                else:
+                    # Train auto ARIMA model
+                    arima_model, best_order, best_seasonal_order = train_auto_arima(
+                        y_train, seasonal=(len(train_data) >= 24), m=12)
+                    
+                    # Schedule background parameter optimization if requested
+                    if schedule_tuning and sku is not None:
+                        try:
+                            # Create a DataFrame with the proper format for optimization
+                            opt_data = pd.DataFrame({
+                                'date': data['date'],
+                                'quantity': data['quantity']
+                            })
+                            
+                            # Start the optimization task in the background
+                            optimize_parameters_async(
+                                sku=sku,
+                                model_type="arima",
+                                data=opt_data,
+                                cross_validation=True,
+                                progress_callback=lambda sku, model, msg, level="info": 
+                                    progress_callback(i, f"{model_type}_tuning", len(models_to_try), msg, level) 
+                                    if progress_callback else None
+                            )
+                            
+                            if progress_callback:
+                                progress_callback(
+                                    i, model_type, len(models_to_try),
+                                    f"Scheduled background parameter tuning for {sku}", "info")
+                        except Exception as e:
+                            if progress_callback:
+                                progress_callback(
+                                    i, model_type, len(models_to_try),
+                                    f"Error scheduling parameter tuning: {str(e)}", "warning")
 
                 if arima_model is not None:
                     # Make forecasts on test set
@@ -951,57 +1391,135 @@ def auto_select_best_model(data,
                     'y': train_data['quantity']
                 })
 
-                # Train Prophet model with appropriate parameters
-                if hyperparameter_tuning and len(train_data) >= 18:
-                    # Multiple seasonality settings to try
-                    seasonality_modes = ['additive', 'multiplicative']
-                    changepoint_priors = [0.01, 0.05, 0.1]
+                # Check for cached parameters if enabled
+                cached_params = None
+                if use_param_cache and sku is not None:
+                    try:
+                        cached_result = get_model_parameters(sku, "prophet")
+                        if cached_result is not None:
+                            cached_params = cached_result['parameters']
+                            if progress_callback:
+                                progress_callback(
+                                    i, model_type, len(models_to_try),
+                                    f"Using cached Prophet parameters for {sku}", "info")
+                    except Exception as e:
+                        if progress_callback:
+                            progress_callback(
+                                i, model_type, len(models_to_try),
+                                f"Error retrieving cached parameters: {str(e)}", "warning")
 
-                    best_prophet_mape = float('inf')
-                    best_prophet_model = None
-                    best_prophet_params = None
+                if cached_params is not None:
+                    # Use cached parameters to train Prophet model
+                    try:
+                        # Extract parameters
+                        seasonality_mode = cached_params.get('seasonality_mode', 'additive')
+                        changepoint_prior_scale = cached_params.get('changepoint_prior_scale', 0.05)
+                        seasonality_prior_scale = cached_params.get('seasonality_prior_scale', 10.0)
+                        
+                        # Train model with cached parameters
+                        prophet_model = train_prophet_model(
+                            prophet_train,
+                            seasonality_mode=seasonality_mode,
+                            changepoint_prior_scale=changepoint_prior_scale,
+                            seasonality_prior_scale=seasonality_prior_scale,
+                            yearly_seasonality=(len(train_data) >= 18))
+                            
+                        prophet_params = {
+                            'seasonality_mode': seasonality_mode,
+                            'changepoint_prior_scale': changepoint_prior_scale,
+                            'seasonality_prior_scale': seasonality_prior_scale
+                        }
+                    except Exception as e:
+                        # Fall back to default/hyperparameter tuning if there's an error
+                        if progress_callback:
+                            progress_callback(
+                                i, model_type, len(models_to_try),
+                                f"Error using cached parameters: {str(e)}, falling back to default", "warning")
+                        # Continue with regular hyperparameter tuning or default parameters
+                        cached_params = None
+                
+                # If no cached parameters or error using them, use hyperparameter tuning or defaults
+                if cached_params is None:
+                    if hyperparameter_tuning and len(train_data) >= 18:
+                        # Multiple seasonality settings to try
+                        seasonality_modes = ['additive', 'multiplicative']
+                        changepoint_priors = [0.01, 0.05, 0.1]
 
-                    for mode in seasonality_modes:
-                        for prior in changepoint_priors:
-                            # Train model with this configuration
-                            prophet_model = train_prophet_model(
-                                prophet_train,
-                                seasonality_mode=mode,
-                                changepoint_prior_scale=prior,
-                                yearly_seasonality=(len(train_data) >= 18))
+                        best_prophet_mape = float('inf')
+                        best_prophet_model = None
+                        best_prophet_params = None
 
-                            # Make predictions on test set
-                            prophet_future = pd.DataFrame(
-                                {'ds': test_data['date']})
-                            prophet_test_forecast = prophet_model.predict(
-                                prophet_future)
-                            test_predictions = prophet_test_forecast[
-                                'yhat'].values
+                        for mode in seasonality_modes:
+                            for prior in changepoint_priors:
+                                # Train model with this configuration
+                                prophet_model = train_prophet_model(
+                                    prophet_train,
+                                    seasonality_mode=mode,
+                                    changepoint_prior_scale=prior,
+                                    yearly_seasonality=(len(train_data) >= 18))
 
-                            # Calculate MAPE
-                            metrics = evaluate_forecast(
-                                test_data['quantity'].values, test_predictions)
+                                # Make predictions on test set
+                                prophet_future = pd.DataFrame(
+                                    {'ds': test_data['date']})
+                                prophet_test_forecast = prophet_model.predict(
+                                    prophet_future)
+                                test_predictions = prophet_test_forecast[
+                                    'yhat'].values
 
-                            # Check if this is the best model so far
-                            if metrics['mape'] < best_prophet_mape:
-                                best_prophet_mape = metrics['mape']
-                                best_prophet_model = prophet_model
-                                best_prophet_params = {
-                                    'seasonality_mode': mode,
-                                    'changepoint_prior_scale': prior
-                                }
+                                # Calculate MAPE
+                                metrics = evaluate_forecast(
+                                    test_data['quantity'].values, test_predictions)
 
-                    prophet_model = best_prophet_model
-                    prophet_params = best_prophet_params
-                else:
-                    # Use default parameters
-                    prophet_model = train_prophet_model(
-                        prophet_train,
-                        yearly_seasonality=(len(train_data) >= 18))
-                    prophet_params = {
-                        'seasonality_mode': 'additive',
-                        'changepoint_prior_scale': 0.05
-                    }
+                                # Check if this is the best model so far
+                                if metrics['mape'] < best_prophet_mape:
+                                    best_prophet_mape = metrics['mape']
+                                    best_prophet_model = prophet_model
+                                    best_prophet_params = {
+                                        'seasonality_mode': mode,
+                                        'changepoint_prior_scale': prior
+                                    }
+
+                        prophet_model = best_prophet_model
+                        prophet_params = best_prophet_params
+                    else:
+                        # Use default parameters
+                        prophet_model = train_prophet_model(
+                            prophet_train,
+                            yearly_seasonality=(len(train_data) >= 18))
+                        prophet_params = {
+                            'seasonality_mode': 'additive',
+                            'changepoint_prior_scale': 0.05
+                        }
+                        
+                    # Schedule background parameter optimization if requested
+                    if schedule_tuning and sku is not None:
+                        try:
+                            # Create a DataFrame with the proper format for optimization
+                            opt_data = pd.DataFrame({
+                                'date': data['date'],
+                                'quantity': data['quantity']
+                            })
+                            
+                            # Start the optimization task in the background
+                            optimize_parameters_async(
+                                sku=sku,
+                                model_type="prophet",
+                                data=opt_data,
+                                cross_validation=True,
+                                progress_callback=lambda sku, model, msg, level="info": 
+                                    progress_callback(i, f"{model_type}_tuning", len(models_to_try), msg, level) 
+                                    if progress_callback else None
+                            )
+                            
+                            if progress_callback:
+                                progress_callback(
+                                    i, model_type, len(models_to_try),
+                                    f"Scheduled background parameter tuning for {sku}", "info")
+                        except Exception as e:
+                            if progress_callback:
+                                progress_callback(
+                                    i, model_type, len(models_to_try),
+                                    f"Error scheduling parameter tuning: {str(e)}", "warning")
 
                 # Make test predictions
                 prophet_future = pd.DataFrame({'ds': test_data['date']})
@@ -1567,6 +2085,52 @@ def auto_select_best_model(data,
         'train_data': train_data
     }
     
+    # Schedule background parameter tuning for best model if requested
+    if schedule_tuning and sku is not None and best_model_type is not None:
+        try:
+            # Only schedule tuning if we haven't already done so for this model type
+            if best_model_type not in ["moving_average", "ensemble"]:  # These don't need tuning
+                # Create a DataFrame with the proper format for optimization
+                opt_data = pd.DataFrame({
+                    'date': data['date'],
+                    'quantity': data['quantity']
+                })
+                
+                # Get a mapping from model_type in our code to model_type in database
+                model_type_mapping = {
+                    "auto_arima": "arima",
+                    "prophet": "prophet",
+                    "ets": "ets",
+                    "lstm": "lstm",
+                    "tcn": "tcn"
+                }
+                
+                db_model_type = model_type_mapping.get(best_model_type, best_model_type)
+                
+                # Start the optimization task in the background with higher priority
+                from utils.parameter_optimizer import optimize_parameters_async
+                optimize_parameters_async(
+                    sku=sku,
+                    model_type=db_model_type,
+                    data=opt_data,
+                    cross_validation=True,
+                    n_trials=None,  # Use default trials count
+                    progress_callback=lambda sku, model, msg, level="info": 
+                        progress_callback(0, f"best_model_tuning", 1, msg, level) 
+                        if progress_callback else None
+                )
+                
+                if progress_callback:
+                    progress_callback(
+                        0, "best_model_tuning", 1,
+                        f"Scheduled background parameter tuning for best model ({best_model_type})", "info")
+        except Exception as e:
+            # Don't let parameter tuning failures affect the main function
+            if progress_callback:
+                progress_callback(
+                    0, "best_model_tuning", 1,
+                    f"Error scheduling parameter tuning for best model: {str(e)}", "warning")
+    
     # Save result to cache if enabled
     if use_cache:
         cache_params = {
@@ -1744,7 +2308,9 @@ def advanced_generate_forecasts(sales_data,
                                 selected_skus=None,
                                 progress_callback=None,
                                 hyperparameter_tuning=True,
-                                apply_sense_check=True):
+                                apply_sense_check=True,
+                                use_param_cache=True,
+                                schedule_tuning=True):
     """
     Generate advanced forecasts for SKUs, leveraging improved preprocessing, model selection,
     and post-processing.
@@ -1769,6 +2335,10 @@ def advanced_generate_forecasts(sales_data,
         Whether to tune hyperparameters for models
     apply_sense_check : bool, optional
         Whether to apply human-like sense checking to forecasts
+    use_param_cache : bool, optional
+        Whether to use database parameter cache for model optimization (default is True)
+    schedule_tuning : bool, optional
+        Whether to schedule background parameter tuning for future use (default is True)
 
     Returns:
     --------
@@ -1904,7 +2474,11 @@ def advanced_generate_forecasts(sales_data,
                     test_size=0.2,
                     forecast_periods=forecast_periods,
                     hyperparameter_tuning=hyperparameter_tuning,
-                    progress_callback=progress_callback)
+                    progress_callback=progress_callback,
+                    use_cache=True,
+                    sku=sku,  # Pass SKU for parameter caching
+                    use_param_cache=use_param_cache,
+                    schedule_tuning=schedule_tuning)
 
                 best_model_type = model_results['best_model']
                 best_forecast = model_results['forecasts'][best_model_type][

@@ -1,0 +1,342 @@
+Below is the final, updated prompt incorporating the new recommendation. In this additional section, we suggest decoupling hyperparameter tuning from each forecast run. Instead, a separate function can run the hyperparameter optimization asynchronously (for example, using background jobs or scheduling tools) so that forecasting can use the latest tuned parameters without incurring extra compute cost every time.
+
+You can share this complete prompt with your AI developer. A downloadable text file is also provided below.
+
+
+---
+
+Subject: Enhancing Forecast Accuracy for SKU Sales Forecasting – Detailed Improvement Plan
+
+Overview:
+The goal is to improve our sales forecasting engine across all SKUs by addressing key areas in data preprocessing, feature engineering, model selection/tuning, and ensemble strategies. Below is a detailed plan with code snippets and logic recommendations.
+
+
+---
+
+1. Data Preprocessing Enhancements
+
+Robust Outlier Detection and Cleaning:
+Our current methods (z‑score/IQR) may miss extreme anomalies. We recommend:
+
+Using an Isolation Forest for anomaly detection.
+
+Replacing outliers with median values computed from a rolling window.
+
+
+Example Code:
+
+from sklearn.ensemble import IsolationForest
+
+def robust_detect_outliers(series, contamination=0.05):
+    """Detect outliers using Isolation Forest."""
+    series_clean = series.values.reshape(-1, 1)
+    iso_forest = IsolationForest(contamination=contamination, random_state=42)
+    preds = iso_forest.fit_predict(series_clean)
+    # Mark outliers as True (i.e., -1 prediction)
+    return pd.Series(preds == -1, index=series.index)
+
+def clean_time_series_robust(series, smoothing_window=3):
+    outliers = robust_detect_outliers(series)
+    cleaned = series.copy()
+    # Replace outliers with median of nearby values
+    cleaned[outliers] = cleaned.rolling(window=5, center=True).median()
+    # Optionally smooth the cleaned series
+    cleaned = cleaned.rolling(window=smoothing_window, center=True).mean().fillna(method='bfill').fillna(method='ffill')
+    return cleaned
+
+Enhanced Change Point Detection:
+Instead of relying solely on rolling statistics, use advanced methods like PELT from the ruptures library.
+
+Example Code:
+
+import ruptures as rpt
+
+def detect_change_points_ruptures(series, model="l2", penalty=10):
+    algo = rpt.Pelt(model=model).fit(series.values)
+    change_points = algo.predict(pen=penalty)
+    return change_points
+
+
+
+---
+
+2. Feature Engineering Improvements
+
+Additional Calendar and Lag Features:
+Enhance feature extraction by including:
+
+More granular calendar features (e.g., holidays, week-of-year).
+
+Lag variables and rolling means to capture trend and seasonality.
+
+
+Example Code:
+
+def extract_advanced_features(df):
+    df['month'] = df['date'].dt.month
+    df['quarter'] = df['date'].dt.quarter
+    df['day_of_week'] = df['date'].dt.dayofweek
+    # Create lag features and rolling averages
+    df['lag_1'] = df['quantity'].shift(1)
+    df['rolling_mean_3'] = df['quantity'].rolling(window=3).mean()
+    # Fourier terms for seasonality
+    df['sin_month'] = np.sin(2 * np.pi * df['month'] / 12)
+    df['cos_month'] = np.cos(2 * np.pi * df['month'] / 12)
+    return df.dropna()
+
+Transformations and Scaling:
+
+Apply Box‑Cox or Yeo-Johnson transformations to stabilize variance.
+
+Experiment with robust scaling methods.
+
+
+Example Code:
+
+from scipy import stats
+from sklearn.preprocessing import RobustScaler
+
+def transform_and_scale(series):
+    transformed, lam = stats.boxcox(series + 1e-6)  # Ensure positive values
+    scaler = RobustScaler()
+    scaled = scaler.fit_transform(transformed.reshape(-1, 1)).flatten()
+    return scaled, lam, scaler
+
+
+
+---
+
+3. Model Selection and Hyperparameter Tuning
+
+Expand Parameter Grid Using Advanced Optimization:
+The current fixed grid may be too limited. Use Bayesian Optimization (via libraries like optuna) to better search the ARIMA parameter space.
+
+Example Code (with Optuna):
+
+import optuna
+from statsmodels.tsa.arima.model import ARIMA
+
+def objective(trial, series):
+    p = trial.suggest_int("p", 0, 3)
+    d = trial.suggest_int("d", 0, 2)
+    q = trial.suggest_int("q", 0, 3)
+    try:
+        model = ARIMA(series, order=(p, d, q))
+        model_fit = model.fit()
+        mape = np.mean(np.abs((series - model_fit.fittedvalues) / series)) * 100
+    except Exception:
+        return float("inf")
+    return mape
+
+def tune_arima(series, n_trials=50):
+    study = optuna.create_study(direction="minimize")
+    study.optimize(lambda trial: objective(trial, series), n_trials=n_trials)
+    return study.best_trial.params
+
+Incorporate Alternative Models:
+For noisy or intermittent data, consider:
+
+Croston’s method for intermittent demand.
+
+Gradient boosting models (e.g., XGBoost) using engineered lag features.
+
+
+Example Outline:
+
+import xgboost as xgb
+
+def train_xgboost_forecast(train_df):
+    features = ['lag_1', 'rolling_mean_3', 'sin_month', 'cos_month']
+    X_train = train_df[features]
+    y_train = train_df['quantity']
+    model = xgb.XGBRegressor(n_estimators=100, max_depth=3, learning_rate=0.1, random_state=42)
+    model.fit(X_train, y_train)
+    return model
+
+
+
+---
+
+4. Ensemble and Stacking Strategies
+
+Weighted Ensemble:
+
+Compute weights inversely proportional to each model’s validation error (e.g., MAPE).
+
+Combine forecasts using these normalized weights.
+
+
+Stacking/Blending:
+
+Train a meta-model (e.g., Linear Regression with non-negative constraints) to learn the optimal combination of base model forecasts.
+
+
+Example Code:
+
+from sklearn.linear_model import LinearRegression
+
+def stack_forecasts(forecast_dict, true_values):
+    X_stack = np.column_stack(list(forecast_dict.values()))
+    meta_model = LinearRegression(positive=True)
+    meta_model.fit(X_stack, true_values)
+    stacked_forecast = meta_model.predict(X_stack)
+    return stacked_forecast, meta_model.coef_
+
+
+
+---
+
+5. Cross-Validation and Evaluation Enhancements
+
+Rolling/Expanding Window Validation:
+Instead of a single train-test split, use a rolling forecast origin to better assess model performance over time.
+
+Example Code:
+
+def rolling_forecast_cv(series, model_func, forecast_horizon=3, initial_window=24):
+    errors = []
+    for start in range(initial_window, len(series) - forecast_horizon):
+        train = series[:start]
+        test = series[start:start+forecast_horizon]
+        model = model_func(train)
+        forecast = model.forecast(steps=forecast_horizon)
+        error = np.mean(np.abs((test - forecast) / test)) * 100
+        errors.append(error)
+    return np.mean(errors)
+
+
+
+---
+
+6. Process and Code Organization Improvements
+
+Modularize and Log:
+
+Refactor the code into separate modules (e.g., preprocessing, feature engineering, modeling, evaluation).
+
+Implement detailed logging or progress callbacks to monitor each step.
+
+
+Automated Reporting:
+
+Generate visual reports (e.g., forecasts vs. actual plots, error distribution charts) to quickly diagnose issues.
+
+
+Example Code:
+
+import matplotlib.pyplot as plt
+
+def plot_forecast(actual, forecast, lower_bound, upper_bound, title="Forecast vs Actual"):
+    plt.figure(figsize=(12,6))
+    plt.plot(actual.index, actual, label="Actual")
+    plt.plot(forecast.index, forecast, label="Forecast", linestyle="--")
+    plt.fill_between(forecast.index, lower_bound, upper_bound, color='gray', alpha=0.3, label="Confidence Interval")
+    plt.title(title)
+    plt.legend()
+    plt.show()
+
+
+
+---
+
+7. Integrating External Data and Advanced Features
+
+External Regressors:
+
+Incorporate additional data such as holidays, promotions, or macroeconomic indicators.
+
+For Prophet, use built-in holiday functionality.
+
+
+Example Code:
+
+from prophet.make_holidays import make_holidays_df
+
+holidays = make_holidays_df(year_list=[2019, 2020, 2021, 2022])
+prophet_model = Prophet(holidays=holidays)
+prophet_model.fit(prophet_train_df)
+
+Model Decomposition:
+
+Use STL (Seasonal-Trend decomposition using Loess) to separate and model seasonality and trend independently.
+
+
+Example Outline:
+
+from statsmodels.tsa.seasonal import STL
+
+def decompose_series(series):
+    stl = STL(series, seasonal=13)
+    res = stl.fit()
+    return res.trend, res.seasonal, res.resid
+
+
+
+---
+
+8. Background Hyperparameter Tuning
+
+Decoupling Tuning from Forecast Runs:
+Since the tool runs on a CPU server, it is recommended to separate the hyperparameter tuning process from the main forecasting workflow.
+Recommendation:
+
+Develop a dedicated background function (or service) to perform hyperparameter optimization (using Bayesian optimization or similar) periodically.
+
+Cache or store the tuned parameters for each SKU and load them during forecast runs.
+
+This approach avoids the computational overhead during every forecast and ensures that the tuning is updated in a separate scheduled job (e.g., using Celery, APScheduler, or a simple cron job).
+
+
+Example Outline:
+
+import threading
+
+# Background hyperparameter tuning function
+def background_tune_hyperparameters(series, sku, tuning_interval=86400):
+    import time
+    while True:
+        tuned_params = tune_arima(series)
+        # Save tuned parameters to a shared store or file for sku
+        save_tuned_parameters(sku, tuned_params)
+        # Sleep for the defined interval (e.g., once per day)
+        time.sleep(tuning_interval)
+
+# To run tuning in background for each SKU:
+def start_background_tuning(sku_series_dict):
+    for sku, series in sku_series_dict.items():
+        tuning_thread = threading.Thread(target=background_tune_hyperparameters, args=(series, sku))
+        tuning_thread.daemon = True  # Run as background daemon
+        tuning_thread.start()
+
+Note: The function save_tuned_parameters should be implemented to store the results (e.g., in a database or a file). This background process can run independently of the main forecasting service.
+
+
+
+---
+
+Summary:
+
+1. Data Cleaning: Use robust outlier detection (Isolation Forest) and advanced change point detection (PELT via ruptures).
+
+
+2. Feature Engineering: Enhance with detailed calendar features, lag variables, Fourier terms, and variance-stabilizing transformations.
+
+
+3. Model Enhancements: Employ Bayesian optimization for hyperparameter tuning, consider alternative models (e.g., XGBoost, Croston’s), and improve cross-validation practices.
+
+
+4. Ensembling: Use weighted averaging and stacking to combine forecasts from multiple models.
+
+
+5. Process Improvements: Modularize the code, implement logging, and generate automated visual reports.
+
+
+6. External Data & Decomposition: Integrate external regressors and decompose the time series for targeted modeling.
+
+
+7. Background Hyperparameter Tuning: Run hyperparameter tuning asynchronously in the background (using scheduling or threading) to avoid extra computation during each forecast run.
+
+
+
+Implementing these recommendations should significantly improve the robustness and accuracy of our forecasting engine across all SKUs while ensuring efficient use of CPU resources.
+
