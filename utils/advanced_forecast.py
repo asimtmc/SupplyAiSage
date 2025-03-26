@@ -35,6 +35,7 @@ warnings.filterwarnings('ignore')
 # 1. ADVANCED DATA PREPROCESSING
 # ================================
 
+
 def detect_outliers(series, method='zscore', threshold=3):
     """
     Detect outliers in time series data using multiple methods
@@ -70,7 +71,11 @@ def detect_outliers(series, method='zscore', threshold=3):
         z_scores = np.abs(stats.zscore(series, nan_policy='omit'))
         return pd.Series(z_scores > threshold, index=series.index)
 
-def clean_time_series(series, outlier_method='zscore', smoothing=False, smoothing_window=3):
+
+def clean_time_series(series,
+                      outlier_method='zscore',
+                      smoothing=False,
+                      smoothing_window=3):
     """
     Clean time series data by handling outliers and applying optional smoothing
 
@@ -108,12 +113,14 @@ def clean_time_series(series, outlier_method='zscore', smoothing=False, smoothin
                 window = 5  # Look at 5 surrounding points
 
                 # Get slice of original series around outlier
-                slice_start = max(0, cleaned.index.get_loc(idx) - window//2)
-                slice_end = min(len(cleaned), cleaned.index.get_loc(idx) + window//2 + 1)
+                slice_start = max(0, cleaned.index.get_loc(idx) - window // 2)
+                slice_end = min(len(cleaned),
+                                cleaned.index.get_loc(idx) + window // 2 + 1)
                 local_slice = cleaned.iloc[slice_start:slice_end]
 
                 # Filter out other outliers from local slice
-                local_non_outliers = local_slice[~outliers.iloc[slice_start:slice_end]]
+                local_non_outliers = local_slice[~outliers.
+                                                 iloc[slice_start:slice_end]]
 
                 if len(local_non_outliers) > 0:
                     # Replace with local median if available
@@ -131,6 +138,7 @@ def clean_time_series(series, outlier_method='zscore', smoothing=False, smoothin
         cleaned = cleaned.fillna(series)
 
     return cleaned
+
 
 def extract_calendar_features(dates):
     """
@@ -174,6 +182,7 @@ def extract_calendar_features(dates):
 
     return dates_df
 
+
 def detect_change_points(series, method='pelt', penalty=15):
     """
     Detect change points in time series data
@@ -204,19 +213,25 @@ def detect_change_points(series, method='pelt', penalty=15):
             roll_mean_change = roll_mean.pct_change().abs()
 
             # Detect points where changes exceed threshold
-            std_changes = np.where(roll_std_change > np.percentile(roll_std_change.dropna(), 90))[0]
-            mean_changes = np.where(roll_mean_change > np.percentile(roll_mean_change.dropna(), 90))[0]
+            std_changes = np.where(roll_std_change > np.percentile(
+                roll_std_change.dropna(), 90))[0]
+            mean_changes = np.where(roll_mean_change > np.percentile(
+                roll_mean_change.dropna(), 90))[0]
 
             # Combine the change points
-            change_points = np.unique(np.concatenate([std_changes, mean_changes]))
+            change_points = np.unique(
+                np.concatenate([std_changes, mean_changes]))
             return change_points.tolist()
         else:
             # Default to window method if other methods not available
-            return detect_change_points(series, method='window', penalty=penalty)
+            return detect_change_points(series,
+                                        method='window',
+                                        penalty=penalty)
 
     except Exception as e:
         print(f"Change point detection error: {str(e)}")
         return []
+
 
 def segment_time_series(data, column='quantity'):
     """
@@ -253,6 +268,7 @@ def segment_time_series(data, column='quantity'):
         print(f"Time series segmentation error: {str(e)}")
         return [0, len(data)]
 
+
 def extract_advanced_features(series):
     """
     Extract advanced statistical features from time series
@@ -283,7 +299,8 @@ def extract_advanced_features(series):
     features['kurtosis'] = series.kurtosis()
 
     # Volatility features
-    features['cv'] = features['std'] / features['mean'] if features['mean'] != 0 else np.nan
+    features['cv'] = features['std'] / features['mean'] if features[
+        'mean'] != 0 else np.nan
     features['pct_change_mean'] = series.pct_change().mean()
     features['pct_change_std'] = series.pct_change().std()
 
@@ -328,9 +345,11 @@ def extract_advanced_features(series):
 
     return features
 
+
 # ================================
 # 2. ADVANCED FORECASTING MODELS
 # ================================
+
 
 def train_auto_arima(data, exog=None, max_order=5, seasonal=False, m=12):
     """
@@ -379,7 +398,8 @@ def train_auto_arima(data, exog=None, max_order=5, seasonal=False, m=12):
         kpss_result = kpss(data)
 
         # If clear non-stationarity, suggest d=1
-        suggested_d = 1 if (adf_result[1] > 0.05 or kpss_result[1] < 0.05) else 0
+        suggested_d = 1 if (adf_result[1] > 0.05
+                            or kpss_result[1] < 0.05) else 0
     except:
         suggested_d = 1
 
@@ -397,23 +417,26 @@ def train_auto_arima(data, exog=None, max_order=5, seasonal=False, m=12):
     # Progress tracking
     total_combinations = len(p_values) * len(d_values) * len(q_values)
     if seasonal:
-        total_combinations *= len(seasonal_p_values) * len(seasonal_d_values) * len(seasonal_q_values)
+        total_combinations *= len(seasonal_p_values) * len(
+            seasonal_d_values) * len(seasonal_q_values)
 
     print(f"Testing {total_combinations} ARIMA models...")
 
     # For very small datasets, use simplified grid
     if len(data) < 15:
-        orders = [(1, 0, 0), (0, 1, 0), (0, 0, 1), (1, 1, 0), (1, 0, 1), (0, 1, 1)]
+        orders = [(1, 0, 0), (0, 1, 0), (0, 0, 1), (1, 1, 0), (1, 0, 1),
+                  (0, 1, 1)]
         seasonal_orders = [(0, 0, 0, 0)]
     else:
         # Generate all combinations of p, d, q
-        orders = [(p, d, q) for p in p_values for d in d_values for q in q_values]
+        orders = [(p, d, q) for p in p_values for d in d_values
+                  for q in q_values]
 
         # For seasonal models, also generate seasonal orders
         if seasonal:
-            seasonal_orders = [(sp, sd, sq, m) for sp in seasonal_p_values 
-                             for sd in seasonal_d_values 
-                             for sq in seasonal_q_values]
+            seasonal_orders = [(sp, sd, sq, m) for sp in seasonal_p_values
+                               for sd in seasonal_d_values
+                               for sq in seasonal_q_values]
         else:
             seasonal_orders = [(0, 0, 0, 0)]
 
@@ -427,18 +450,16 @@ def train_auto_arima(data, exog=None, max_order=5, seasonal=False, m=12):
             try:
                 # For SARIMA
                 if seasonal and seasonal_order != (0, 0, 0, 0):
-                    model = SARIMAX(data, 
-                                   order=order, 
-                                   seasonal_order=seasonal_order,
-                                   exog=exog,
-                                   enforce_stationarity=False,
-                                   enforce_invertibility=False)
+                    model = SARIMAX(data,
+                                    order=order,
+                                    seasonal_order=seasonal_order,
+                                    exog=exog,
+                                    enforce_stationarity=False,
+                                    enforce_invertibility=False)
 
                 # For ARIMA
                 else:
-                    model = ARIMA(data, 
-                                 order=order,
-                                 exog=exog)
+                    model = ARIMA(data, order=order, exog=exog)
 
                 # Fit model with limited iterations for speed
                 model_fit = model.fit(disp=0, maxiter=100)
@@ -465,7 +486,11 @@ def train_auto_arima(data, exog=None, max_order=5, seasonal=False, m=12):
 
     return best_model, best_order, best_seasonal_order
 
-def create_advanced_lstm_model(input_shape, units_list=[64, 32], dropout_rate=0.2, learning_rate=0.001):
+
+def create_advanced_lstm_model(input_shape,
+                               units_list=[64, 32],
+                               dropout_rate=0.2,
+                               learning_rate=0.001):
     """
     Create an advanced LSTM model with multiple layers and regularization
 
@@ -489,33 +514,37 @@ def create_advanced_lstm_model(input_shape, units_list=[64, 32], dropout_rate=0.
 
     # First LSTM layer with return sequences if there are more LSTM layers
     if len(units_list) > 1:
-        model.add(LSTM(units=units_list[0], 
-                     activation='tanh',
-                     return_sequences=True,
-                     input_shape=input_shape,
-                     recurrent_dropout=dropout_rate * 0.5))
+        model.add(
+            LSTM(units=units_list[0],
+                 activation='tanh',
+                 return_sequences=True,
+                 input_shape=input_shape,
+                 recurrent_dropout=dropout_rate * 0.5))
         model.add(BatchNormalization())
         model.add(Dropout(dropout_rate))
 
         # Middle LSTM layers if any
         for i in range(1, len(units_list) - 1):
-            model.add(LSTM(units=units_list[i], 
-                         activation='tanh',
-                         return_sequences=True,
-                         recurrent_dropout=dropout_rate * 0.5))
+            model.add(
+                LSTM(units=units_list[i],
+                     activation='tanh',
+                     return_sequences=True,
+                     recurrent_dropout=dropout_rate * 0.5))
             model.add(BatchNormalization())
             model.add(Dropout(dropout_rate))
 
         # Last LSTM layer with no return sequences
-        model.add(LSTM(units=units_list[-1], 
-                     activation='tanh',
-                     recurrent_dropout=dropout_rate * 0.5))
+        model.add(
+            LSTM(units=units_list[-1],
+                 activation='tanh',
+                 recurrent_dropout=dropout_rate * 0.5))
     else:
         # Single LSTM layer
-        model.add(LSTM(units=units_list[0], 
-                     activation='tanh',
-                     input_shape=input_shape,
-                     recurrent_dropout=dropout_rate * 0.5))
+        model.add(
+            LSTM(units=units_list[0],
+                 activation='tanh',
+                 input_shape=input_shape,
+                 recurrent_dropout=dropout_rate * 0.5))
 
     model.add(BatchNormalization())
     model.add(Dropout(dropout_rate))
@@ -529,7 +558,12 @@ def create_advanced_lstm_model(input_shape, units_list=[64, 32], dropout_rate=0.
 
     return model
 
-def create_tcn_model(input_shape, filters=64, kernel_size=3, dilations=[1, 2, 4, 8], dropout_rate=0.2):
+
+def create_tcn_model(input_shape,
+                     filters=64,
+                     kernel_size=3,
+                     dilations=[1, 2, 4, 8],
+                     dropout_rate=0.2):
     """
     Create a Temporal Convolutional Network (TCN) model
 
@@ -554,22 +588,24 @@ def create_tcn_model(input_shape, filters=64, kernel_size=3, dilations=[1, 2, 4,
     model = Sequential()
 
     # First convolutional layer
-    model.add(Conv1D(filters=filters, 
-                   kernel_size=kernel_size, 
-                   dilation_rate=dilations[0],
-                   padding='causal', 
-                   activation='relu', 
-                   input_shape=input_shape))
+    model.add(
+        Conv1D(filters=filters,
+               kernel_size=kernel_size,
+               dilation_rate=dilations[0],
+               padding='causal',
+               activation='relu',
+               input_shape=input_shape))
     model.add(BatchNormalization())
     model.add(Dropout(dropout_rate))
 
     # Additional convolutional layers with increasing dilation rates
     for dilation in dilations[1:]:
-        model.add(Conv1D(filters=filters, 
-                       kernel_size=kernel_size, 
-                       dilation_rate=dilation,
-                       padding='causal', 
-                       activation='relu'))
+        model.add(
+            Conv1D(filters=filters,
+                   kernel_size=kernel_size,
+                   dilation_rate=dilation,
+                   padding='causal',
+                   activation='relu'))
         model.add(BatchNormalization())
         model.add(Dropout(dropout_rate))
 
@@ -584,9 +620,14 @@ def create_tcn_model(input_shape, filters=64, kernel_size=3, dilations=[1, 2, 4,
 
     return model
 
-def train_prophet_model(data, seasonality_mode='additive', changepoint_prior_scale=0.05, 
-                       yearly_seasonality=True, weekly_seasonality=False, daily_seasonality=False,
-                       custom_seasonalities=None):
+
+def train_prophet_model(data,
+                        seasonality_mode='additive',
+                        changepoint_prior_scale=0.05,
+                        yearly_seasonality=True,
+                        weekly_seasonality=False,
+                        daily_seasonality=False,
+                        custom_seasonalities=None):
     """
     Train a Prophet model with customizable parameters
 
@@ -617,27 +658,24 @@ def train_prophet_model(data, seasonality_mode='additive', changepoint_prior_sca
         yearly_seasonality = False
 
     # Create model with specified parameters
-    model = Prophet(
-        seasonality_mode=seasonality_mode,
-        changepoint_prior_scale=changepoint_prior_scale,
-        yearly_seasonality=yearly_seasonality,
-        weekly_seasonality=weekly_seasonality,
-        daily_seasonality=daily_seasonality
-    )
+    model = Prophet(seasonality_mode=seasonality_mode,
+                    changepoint_prior_scale=changepoint_prior_scale,
+                    yearly_seasonality=yearly_seasonality,
+                    weekly_seasonality=weekly_seasonality,
+                    daily_seasonality=daily_seasonality)
 
     # Add custom seasonalities
     if custom_seasonalities:
         for seasonality in custom_seasonalities:
-            model.add_seasonality(
-                name=seasonality['name'],
-                period=seasonality['period'],
-                fourier_order=seasonality['fourier_order']
-            )
+            model.add_seasonality(name=seasonality['name'],
+                                  period=seasonality['period'],
+                                  fourier_order=seasonality['fourier_order'])
 
     # Fit model
     model.fit(data)
 
     return model
+
 
 def train_vector_autoregression(data, maxlags=None, ic='aic'):
     """
@@ -659,13 +697,15 @@ def train_vector_autoregression(data, maxlags=None, ic='aic'):
     """
     # Set maxlags based on data length if not specified
     if maxlags is None:
-        maxlags = min(int(len(data) * 0.3), 12)  # Set reasonable maxlags based on data length
+        maxlags = min(int(len(data) * 0.3),
+                      12)  # Set reasonable maxlags based on data length
 
     # Create and fit VAR model
     model = VAR(data)
     fitted_model = model.fit(maxlags=maxlags, ic=ic)
 
     return fitted_model
+
 
 def create_ensemble_model(models_dict, weights=None):
     """
@@ -690,7 +730,10 @@ def create_ensemble_model(models_dict, weights=None):
     else:
         # Equal weights if not provided
         model_names = list(models_dict.keys())
-        normalized_weights = {name: 1.0 / len(model_names) for name in model_names}
+        normalized_weights = {
+            name: 1.0 / len(model_names)
+            for name in model_names
+        }
 
     # Create ensemble configuration
     ensemble = {
@@ -701,8 +744,14 @@ def create_ensemble_model(models_dict, weights=None):
 
     return ensemble
 
-def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_periods=12,
-                          hyperparameter_tuning=True, complex_models_threshold=24, progress_callback=None):
+
+def auto_select_best_model(data,
+                           models_to_try=None,
+                           test_size=0.2,
+                           forecast_periods=12,
+                           hyperparameter_tuning=True,
+                           complex_models_threshold=24,
+                           progress_callback=None):
     """
     Automatically select the best forecasting model based on data characteristics
     and test performance.
@@ -734,12 +783,17 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
 
     # Default models to try if none specified
     if models_to_try is None:
-        models_to_try = ["auto_arima", "prophet", "ets", "theta", "lstm", "tcn", "ensemble"]
+        models_to_try = [
+            "auto_arima", "prophet", "ets", "theta", "lstm", "tcn", "ensemble"
+        ]
 
     # Filter models based on data length
     if len(data) < complex_models_threshold:
         # For shorter series, use simpler models
-        models_to_try = [m for m in models_to_try if m in ["auto_arima", "ets", "theta", "moving_average"]]
+        models_to_try = [
+            m for m in models_to_try
+            if m in ["auto_arima", "ets", "theta", "moving_average"]
+        ]
 
         # Add moving_average if not already in the list
         if "moving_average" not in models_to_try:
@@ -768,7 +822,8 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
         if (actual == 0).any():
             # Add small constant to avoid division by zero
             epsilon = 1e-10
-            mape = np.mean(np.abs((actual - predicted) / (actual + epsilon))) * 100
+            mape = np.mean(np.abs(
+                (actual - predicted) / (actual + epsilon))) * 100
         else:
             mape = np.mean(np.abs((actual - predicted) / actual)) * 100
 
@@ -779,8 +834,10 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
         try:
             # Report progress if callback is provided
             if progress_callback:
-                progress_callback(i, model_type, len(models_to_try), 
-                                f"Training and evaluating {model_type.upper()} model", "info")
+                progress_callback(
+                    i, model_type, len(models_to_try),
+                    f"Training and evaluating {model_type.upper()} model",
+                    "info")
 
             if model_type == "auto_arima":
                 # Prepare data for ARIMA
@@ -788,17 +845,15 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
 
                 # Train auto ARIMA model
                 arima_model, best_order, best_seasonal_order = train_auto_arima(
-                    y_train, 
-                    seasonal=(len(train_data) >= 24),
-                    m=12
-                )
+                    y_train, seasonal=(len(train_data) >= 24), m=12)
 
                 if arima_model is not None:
                     # Make forecasts on test set
                     test_forecast = arima_model.forecast(steps=len(test_data))
 
                     # Make future forecasts
-                    future_forecast = arima_model.forecast(steps=forecast_periods)
+                    future_forecast = arima_model.forecast(
+                        steps=forecast_periods)
 
                     # Store results
                     forecasts[model_type] = {
@@ -812,9 +867,7 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
 
                     # Calculate metrics
                     model_results[model_type] = evaluate_forecast(
-                        test_data['quantity'].values, 
-                        test_forecast
-                    )
+                        test_data['quantity'].values, test_forecast)
 
             elif model_type == "prophet":
                 # Prepare data for Prophet
@@ -840,16 +893,19 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
                                 prophet_train,
                                 seasonality_mode=mode,
                                 changepoint_prior_scale=prior,
-                                yearly_seasonality=(len(train_data) >= 18)
-                            )
+                                yearly_seasonality=(len(train_data) >= 18))
 
                             # Make predictions on test set
-                            prophet_future = pd.DataFrame({'ds': test_data['date']})
-                            prophet_test_forecast = prophet_model.predict(prophet_future)
-                            test_predictions = prophet_test_forecast['yhat'].values
+                            prophet_future = pd.DataFrame(
+                                {'ds': test_data['date']})
+                            prophet_test_forecast = prophet_model.predict(
+                                prophet_future)
+                            test_predictions = prophet_test_forecast[
+                                'yhat'].values
 
                             # Calculate MAPE
-                            metrics = evaluate_forecast(test_data['quantity'].values, test_predictions)
+                            metrics = evaluate_forecast(
+                                test_data['quantity'].values, test_predictions)
 
                             # Check if this is the best model so far
                             if metrics['mape'] < best_prophet_mape:
@@ -866,8 +922,7 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
                     # Use default parameters
                     prophet_model = train_prophet_model(
                         prophet_train,
-                        yearly_seasonality=(len(train_data) >= 18)
-                    )
+                        yearly_seasonality=(len(train_data) >= 18))
                     prophet_params = {
                         'seasonality_mode': 'additive',
                         'changepoint_prior_scale': 0.05
@@ -884,7 +939,7 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
                     periods=forecast_periods,
                     freq='MS'  # Month start
                 )
-                prophet_future =pd.DataFrame({'ds': future_dates})
+                prophet_future = pd.DataFrame({'ds': future_dates})
                 prophet_future_forecast = prophet_model.predict(prophet_future)
                 future_predictions = prophet_future_forecast['yhat'].values
 
@@ -897,9 +952,7 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
 
                 # Calculate metrics
                 model_results[model_type] = evaluate_forecast(
-                    test_data['quantity'].values, 
-                    test_predictions
-                )
+                    test_data['quantity'].values, test_predictions)
 
             elif model_type == "ets":
                 # Prepare data for ETS (Exponential Smoothing)
@@ -913,7 +966,10 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
                     # Try both additive and multiplicative seasonality if appropriate
                     if hyperparameter_tuning:
                         # Check if multiplicative seasonality is appropriate
-                        use_multiplicative = (train_data['quantity'] > 0).all() and train_data['quantity'].std() / train_data['quantity'].mean() > 0.3
+                        use_multiplicative = (
+                            train_data['quantity']
+                            > 0).all() and train_data['quantity'].std(
+                            ) / train_data['quantity'].mean() > 0.3
 
                         if use_multiplicative:
                             ets_model = ExponentialSmoothing(
@@ -921,16 +977,16 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
                                 trend='add',
                                 seasonal='mul',
                                 seasonal_periods=seasonal_periods,
-                                damped=True
-                            ).fit(optimized=True, use_brute=False)
+                                damped=True).fit(optimized=True,
+                                                 use_brute=False)
                         else:
                             ets_model = ExponentialSmoothing(
                                 y_train,
                                 trend='add',
                                 seasonal='add',
                                 seasonal_periods=seasonal_periods,
-                                damped=True
-                            ).fit(optimized=True, use_brute=False)
+                                damped=True).fit(optimized=True,
+                                                 use_brute=False)
                     else:
                         # Use additive as default
                         ets_model = ExponentialSmoothing(
@@ -938,8 +994,7 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
                             trend='add',
                             seasonal='add',
                             seasonal_periods=seasonal_periods,
-                            damped=True
-                        ).fit(optimized=True, use_brute=False)
+                            damped=True).fit(optimized=True, use_brute=False)
                 elif len(train_data) >= 12:
                     # Use simpler Holt-Winters for medium length series
                     seasonal_periods = 4  # Quarterly-like pattern
@@ -949,16 +1004,21 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
                         trend='add',
                         seasonal='add',
                         seasonal_periods=seasonal_periods,
-                        damped=True
-                    ).fit(smoothing_level=0.5, smoothing_trend=0.1, smoothing_seasonal=0.1, damping_trend=0.9, optimized=False)
+                        damped=True).fit(smoothing_level=0.5,
+                                         smoothing_trend=0.1,
+                                         smoothing_seasonal=0.1,
+                                         damping_trend=0.9,
+                                         optimized=False)
                 else:
                     # Use Holt's method (no seasonality) for short series
-                    ets_model = ExponentialSmoothing(
-                        y_train,
-                        trend='add',
-                        seasonal=None,
-                        damped=True
-                    ).fit(smoothing_level=0.5, smoothing_trend=0.1, damping_trend=0.9, optimized=False)
+                    ets_model = ExponentialSmoothing(y_train,
+                                                     trend='add',
+                                                     seasonal=None,
+                                                     damped=True).fit(
+                                                         smoothing_level=0.5,
+                                                         smoothing_trend=0.1,
+                                                         damping_trend=0.9,
+                                                         optimized=False)
 
                 # Make forecasts
                 test_forecast = ets_model.forecast(steps=len(test_data))
@@ -973,9 +1033,7 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
 
                 # Calculate metrics
                 model_results[model_type] = evaluate_forecast(
-                    test_data['quantity'].values, 
-                    test_forecast
-                )
+                    test_data['quantity'].values, test_forecast)
 
             elif model_type == "moving_average":
                 # Simple moving average model
@@ -984,7 +1042,8 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
                     window = 1
 
                 # Calculate moving average
-                ma_value = train_data['quantity'].rolling(window=window).mean().iloc[-1]
+                ma_value = train_data['quantity'].rolling(
+                    window=window).mean().iloc[-1]
                 if pd.isna(ma_value):
                     ma_value = train_data['quantity'].mean()
 
@@ -996,14 +1055,14 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
                 forecasts[model_type] = {
                     'test': test_forecast,
                     'future': future_forecast,
-                    'params': {'window': window}
+                    'params': {
+                        'window': window
+                    }
                 }
 
                 # Calculate metrics
                 model_results[model_type] = evaluate_forecast(
-                    test_data['quantity'].values, 
-                    test_forecast
-                )
+                    test_data['quantity'].values, test_forecast)
 
             elif model_type == "lstm" and len(train_data) >= 12:
                 # Prepare data for LSTM
@@ -1016,21 +1075,21 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
                 # Create sequences
                 X_train, y_train = [], []
                 for i in range(len(scaled_train) - sequence_length):
-                    X_train.append(scaled_train[i:i+sequence_length])
-                    y_train.append(scaled_train[i+sequence_length])
+                    X_train.append(scaled_train[i:i + sequence_length])
+                    y_train.append(scaled_train[i + sequence_length])
 
                 X_train = np.array(X_train)
                 y_train = np.array(y_train)
 
                 # Define callback for early stopping
-                early_stopping = EarlyStopping(patience=10, restore_best_weights=True)
+                early_stopping = EarlyStopping(patience=10,
+                                               restore_best_weights=True)
 
                 # Create and train LSTM model
                 lstm_model = create_advanced_lstm_model(
                     input_shape=(X_train.shape[1], X_train.shape[2]),
                     units_list=[32, 16],  # Smaller network for speed
-                    dropout_rate=0.2
-                )
+                    dropout_rate=0.2)
 
                 # Train model with appropriate batch size and epochs
                 batch_size = min(8, len(X_train) // 2)
@@ -1038,12 +1097,12 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
                     batch_size = 1
 
                 lstm_model.fit(
-                    X_train, y_train,
+                    X_train,
+                    y_train,
                     epochs=50,  # Fewer epochs for speed
                     batch_size=batch_size,
                     callbacks=[early_stopping],
-                    verbose=0
-                )
+                    verbose=0)
 
                 # Prepare last sequence for prediction
                 last_sequence = scaled_train[-sequence_length:]
@@ -1054,16 +1113,19 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
 
                 for _ in range(len(test_data)):
                     # Reshape for prediction
-                    current_reshaped = current_sequence.reshape(1, sequence_length, 1)
+                    current_reshaped = current_sequence.reshape(
+                        1, sequence_length, 1)
 
                     # Predict next value
-                    next_value = lstm_model.predict(current_reshaped, verbose=0)[0]
+                    next_value = lstm_model.predict(current_reshaped,
+                                                    verbose=0)[0]
 
                     # Add to predictions
                     test_predictions.append(next_value[0])
 
                     # Update sequence
-                    current_sequence = np.vstack([current_sequence[1:], next_value])
+                    current_sequence = np.vstack(
+                        [current_sequence[1:], next_value])
 
                 # Make future predictions
                 future_predictions = []
@@ -1071,20 +1133,25 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
 
                 for _ in range(forecast_periods):
                     # Reshape for prediction
-                    current_reshaped = current_sequence.reshape(1, sequence_length, 1)
+                    current_reshaped = current_sequence.reshape(
+                        1, sequence_length, 1)
 
                     # Predict next value
-                    next_value = lstm_model.predict(current_reshaped, verbose=0)[0]
+                    next_value = lstm_model.predict(current_reshaped,
+                                                    verbose=0)[0]
 
                     # Add to predictions
                     future_predictions.append(next_value[0])
 
                     # Update sequence
-                    current_sequence = np.vstack([current_sequence[1:], next_value])
+                    current_sequence = np.vstack(
+                        [current_sequence[1:], next_value])
 
                 # Inverse scale predictions
-                test_predictions = scaler.inverse_transform(np.array(test_predictions).reshape(-1, 1)).flatten()
-                future_predictions = scaler.inverse_transform(np.array(future_predictions).reshape(-1, 1)).flatten()
+                test_predictions = scaler.inverse_transform(
+                    np.array(test_predictions).reshape(-1, 1)).flatten()
+                future_predictions = scaler.inverse_transform(
+                    np.array(future_predictions).reshape(-1, 1)).flatten()
 
                 # Store results
                 forecasts[model_type] = {
@@ -1098,9 +1165,7 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
 
                 # Calculate metrics
                 model_results[model_type] = evaluate_forecast(
-                    test_data['quantity'].values, 
-                    test_predictions
-                )
+                    test_data['quantity'].values, test_predictions)
 
             elif model_type == "tcn" and len(train_data) >= 12:
                 # Skip if TensorFlow is not imported or data is too short
@@ -1117,24 +1182,35 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
                 # Create sequences
                 X_train, y_train = [], []
                 for i in range(len(scaled_train) - sequence_length):
-                    X_train.append(scaled_train[i:i+sequence_length])
-                    y_train.append(scaled_train[i+sequence_length])
+                    X_train.append(scaled_train[i:i + sequence_length])
+                    y_train.append(scaled_train[i + sequence_length])
 
                 X_train = np.array(X_train)
                 y_train = np.array(y_train)
 
                 # Define callback for early stopping
-                early_stopping = EarlyStopping(patience=10, restore_best_weights=True)
+                early_stopping = EarlyStopping(patience=10,
+                                               restore_best_weights=True)
 
                 # Create TCN model
                 tcn_model = Sequential()
 
                 # Add convolutional layers
-                tcn_model.add(Conv1D(filters=32, kernel_size=3, padding='causal', activation='relu', input_shape=(sequence_length, 1)))
+                tcn_model.add(
+                    Conv1D(filters=32,
+                           kernel_size=3,
+                           padding='causal',
+                           activation='relu',
+                           input_shape=(sequence_length, 1)))
                 tcn_model.add(BatchNormalization())
                 tcn_model.add(Dropout(0.2))
 
-                tcn_model.add(Conv1D(filters=32, kernel_size=3, padding='causal', activation='relu', dilation_rate=2))
+                tcn_model.add(
+                    Conv1D(filters=32,
+                           kernel_size=3,
+                           padding='causal',
+                           activation='relu',
+                           dilation_rate=2))
                 tcn_model.add(BatchNormalization())
                 tcn_model.add(Dropout(0.2))
 
@@ -1152,13 +1228,12 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
                 if batch_size < 1:
                     batch_size = 1
 
-                tcn_model.fit(
-                    X_train, y_train,
-                    epochs=50,
-                    batch_size=batch_size,
-                    callbacks=[early_stopping],
-                    verbose=0
-                )
+                tcn_model.fit(X_train,
+                              y_train,
+                              epochs=50,
+                              batch_size=batch_size,
+                              callbacks=[early_stopping],
+                              verbose=0)
 
                 # Prepare last sequence for prediction
                 last_sequence = scaled_train[-sequence_length:]
@@ -1169,16 +1244,19 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
 
                 for _ in range(len(test_data)):
                     # Reshape for prediction
-                    current_reshaped = current_sequence.reshape(1, sequence_length, 1)
+                    current_reshaped = current_sequence.reshape(
+                        1, sequence_length, 1)
 
                     # Predict next value
-                    next_value = tcn_model.predict(current_reshaped, verbose=0)[0]
+                    next_value = tcn_model.predict(current_reshaped,
+                                                   verbose=0)[0]
 
                     # Add to predictions
                     test_predictions.append(next_value[0])
 
                     # Update sequence
-                    current_sequence = np.vstack([current_sequence[1:], next_value])
+                    current_sequence = np.vstack(
+                        [current_sequence[1:], next_value])
 
                 # Make future predictions
                 future_predictions = []
@@ -1186,20 +1264,25 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
 
                 for _ in range(forecast_periods):
                     # Reshape for prediction
-                    current_reshaped = current_sequence.reshape(1, sequence_length, 1)
+                    current_reshaped = current_sequence.reshape(
+                        1, sequence_length, 1)
 
                     # Predict next value
-                    next_value = tcn_model.predict(current_reshaped, verbose=0)[0]
+                    next_value = tcn_model.predict(current_reshaped,
+                                                   verbose=0)[0]
 
                     # Add to predictions
                     future_predictions.append(next_value[0])
 
                     # Update sequence
-                    current_sequence = np.vstack([current_sequence[1:], next_value])
+                    current_sequence = np.vstack(
+                        [current_sequence[1:], next_value])
 
                 # Inverse scale predictions
-                test_predictions = scaler.inverse_transform(np.array(test_predictions).reshape(-1, 1)).flatten()
-                future_predictions = scaler.inverse_transform(np.array(future_predictions).reshape(-1, 1)).flatten()
+                test_predictions = scaler.inverse_transform(
+                    np.array(test_predictions).reshape(-1, 1)).flatten()
+                future_predictions = scaler.inverse_transform(
+                    np.array(future_predictions).reshape(-1, 1)).flatten()
 
                 # Store results
                 forecasts[model_type] = {
@@ -1213,9 +1296,7 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
 
                 # Calculate metrics
                 model_results[model_type] = evaluate_forecast(
-                    test_data['quantity'].values, 
-                    test_predictions
-                )
+                    test_data['quantity'].values, test_predictions)
 
             elif model_type == "ensemble" and len(forecasts) >= 2:
                 # Create ensemble only if we have at least 2 other models
@@ -1228,7 +1309,9 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
 
                 for model, metrics in model_results.items():
                     if model != "ensemble" and 'mape' in metrics:
-                        weight = 1.0 / (metrics['mape'] + 1e-10)  # Add small constant to avoid division by zero
+                        weight = 1.0 / (
+                            metrics['mape'] + 1e-10
+                        )  # Add small constant to avoid division by zero
                         weights[model] = weight
                         total_weight += weight
 
@@ -1238,21 +1321,23 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
 
                 # Create weighted predictions
                 for model, weight in weights.items():
-                    ensemble_test_predictions += forecasts[model]['test'] * weight
-                    ensemble_future_predictions += forecasts[model]['future'] * weight
+                    ensemble_test_predictions += forecasts[model][
+                        'test'] * weight
+                    ensemble_future_predictions += forecasts[model][
+                        'future'] * weight
 
                 # Store results
                 forecasts[model_type] = {
                     'test': ensemble_test_predictions,
                     'future': ensemble_future_predictions,
-                    'params': {'weights': weights}
+                    'params': {
+                        'weights': weights
+                    }
                 }
 
                 # Calculate metrics
                 model_results[model_type] = evaluate_forecast(
-                    test_data['quantity'].values, 
-                    ensemble_test_predictions
-                )
+                    test_data['quantity'].values, ensemble_test_predictions)
 
             elif model_type == "theta" and len(train_data) >= 4:
                 # Simple implementation of Theta method
@@ -1271,7 +1356,8 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
 
                 # Create simple exponential smoothing model for the detrended series
                 detrended = y_train - trend
-                ses_model = SimpleExpSmoothing(detrended).fit(smoothing_level=0.5)
+                ses_model = SimpleExpSmoothing(detrended).fit(
+                    smoothing_level=0.5)
 
                 # Make test forecasts
                 test_forecast = []
@@ -1287,7 +1373,8 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
                         # Handle numpy array case
                         ses_forecast = ses_pred[0] if len(ses_pred) > 0 else 0
 
-                    trend_forecast = trend_coef[1] + trend_coef[0] * forecast_idx
+                    trend_forecast = trend_coef[
+                        1] + trend_coef[0] * forecast_idx
 
                     # Combine the forecasts
                     test_forecast.append(trend_forecast + ses_forecast)
@@ -1306,7 +1393,8 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
                         # Handle numpy array case
                         ses_forecast = ses_pred[0] if len(ses_pred) > 0 else 0
 
-                    trend_forecast = trend_coef[1] + trend_coef[0] * forecast_idx
+                    trend_forecast = trend_coef[
+                        1] + trend_coef[0] * forecast_idx
 
                     # Combine the forecasts
                     future_forecast.append(trend_forecast + ses_forecast)
@@ -1315,14 +1403,14 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
                 forecasts[model_type] = {
                     'test': np.array(test_forecast),
                     'future': np.array(future_forecast),
-                    'params': {'drift': drift}
+                    'params': {
+                        'drift': drift
+                    }
                 }
 
                 # Calculate metrics
                 model_results[model_type] = evaluate_forecast(
-                    test_data['quantity'].values, 
-                    test_forecast
-                )
+                    test_data['quantity'].values, test_forecast)
 
         except Exception as e:
             print(f"Error training {model_type} model: {str(e)}")
@@ -1334,19 +1422,27 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
 
     # Log model comparison if callback is provided
     if progress_callback:
-        progress_callback(0, "model_selection", 1, "Comparing model performance metrics to select best model", "info")
+        progress_callback(
+            0, "model_selection", 1,
+            "Comparing model performance metrics to select best model", "info")
         # Create a metrics summary for all models
         model_summary = []
         for model, metrics in model_results.items():
             if 'mape' in metrics:
-                model_summary.append(f"{model.upper()}: MAPE={metrics['mape']:.2f}%, RMSE={metrics.get('rmse', 'N/A')}")
+                model_summary.append(
+                    f"{model.upper()}: MAPE={metrics['mape']:.2f}%, RMSE={metrics.get('rmse', 'N/A')}"
+                )
 
         # Log summary of all models (split into multiple logs if needed)
         if model_summary:
-            summary_chunks = [model_summary[i:i+3] for i in range(0, len(model_summary), 3)]
+            summary_chunks = [
+                model_summary[i:i + 3] for i in range(0, len(model_summary), 3)
+            ]
             for i, chunk in enumerate(summary_chunks):
-                progress_callback(i, "model_metrics", len(summary_chunks), 
-                                 f"Model metrics ({i+1}/{len(summary_chunks)}): {', '.join(chunk)}", "info")
+                progress_callback(
+                    i, "model_metrics", len(summary_chunks),
+                    f"Model metrics ({i+1}/{len(summary_chunks)}): {', '.join(chunk)}",
+                    "info")
 
     for model, metrics in model_results.items():
         if 'mape' in metrics and metrics['mape'] < best_mape:
@@ -1355,8 +1451,10 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
 
             # Log when a better model is found
             if progress_callback:
-                progress_callback(0, model, 1, 
-                                 f"Found better model: {model.upper()} with MAPE={metrics['mape']:.2f}%", "success")
+                progress_callback(
+                    0, model, 1,
+                    f"Found better model: {model.upper()} with MAPE={metrics['mape']:.2f}%",
+                    "success")
 
     # If no models were successfully trained, use a simple fallback
     if best_model is None:
@@ -1365,7 +1463,8 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
         if window < 1:
             window = 1
 
-        ma_value = train_data['quantity'].rolling(window=window).mean().iloc[-1]
+        ma_value = train_data['quantity'].rolling(
+            window=window).mean().iloc[-1]
         if pd.isna(ma_value):
             ma_value = train_data['quantity'].mean()
 
@@ -1376,13 +1475,13 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
         forecasts[best_model] = {
             'test': test_forecast,
             'future': future_forecast,
-            'params': {'window': window}
+            'params': {
+                'window': window
+            }
         }
 
         model_results[best_model] = evaluate_forecast(
-            test_data['quantity'].values, 
-            test_forecast
-        )
+            test_data['quantity'].values, test_forecast)
 
     # Return the best model and all model results
     return {
@@ -1393,11 +1492,15 @@ def auto_select_best_model(data, models_to_try=None, test_size=0.2, forecast_per
         'train_data': train_data
     }
 
+
 # ================================
 # 3. ADVANCED FORECASTING WORKFLOW
 # ================================
 
-def human_sense_check(forecast_values, historical_data, sense_check_rules=None):
+
+def human_sense_check(forecast_values,
+                      historical_data,
+                      sense_check_rules=None):
     """
     Perform a "human-like" sense check on forecast values based on historical patterns
 
@@ -1429,9 +1532,10 @@ def human_sense_check(forecast_values, historical_data, sense_check_rules=None):
         sense_check_rules = {
             'max_growth_rate': 2.0,  # Maximum 200% growth from historical max
             'max_decline_rate': 0.5,  # Maximum 50% decline from historical min
-            'min_value': 0,           # Forecasts shouldn't be negative
-            'volatility_factor': 2.0, # Maximum 2x historical volatility
-            'seasonality_check': True  # Check if seasonal patterns are preserved
+            'min_value': 0,  # Forecasts shouldn't be negative
+            'volatility_factor': 2.0,  # Maximum 2x historical volatility
+            'seasonality_check':
+            True  # Check if seasonal patterns are preserved
         }
 
     # Calculate historical statistics
@@ -1452,39 +1556,56 @@ def human_sense_check(forecast_values, historical_data, sense_check_rules=None):
     too_low = forecast < min_allowed
 
     if np.any(too_high):
-        issues_detected.append(f"Forecast exceeds maximum growth threshold ({sense_check_rules['max_growth_rate']}x historical max)")
+        issues_detected.append(
+            f"Forecast exceeds maximum growth threshold ({sense_check_rules['max_growth_rate']}x historical max)"
+        )
         adjusted_forecast[too_high] = max_allowed
-        adjustments_made.append(f"Capped forecasts to {sense_check_rules['max_growth_rate']}x historical maximum")
+        adjustments_made.append(
+            f"Capped forecasts to {sense_check_rules['max_growth_rate']}x historical maximum"
+        )
 
     if np.any(too_low):
-        issues_detected.append(f"Forecast below minimum decline threshold ({sense_check_rules['max_decline_rate']}x historical min)")
+        issues_detected.append(
+            f"Forecast below minimum decline threshold ({sense_check_rules['max_decline_rate']}x historical min)"
+        )
         adjusted_forecast[too_low] = min_allowed
-        adjustments_made.append(f"Raised forecasts to {sense_check_rules['max_decline_rate']}x historical minimum")
+        adjustments_made.append(
+            f"Raised forecasts to {sense_check_rules['max_decline_rate']}x historical minimum"
+        )
 
     # Check 2: Negative values
     if np.any(adjusted_forecast < sense_check_rules['min_value']):
         issues_detected.append("Negative forecast values detected")
-        adjusted_forecast = np.maximum(adjusted_forecast, sense_check_rules['min_value'])
-        adjustments_made.append(f"Adjusted negative values to {sense_check_rules['min_value']}")
+        adjusted_forecast = np.maximum(adjusted_forecast,
+                                       sense_check_rules['min_value'])
+        adjustments_made.append(
+            f"Adjusted negative values to {sense_check_rules['min_value']}")
 
     # Check 3: Excessive volatility
-    forecast_cv = np.std(adjusted_forecast) / np.mean(adjusted_forecast) if np.mean(adjusted_forecast) > 0 else 0
+    forecast_cv = np.std(adjusted_forecast) / np.mean(
+        adjusted_forecast) if np.mean(adjusted_forecast) > 0 else 0
     max_allowed_cv = hist_cv * sense_check_rules['volatility_factor']
 
     if forecast_cv > max_allowed_cv and len(adjusted_forecast) > 3:
-        issues_detected.append(f"Forecast volatility ({forecast_cv:.2f}) exceeds historical pattern ({hist_cv:.2f})")
+        issues_detected.append(
+            f"Forecast volatility ({forecast_cv:.2f}) exceeds historical pattern ({hist_cv:.2f})"
+        )
 
         # Smooth the forecast to reduce volatility
-        smoothed = pd.Series(adjusted_forecast).rolling(window=3, center=True).mean().fillna(method='bfill').fillna(method='ffill').values
+        smoothed = pd.Series(adjusted_forecast).rolling(
+            window=3, center=True).mean().fillna(method='bfill').fillna(
+                method='ffill').values
 
         # Preserve the overall level by adjusting the smoothed forecast
         level_factor = np.sum(adjusted_forecast) / np.sum(smoothed)
         adjusted_forecast = smoothed * level_factor
 
-        adjustments_made.append("Smoothed forecast to match historical volatility patterns")
+        adjustments_made.append(
+            "Smoothed forecast to match historical volatility patterns")
 
     # Check 4: Seasonality preservation (if applicable and we have enough history)
-    if sense_check_rules['seasonality_check'] and len(history) >= 24 and len(adjusted_forecast) >= 12:
+    if sense_check_rules['seasonality_check'] and len(history) >= 24 and len(
+            adjusted_forecast) >= 12:
         # Extract month-of-year seasonality from history
         try:
             # Simple approach: calculate average for each month position
@@ -1504,26 +1625,37 @@ def human_sense_check(forecast_values, historical_data, sense_check_rules=None):
                 expected_factor = monthly_factors[month_pos]
 
                 # If forecast doesn't follow seasonal pattern, adjust it
-                current_factor = adjusted_forecast[i] / np.mean(adjusted_forecast)
+                current_factor = adjusted_forecast[i] / np.mean(
+                    adjusted_forecast)
 
                 # If the seasonal factor difference is significant
-                if abs(current_factor - expected_factor) > 0.3 and expected_factor > 0:
-                    adjusted_forecast[i] = np.mean(adjusted_forecast) * expected_factor
+                if abs(current_factor -
+                       expected_factor) > 0.3 and expected_factor > 0:
+                    adjusted_forecast[i] = np.mean(
+                        adjusted_forecast) * expected_factor
 
             # Only report adjustment if significant changes were made
             if not np.allclose(adjusted_forecast, forecast, rtol=0.1):
-                issues_detected.append("Forecast doesn't respect historical seasonal patterns")
-                adjustments_made.append("Adjusted forecast to preserve seasonal patterns")
+                issues_detected.append(
+                    "Forecast doesn't respect historical seasonal patterns")
+                adjustments_made.append(
+                    "Adjusted forecast to preserve seasonal patterns")
         except:
             # Skip seasonality check if it fails
             pass
 
     return adjusted_forecast, issues_detected, adjustments_made
 
-def advanced_generate_forecasts(sales_data, cluster_info=None, forecast_periods=12, 
-                              auto_select=True, models_to_evaluate=None, selected_skus=None, 
-                              progress_callback=None, hyperparameter_tuning=True,
-                              apply_sense_check=True):
+
+def advanced_generate_forecasts(sales_data,
+                                cluster_info=None,
+                                forecast_periods=12,
+                                auto_select=True,
+                                models_to_evaluate=None,
+                                selected_skus=None,
+                                progress_callback=None,
+                                hyperparameter_tuning=True,
+                                apply_sense_check=True):
     """
     Generate advanced forecasts for SKUs, leveraging improved preprocessing, model selection,
     and post-processing.
@@ -1562,7 +1694,9 @@ def advanced_generate_forecasts(sales_data, cluster_info=None, forecast_periods=
 
     # Get list of SKUs to forecast
     if selected_skus is not None and len(selected_skus) > 0:
-        sku_list = [sku for sku in selected_skus if sku in data['sku'].unique()]
+        sku_list = [
+            sku for sku in selected_skus if sku in data['sku'].unique()
+        ]
     else:
         sku_list = data['sku'].unique().tolist()
 
@@ -1585,7 +1719,9 @@ def advanced_generate_forecasts(sales_data, cluster_info=None, forecast_periods=
 
     # Default models to evaluate if none specified
     if models_to_evaluate is None:
-        models_to_evaluate = ["auto_arima", "prophet", "ets", "theta", "lstm", "ensemble"]
+        models_to_evaluate = [
+            "auto_arima", "prophet", "ets", "theta", "lstm", "ensemble"
+        ]
 
     # Results dictionary
     forecasts = {}
@@ -1597,7 +1733,9 @@ def advanced_generate_forecasts(sales_data, cluster_info=None, forecast_periods=
     for idx, sku in enumerate(sku_list):
         # Report progress if callback is provided
         if progress_callback:
-            progress_callback(idx, sku, total_skus, f"Starting forecast generation for SKU: {sku}", "info")
+            progress_callback(idx, sku, total_skus,
+                              f"Starting forecast generation for SKU: {sku}",
+                              "info")
 
         try:
             # Filter data for this SKU
@@ -1606,14 +1744,20 @@ def advanced_generate_forecasts(sales_data, cluster_info=None, forecast_periods=
             # Skip if not enough data
             if len(sku_data) < 3:
                 if progress_callback:
-                    progress_callback(idx, sku, total_skus, f"Skipping {sku}: insufficient data (less than 3 points)", "warning")
-                print(f"Skipping {sku}: insufficient data (less than 3 points)")
+                    progress_callback(
+                        idx, sku, total_skus,
+                        f"Skipping {sku}: insufficient data (less than 3 points)",
+                        "warning")
+                print(
+                    f"Skipping {sku}: insufficient data (less than 3 points)")
                 continue
 
             # Get cluster information for this SKU
             if cluster_info is not None and sku in cluster_info['sku'].values:
-                sku_cluster = cluster_info.loc[cluster_info['sku'] == sku, 'cluster'].iloc[0]
-                cluster_name = cluster_info.loc[cluster_info['sku'] == sku, 'cluster_name'].iloc[0]
+                sku_cluster = cluster_info.loc[cluster_info['sku'] == sku,
+                                               'cluster'].iloc[0]
+                cluster_name = cluster_info.loc[cluster_info['sku'] == sku,
+                                                'cluster_name'].iloc[0]
             else:
                 sku_cluster = 0
                 cluster_name = "Default Cluster"
@@ -1622,16 +1766,22 @@ def advanced_generate_forecasts(sales_data, cluster_info=None, forecast_periods=
             # ------------------------
 
             if progress_callback:
-                progress_callback(idx, sku, total_skus, "Cleaning time series data and detecting outliers", "info")
+                progress_callback(
+                    idx, sku, total_skus,
+                    "Cleaning time series data and detecting outliers", "info")
 
             # Clean the time series (handle outliers)
-            sku_data['quantity_cleaned'] = clean_time_series(sku_data['quantity'])
+            sku_data['quantity_cleaned'] = clean_time_series(
+                sku_data['quantity'])
 
             # Detect significant change points
-            segment_boundaries = segment_time_series(sku_data, column='quantity_cleaned')
+            segment_boundaries = segment_time_series(sku_data,
+                                                     column='quantity_cleaned')
 
             # Focus on the most recent segment for forecasting
-            if len(segment_boundaries) > 1 and segment_boundaries[-1] - segment_boundaries[-2] >= 6:
+            if len(
+                    segment_boundaries
+            ) > 1 and segment_boundaries[-1] - segment_boundaries[-2] >= 6:
                 # If the last segment has at least 6 points, use only that segment
                 start_idx = segment_boundaries[-2]
                 sku_data_recent = sku_data.iloc[start_idx:].copy()
@@ -1645,41 +1795,56 @@ def advanced_generate_forecasts(sales_data, cluster_info=None, forecast_periods=
             if auto_select:
                 # Log model selection process
                 if progress_callback:
-                    progress_callback(idx, sku, total_skus, "Starting automated model selection process", "info")
+                    progress_callback(
+                        idx, sku, total_skus,
+                        "Starting automated model selection process", "info")
                     if hyperparameter_tuning:
-                        progress_callback(idx, sku, total_skus, "Hyperparameter tuning enabled - may take longer but produce better results", "info")
-                    progress_callback(idx, sku, total_skus, f"Testing models: {', '.join(models_to_evaluate)}", "info")
+                        progress_callback(
+                            idx, sku, total_skus,
+                            "Hyperparameter tuning enabled - may take longer but produce better results",
+                            "info")
+                    progress_callback(
+                        idx, sku, total_skus,
+                        f"Testing models: {', '.join(models_to_evaluate)}",
+                        "info")
 
                 # Automatically select and train the best model
                 model_results = auto_select_best_model(
-                    sku_data_recent, 
+                    sku_data_recent,
                     models_to_try=models_to_evaluate,
                     test_size=0.2,
                     forecast_periods=forecast_periods,
                     hyperparameter_tuning=hyperparameter_tuning,
-                    progress_callback=progress_callback
-                )
+                    progress_callback=progress_callback)
 
                 best_model_type = model_results['best_model']
-                best_forecast = model_results['forecasts'][best_model_type]['future']
+                best_forecast = model_results['forecasts'][best_model_type][
+                    'future']
 
                 # Log best model selection
                 if progress_callback:
-                    progress_callback(idx, sku, total_skus, f"Selected {best_model_type.upper()} as best model for this SKU", "success")
+                    progress_callback(
+                        idx, sku, total_skus,
+                        f"Selected {best_model_type.upper()} as best model for this SKU",
+                        "success")
 
                     # If metrics are available, log them
-                    if 'metrics' in model_results and best_model_type in model_results['metrics']:
+                    if 'metrics' in model_results and best_model_type in model_results[
+                            'metrics']:
                         metrics = model_results['metrics'][best_model_type]
                         if 'mape' in metrics and not np.isnan(metrics['mape']):
-                            progress_callback(idx, sku, total_skus, 
-                                            f"Model performance - MAPE: {metrics['mape']:.2f}%, RMSE: {metrics.get('rmse', 'N/A')}", "info")
+                            progress_callback(
+                                idx, sku, total_skus,
+                                f"Model performance - MAPE: {metrics['mape']:.2f}%, RMSE: {metrics.get('rmse', 'N/A')}",
+                                "info")
 
                 # Get model evaluation metrics
                 evaluation_metrics = model_results['metrics']
 
                 # Get all models' forecasts
                 all_models_forecasts = {}
-                for model_name, forecast_data in model_results['forecasts'].items():
+                for model_name, forecast_data in model_results[
+                        'forecasts'].items():
                     # Create future dates for the forecast
                     last_date = sku_data['date'].max()
                     future_dates = pd.date_range(
@@ -1690,9 +1855,7 @@ def advanced_generate_forecasts(sales_data, cluster_info=None, forecast_periods=
 
                     # Store forecast as Series with dates
                     all_models_forecasts[model_name] = pd.Series(
-                        forecast_data['future'],
-                        index=future_dates
-                    )
+                        forecast_data['future'], index=future_dates)
             else:
                 # Use the best model from cluster analysis (to be implemented)
                 # For now, just use auto_arima as fallback
@@ -1703,13 +1866,12 @@ def advanced_generate_forecasts(sales_data, cluster_info=None, forecast_periods=
 
                 # Train auto ARIMA model
                 arima_model, best_order, best_seasonal_order = train_auto_arima(
-                    y_train, 
-                    seasonal=(len(y_train) >= 24),
-                    m=12                )
+                    y_train, seasonal=(len(y_train) >= 24), m=12)
 
                 if arima_model is not None:
                     # Make future forecasts
-                    best_forecast = arima_model.forecast(steps=forecast_periods)
+                    best_forecast = arima_model.forecast(
+                        steps=forecast_periods)
                     best_model_type = "auto_arima"
                 else:
                     # Fallback to simple moving average
@@ -1717,7 +1879,8 @@ def advanced_generate_forecasts(sales_data, cluster_info=None, forecast_periods=
                     if window < 1:
                         window = 1
 
-                    ma_value = sku_data_recent['quantity_cleaned'].rolling(window=window).mean().iloc[-1]
+                    ma_value = sku_data_recent['quantity_cleaned'].rolling(
+                        window=window).mean().iloc[-1]
                     if pd.isna(ma_value):
                         ma_value = sku_data_recent['quantity_cleaned'].mean()
 
@@ -1742,7 +1905,8 @@ def advanced_generate_forecasts(sales_data, cluster_info=None, forecast_periods=
                 )
 
                 all_models_forecasts = {
-                    best_model_type: pd.Series(best_forecast, index=future_dates)
+                    best_model_type: pd.Series(best_forecast,
+                                               index=future_dates)
                 }
 
             # 3. Apply Human-Like Sense Check
@@ -1750,27 +1914,32 @@ def advanced_generate_forecasts(sales_data, cluster_info=None, forecast_periods=
 
             if apply_sense_check:
                 if progress_callback:
-                    progress_callback(idx, sku, total_skus, "Performing human-like sense check on forecast values", "info")
+                    progress_callback(
+                        idx, sku, total_skus,
+                        "Performing human-like sense check on forecast values",
+                        "info")
 
                 adjusted_forecast, issues, adjustments = human_sense_check(
-                    best_forecast,
-                    sku_data['quantity'].values
-                )
+                    best_forecast, sku_data['quantity'].values)
 
                 # If significant adjustments were made, use the adjusted forecast
                 if len(adjustments) > 0:
                     if progress_callback:
-                        progress_callback(idx, sku, total_skus, f"Sense check detected {len(issues)} issues and made {len(adjustments)} adjustments", "warning")
-                        for i, issue in enumerate(issues[:3]):  # Show first 3 issues at most
-                            progress_callback(idx, sku, total_skus, f"Issue {i+1}: {issue}", "info")
+                        progress_callback(
+                            idx, sku, total_skus,
+                            f"Sense check detected {len(issues)} issues and made {len(adjustments)} adjustments",
+                            "warning")
+                        for i, issue in enumerate(
+                                issues[:3]):  # Show first 3 issues at most
+                            progress_callback(idx, sku, total_skus,
+                                              f"Issue {i+1}: {issue}", "info")
 
                     best_forecast = adjusted_forecast
 
                     # Update the forecast in all_models_forecasts
                     all_models_forecasts[best_model_type] = pd.Series(
                         best_forecast,
-                        index=all_models_forecasts[best_model_type].index
-                    )
+                        index=all_models_forecasts[best_model_type].index)
 
                     # Add sense check information
                     sense_check_info = {
@@ -1779,10 +1948,19 @@ def advanced_generate_forecasts(sales_data, cluster_info=None, forecast_periods=
                     }
                 else:
                     if progress_callback:
-                        progress_callback(idx, sku, total_skus, "Sense check passed - no adjustments needed", "success")
-                    sense_check_info = {'issues_detected': [], 'adjustments_made': []}
+                        progress_callback(
+                            idx, sku, total_skus,
+                            "Sense check passed - no adjustments needed",
+                            "success")
+                    sense_check_info = {
+                        'issues_detected': [],
+                        'adjustments_made': []
+                    }
             else:
-                sense_check_info = {'issues_detected': [], 'adjustments_made': []}
+                sense_check_info = {
+                    'issues_detected': [],
+                    'adjustments_made': []
+                }
 
             # Create future dates for the forecast
             last_date = sku_data['date'].max()
@@ -1794,7 +1972,10 @@ def advanced_generate_forecasts(sales_data, cluster_info=None, forecast_periods=
 
             # Log forecast completion status
             if progress_callback:
-                progress_callback(idx, sku, total_skus, "Finalizing forecast and generating confidence intervals", "info")
+                progress_callback(
+                    idx, sku, total_skus,
+                    "Finalizing forecast and generating confidence intervals",
+                    "info")
 
             # Store the forecasts
             forecasts[sku] = {
@@ -1803,8 +1984,11 @@ def advanced_generate_forecasts(sales_data, cluster_info=None, forecast_periods=
                 'cluster': sku_cluster,
                 'cluster_name': cluster_name,
                 'forecast': pd.Series(best_forecast, index=future_dates),
-                'lower_bound': pd.Series(best_forecast * 0.8, index=future_dates),  # Simple bounds for now
-                'upper_bound': pd.Series(best_forecast * 1.2, index=future_dates),
+                'lower_bound':
+                pd.Series(best_forecast * 0.8,
+                          index=future_dates),  # Simple bounds for now
+                'upper_bound': pd.Series(best_forecast * 1.2,
+                                         index=future_dates),
                 'model_evaluation': {
                     'metrics': evaluation_metrics,
                     'all_models_forecasts': all_models_forecasts
@@ -1820,16 +2004,19 @@ def advanced_generate_forecasts(sales_data, cluster_info=None, forecast_periods=
                 min_forecast = np.min(best_forecast)
                 max_forecast = np.max(best_forecast)
 
-                progress_callback(idx, sku, total_skus, 
-                                f"Forecast complete: Avg={avg_forecast:.1f}, Range=[{min_forecast:.1f}, {max_forecast:.1f}]", 
-                                "success")
+                progress_callback(
+                    idx, sku, total_skus,
+                    f"Forecast complete: Avg={avg_forecast:.1f}, Range=[{min_forecast:.1f}, {max_forecast:.1f}]",
+                    "success")
 
             # Optionally save forecast to database
             try:
                 # Prepare forecast data for saving
                 forecast_json = json.dumps({
-                    'dates': [d.strftime('%Y-%m-%d') for d in future_dates.tolist()],
-                    'values': best_forecast.tolist()
+                    'dates':
+                    [d.strftime('%Y-%m-%d') for d in future_dates.tolist()],
+                    'values':
+                    best_forecast.tolist()
                 })
 
                 # Get metrics for best model
@@ -1839,16 +2026,15 @@ def advanced_generate_forecasts(sales_data, cluster_info=None, forecast_periods=
                 mae = metrics.get('mae', np.nan)
 
                 # Save to database
-                save_forecast_result(
-                    sku=sku,
-                    model_type=best_model_type,
-                    forecast_periods=forecast_periods,
-                    mape=mape,
-                    rmse=rmse,
-                    mae=mae,
-                    forecast_data=forecast_json,
-                    model_params=json.dumps({'cluster': int(sku_cluster)})
-                )
+                save_forecast_result(sku=sku,
+                                     model_type=best_model_type,
+                                     forecast_periods=forecast_periods,
+                                     mape=mape,
+                                     rmse=rmse,
+                                     mae=mae,
+                                     forecast_data=forecast_json,
+                                     model_params=json.dumps(
+                                         {'cluster': int(sku_cluster)}))
             except Exception as e:
                 error_msg = f"Error saving forecast to database: {str(e)}"
                 print(error_msg)
@@ -1864,7 +2050,10 @@ def advanced_generate_forecasts(sales_data, cluster_info=None, forecast_periods=
                 # Add more detailed error information if available
                 import traceback
                 trace_msg = traceback.format_exc()
-                progress_callback(idx, sku, total_skus, "See details in console output for full traceback", "error")
+                progress_callback(
+                    idx, sku, total_skus,
+                    "See details in console output for full traceback",
+                    "error")
             # Continue with next SKU
 
     return forecasts
