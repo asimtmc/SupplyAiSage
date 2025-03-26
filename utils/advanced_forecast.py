@@ -1232,18 +1232,40 @@ def auto_select_best_model(data,
         if "moving_average" not in models_to_try:
             models_to_try.append("moving_average")
 
-    # Split data into train and test sets
-    if len(data) <= 6:
-        test_size = 1 / len(data)
-
-    # Calculate split index
-    split_idx = int(len(data) * (1 - test_size))
-    train_data = data.iloc[:split_idx].copy()
-    test_data = data.iloc[split_idx:].copy()
-
     # Initialize storage for model results
     model_results = {}
     forecasts = {}
+    
+    # Determine validation approach based on data size
+    use_cv = len(data) >= 24 and test_size < 0.5  # Use CV for longer series with reasonable test size
+    
+    if use_cv:
+        # Import TimeSeriesSplit for cross-validation
+        from sklearn.model_selection import TimeSeriesSplit
+        
+        # Determine number of splits based on data size
+        n_splits = min(5, max(3, len(data) // 8))
+        
+        # Calculate effective test size for each fold
+        cv_test_size = test_size / n_splits
+        
+        if progress_callback:
+            progress_callback(0, "cv_setup", 1, 
+                             f"Using TimeSeriesSplit with {n_splits} folds for cross-validation", "info")
+        
+        # We'll still need a final train-test split for forecasting
+        split_idx = int(len(data) * (1 - test_size))
+        train_data = data.iloc[:split_idx].copy()
+        test_data = data.iloc[split_idx:].copy()
+    else:
+        # Standard train-test split for smaller datasets or when large test size is requested
+        if len(data) <= 6:
+            test_size = 1 / len(data)
+            
+        # Calculate split index
+        split_idx = int(len(data) * (1 - test_size))
+        train_data = data.iloc[:split_idx].copy()
+        test_data = data.iloc[split_idx:].copy()
 
     # Function to evaluate a model's forecasts
     def evaluate_forecast(actual, predicted):
