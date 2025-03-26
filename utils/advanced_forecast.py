@@ -1832,6 +1832,11 @@ def auto_select_best_model(data,
                         'window': window
                     }
                 }
+                
+                # Store test forecasts in the model_results for error analysis
+                if 'forecasts' not in model_results:
+                    model_results['forecasts'] = {}
+                model_results['forecasts'][model_type] = {'test': test_forecast, 'future': future_forecast}
 
                 # Calculate metrics
                 model_results[model_type] = evaluate_forecast(
@@ -1935,6 +1940,11 @@ def auto_select_best_model(data,
                         'units': [32, 16]
                     }
                 }
+                
+                # Store test forecasts in the model_results for error analysis
+                if 'forecasts' not in model_results:
+                    model_results['forecasts'] = {}
+                model_results['forecasts'][model_type] = {'test': test_predictions, 'future': future_predictions}
 
                 # Calculate metrics
                 model_results[model_type] = evaluate_forecast(
@@ -2066,6 +2076,11 @@ def auto_select_best_model(data,
                         'filters': 32
                     }
                 }
+                
+                # Store test forecasts in the model_results for error analysis
+                if 'forecasts' not in model_results:
+                    model_results['forecasts'] = {}
+                model_results['forecasts'][model_type] = {'test': test_predictions, 'future': future_predictions}
 
                 # Calculate metrics
                 model_results[model_type] = evaluate_forecast(
@@ -2107,6 +2122,11 @@ def auto_select_best_model(data,
                         'weights': weights
                     }
                 }
+                
+                # Store test forecasts in the model_results for error analysis
+                if 'forecasts' not in model_results:
+                    model_results['forecasts'] = {}
+                model_results['forecasts'][model_type] = {'test': ensemble_test_predictions, 'future': ensemble_future_predictions}
 
                 # Calculate metrics
                 model_results[model_type] = evaluate_forecast(
@@ -2180,6 +2200,11 @@ def auto_select_best_model(data,
                         'drift': drift
                     }
                 }
+                
+                # Store test forecasts in the model_results for error analysis
+                if 'forecasts' not in model_results:
+                    model_results['forecasts'] = {}
+                model_results['forecasts'][model_type] = {'test': np.array(test_forecast), 'future': np.array(future_forecast)}
 
                 # Calculate metrics
                 model_results[model_type] = evaluate_forecast(
@@ -2266,10 +2291,10 @@ def auto_select_best_model(data,
     }
     
     # Schedule background parameter tuning for best model if requested
-    if schedule_tuning and sku is not None and best_model_type is not None:
+    if schedule_tuning and sku is not None and best_model is not None:
         try:
             # Only schedule tuning if we haven't already done so for this model type
-            if best_model_type not in ["moving_average", "ensemble"]:  # These don't need tuning
+            if best_model not in ["moving_average", "ensemble"]:  # These don't need tuning
                 # Create a DataFrame with the proper format for optimization
                 opt_data = pd.DataFrame({
                     'date': data['date'],
@@ -2285,7 +2310,7 @@ def auto_select_best_model(data,
                     "tcn": "tcn"
                 }
                 
-                db_model_type = model_type_mapping.get(best_model_type, best_model_type)
+                db_model_type = model_type_mapping.get(best_model, best_model)
                 
                 # Start the optimization task in the background with higher priority
                 from utils.parameter_optimizer import optimize_parameters_async
@@ -2303,7 +2328,7 @@ def auto_select_best_model(data,
                 if progress_callback:
                     progress_callback(
                         0, "best_model_tuning", 1,
-                        f"Scheduled background parameter tuning for best model ({best_model_type})", "info")
+                        f"Scheduled background parameter tuning for best model ({best_model})", "info")
         except Exception as e:
             # Don't let parameter tuning failures affect the main function
             if progress_callback:
