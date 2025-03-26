@@ -17,6 +17,7 @@ from utils.advanced_forecast import (
     detect_change_points
 )
 from utils.visualization import plot_forecast, plot_cluster_summary, plot_model_comparison
+from utils.parameter_optimizer import optimize_parameters_async, get_optimization_status
 
 # Initialize session state variables
 if 'advanced_forecast_periods' not in st.session_state:
@@ -35,6 +36,8 @@ if 'advanced_hyperparameter_tuning' not in st.session_state:
     st.session_state.advanced_hyperparameter_tuning = True
 if 'advanced_apply_sense_check' not in st.session_state:
     st.session_state.advanced_apply_sense_check = True
+if 'advanced_use_param_cache' not in st.session_state:
+    st.session_state.advanced_use_param_cache = True
 if 'advanced_forecasts' not in st.session_state:
     st.session_state.advanced_forecasts = {}
 if 'advanced_clusters' not in st.session_state:
@@ -47,6 +50,8 @@ if 'advanced_current_sku' not in st.session_state:
     st.session_state.advanced_current_sku = ""
 if 'advanced_current_model' not in st.session_state:
     st.session_state.advanced_current_model = ""
+if 'parameter_tuning_in_progress' not in st.session_state:
+    st.session_state.parameter_tuning_in_progress = False
 
 # Set page config
 st.set_page_config(
@@ -129,6 +134,14 @@ with st.sidebar:
         help="Automatically tune model parameters for best performance (slower but more accurate)"
     )
     st.session_state.advanced_hyperparameter_tuning = hyperparameter_tuning
+    
+    # Use Parameter Cache
+    use_param_cache = st.toggle(
+        "Use Parameter Cache",
+        value=st.session_state.advanced_use_param_cache,
+        help="Use previously optimized parameters from database for faster and more accurate forecasts"
+    )
+    st.session_state.advanced_use_param_cache = use_param_cache
     
     # Apply Sense Check
     apply_sense_check = st.toggle(
@@ -377,7 +390,7 @@ if st.session_state.run_advanced_forecast and 'advanced_forecasts' in st.session
         forecast_data = st.session_state.advanced_forecasts[selected_sku]
 
         # Tab section for forecast views
-        forecast_tabs = st.tabs(["Forecast Chart", "Model Comparison", "Forecast Metrics", "Pattern Analysis", "Sense Check"])
+        forecast_tabs = st.tabs(["Forecast Chart", "Model Comparison", "Forecast Metrics", "Pattern Analysis", "Sense Check", "Parameter Tuning"])
 
         with forecast_tabs[0]:
             # Forecast visualization section
@@ -837,6 +850,198 @@ if st.session_state.run_advanced_forecast and 'advanced_forecasts' in st.session
                 st.markdown("This sense check is designed to mimic a human analyst's review of the forecast, applying business logic and pattern recognition to ensure that the forecasts are realistic and consistent with historical patterns.")
             else:
                 st.info("No sense check information available for this forecast.")
+                
+        with forecast_tabs[5]:
+            # Parameter Tuning section
+            st.subheader(f"Parameter Tuning for {selected_sku}")
+            
+            # Show current model and parameters
+            best_model = forecast_data['model']
+            
+            # Description
+            st.markdown("""
+            This section allows you to manually tune parameters for the selected SKU and model.
+            Parameter tuning can significantly improve forecast accuracy by finding the optimal
+            configuration for each model-SKU combination.
+            """)
+            
+            # Create columns
+            col1, col2 = st.columns([2, 1])
+            
+            with col1:
+                # Show current parameters
+                st.subheader("Current Model Parameters")
+                
+                # Check if parameters are available
+                params_available = False
+                if 'model_evaluation' in forecast_data and 'forecasts' in forecast_data['model_evaluation']:
+                    all_forecasts = forecast_data['model_evaluation'].get('forecasts', {})
+                    
+                    if best_model in all_forecasts and 'params' in all_forecasts[best_model]:
+                        params = all_forecasts[best_model]['params']
+                        params_available = True
+                        
+                        # Format parameters for display
+                        if isinstance(params, dict):
+                            params_df = pd.DataFrame({
+                                'Parameter': list(params.keys()),
+                                'Value': [str(v) for v in params.values()]
+                            })
+                            
+                            st.dataframe(params_df, use_container_width=True, hide_index=True)
+                        else:
+                            st.write(f"Parameters: {params}")
+                
+                if not params_available:
+                    st.info("No parameters available for this model.")
+                
+                # Model selection for tuning
+                st.subheader("Tune Parameters")
+                models_for_tuning = ["auto_arima", "prophet", "ets", "theta"]
+                
+                # Check if model is available for tuning
+                if best_model not in models_for_tuning:
+                    st.warning(f"The model '{best_model}' does not support parameter tuning. Only ARIMA, Prophet, ETS, and Theta models can be tuned.")
+                else:
+                    # Button to trigger tuning
+                    tuning_col1, tuning_col2 = st.columns([2, 1])
+                    
+                    with tuning_col1:
+                        # Checkbox for cross-validation
+                        use_cv = st.checkbox("Use cross-validation", value=True, 
+                                           help="Use cross-validation for more robust parameter optimization")
+                        
+                        # Select number of trials
+                        n_trials = st.slider("Number of parameter combinations to try", 
+                                           min_value=10, max_value=50, value=20, step=5,
+                                           help="Higher values will take longer but may find better parameters")
+                    
+                    # Check if tuning is in progress
+                    if st.session_state.parameter_tuning_in_progress:
+                        # Check optimization status
+                        optimization_status = get_optimization_status(selected_sku, best_model)
+                        
+                        if optimization_status:
+                            # Show progress information
+                            st.info(f"Parameter tuning in progress. Status: {optimization_status.get('status', 'Running')}")
+                            st.progress(float(optimization_status.get('progress', 0)))
+                            
+                            # Add a refresh button
+                            if st.button("Refresh Status"):
+                                st.rerun()
+                    else:
+                        # Button to start tuning
+                        if st.button("Optimize Parameters"):
+                            # Execute parameter tuning
+                            st.session_state.parameter_tuning_in_progress = True
+                            
+                            # Get data for the selected SKU
+                            sku_data = None
+                            if 'train_set' in forecast_data:
+                                sku_data = forecast_data['train_set']
+                            elif 'sales_data' in st.session_state:
+                                sales_data = st.session_state.sales_data
+                                sku_data = sales_data[sales_data['sku'] == selected_sku]
+                            
+                            if sku_data is not None:
+                                try:
+                                    # Show status message
+                                    st.info(f"Starting parameter optimization for {selected_sku} with model {best_model}. This may take a few minutes.")
+                                    
+                                    # Define progress callback
+                                    def tuning_progress_callback(current_step, total_steps, message, level="info"):
+                                        # This function will be called during the optimization process
+                                        if 'log_messages' in st.session_state and message:
+                                            timestamp = datetime.now().strftime("%H:%M:%S")
+                                            st.session_state.log_messages.append({
+                                                "timestamp": timestamp,
+                                                "message": message,
+                                                "level": level
+                                            })
+                                    
+                                    # Start optimization in background
+                                    success = optimize_parameters_async(
+                                        sku=selected_sku,
+                                        model_type=best_model,
+                                        data=sku_data,
+                                        cross_validation=use_cv,
+                                        n_trials=n_trials,
+                                        progress_callback=tuning_progress_callback
+                                    )
+                                    
+                                    if success:
+                                        st.success("Parameter optimization started in the background. Refresh this page to see the results.")
+                                    else:
+                                        st.error("Failed to start parameter optimization.")
+                                except Exception as e:
+                                    st.error(f"Error starting parameter optimization: {str(e)}")
+                                    st.session_state.parameter_tuning_in_progress = False
+                            else:
+                                st.error("Cannot find data for this SKU.")
+                                st.session_state.parameter_tuning_in_progress = False
+            
+            with col2:
+                # Show the benefits of parameter tuning
+                st.subheader("Benefits of Parameter Tuning")
+                
+                st.markdown("""
+                **Why tune parameters?**
+                - Improve forecast accuracy
+                - Reduce forecast error (MAPE)
+                - Account for unique patterns in each SKU
+                - Better handle seasonality and trends
+                
+                **When to tune parameters?**
+                - When a SKU has high forecast error
+                - After significant changes in demand patterns
+                - For high-value or critical inventory items
+                """)
+                
+                # Show links to documentation
+                st.subheader("Model Parameters Explained")
+                
+                if best_model == "auto_arima":
+                    st.markdown("""
+                    **ARIMA Parameters:**
+                    - **p**: Autoregressive order
+                    - **d**: Differencing order
+                    - **q**: Moving average order
+                    - **P, D, Q**: Seasonal components
+                    - **m**: Seasonal period
+                    """)
+                elif best_model == "prophet":
+                    st.markdown("""
+                    **Prophet Parameters:**
+                    - **changepoint_prior_scale**: Flexibility of trend
+                    - **seasonality_prior_scale**: Strength of seasonality
+                    - **seasonality_mode**: Additive or multiplicative
+                    - **growth**: Growth trend type
+                    """)
+                elif best_model == "ets":
+                    st.markdown("""
+                    **ETS Parameters:**
+                    - **error**: Error type (additive/multiplicative)
+                    - **trend**: Trend type and damping
+                    - **seasonal**: Seasonality type
+                    - **seasonal_periods**: Length of seasonality
+                    """)
+                elif best_model == "theta":
+                    st.markdown("""
+                    **Theta Parameters:**
+                    - **theta**: Theta coefficient
+                    - **seasonal_period**: Length of seasonality
+                    - **use_boxcox**: Data transformation
+                    """)
+                
+                # Recovery options
+                st.subheader("Having Issues?")
+                
+                # Button to reset tuning state
+                if st.button("Reset Tuning State"):
+                    st.session_state.parameter_tuning_in_progress = False
+                    st.success("Parameter tuning state has been reset.")
+                    time.sleep(1)
+                    st.rerun()
 
     # Add a large, clear section break to separate the forecast data table
     st.markdown("---")
@@ -1413,7 +1618,9 @@ if should_show_button and st.sidebar.button(
                     selected_skus=selected_skus,
                     progress_callback=enhanced_progress_callback,
                     hyperparameter_tuning=st.session_state.advanced_hyperparameter_tuning,
-                    apply_sense_check=st.session_state.advanced_apply_sense_check
+                    apply_sense_check=st.session_state.advanced_apply_sense_check,
+                    use_param_cache=st.session_state.advanced_use_param_cache,
+                    schedule_tuning=False  # We'll use the dedicated button for parameter tuning
                 )
                 
                 # Update session state with the generated forecasts
