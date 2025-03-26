@@ -21,6 +21,12 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Configure Streamlit's cache
+st.cache_data.clear()
+
+# Define a decorator for caching data processing functions
+data_cache = st.cache_data(ttl=3600, show_spinner=False)  # 1 hour TTL
+
 # Custom CSS for modern high-tech look
 st.markdown("""
 <style>

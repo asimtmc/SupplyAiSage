@@ -660,10 +660,13 @@ def prepare_lstm_data(data, sequence_length=12):
 
     return np.array(X), np.array(y)
 
-def train_lstm_model(data, test_size=0.2, sequence_length=12, epochs=50, include_exogenous=False, exog_data=None):
+# Global model cache
+_model_cache = {}
+
+def train_lstm_model(data, test_size=0.2, sequence_length=12, epochs=50, include_exogenous=False, exog_data=None, use_cache=True):
     """
     Train an LSTM model on time series data with enhanced regularization and architecture
-    for limited datasets
+    for limited datasets, with optional caching
 
     Parameters:
     -----------
@@ -679,12 +682,24 @@ def train_lstm_model(data, test_size=0.2, sequence_length=12, epochs=50, include
         Whether to include exogenous features (default is False)
     exog_data : numpy.ndarray, optional
         Exogenous data to include if include_exogenous is True (default is None)
+    use_cache : bool, optional
+        Whether to use cached models if available (default is True)
 
     Returns:
     --------
     tuple
         (model, scaler, test_mape, test_rmse) where model is the trained LSTM model
     """
+    # Generate a cache key based on data characteristics
+    if use_cache:
+        # Create a fingerprint of the data
+        data_hash = hash(data.tobytes())
+        cache_key = f"lstm_{data_hash}_{sequence_length}_{epochs}"
+        
+        # Check if we have a cached model
+        if cache_key in _model_cache:
+            print(f"Using cached LSTM model: {cache_key}")
+            return _model_cache[cache_key]
     # Check if data is sufficient
     if len(data) <= sequence_length:
         raise ValueError(f"Data length ({len(data)}) must be greater than sequence_length ({sequence_length})")
@@ -798,6 +813,11 @@ def train_lstm_model(data, test_size=0.2, sequence_length=12, epochs=50, include
         if np.any(valid_indices):
             test_mape = np.mean(np.abs((y_test_inv[valid_indices] - y_pred_inv[valid_indices]) / y_test_inv[valid_indices])) * 100
 
+    # Cache the trained model if caching is enabled
+    if use_cache:
+        cache_key = f"lstm_{hash(data.tobytes())}_{sequence_length}_{epochs}"
+        _model_cache[cache_key] = (model, scaler, test_mape, test_rmse)
+        
     return model, scaler, test_mape, test_rmse
 
 def forecast_with_lstm(model, scaler, last_sequence, forecast_periods=12):

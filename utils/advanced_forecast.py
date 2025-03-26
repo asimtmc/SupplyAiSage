@@ -27,9 +27,64 @@ from scipy import stats, signal
 
 # Import the database functionality
 from utils.database import save_forecast_result, get_forecast_history
+import hashlib
+import pickle
+import os
+from functools import lru_cache
 
 # Suppress warnings for cleaner output
 warnings.filterwarnings('ignore')
+
+# Create a models directory if it doesn't exist
+os.makedirs('models_cache', exist_ok=True)
+
+# Global model cache
+_model_cache = {}
+
+# Function to create a cache key from data
+def create_cache_key(data, model_type, params=None):
+    """Create a unique cache key based on data and model parameters"""
+    if isinstance(data, pd.DataFrame) or isinstance(data, pd.Series):
+        data_hash = hashlib.md5(pd.util.hash_pandas_object(data).values).hexdigest()
+    elif isinstance(data, np.ndarray):
+        data_hash = hashlib.md5(data.tobytes()).hexdigest()
+    else:
+        data_hash = hashlib.md5(str(data).encode()).hexdigest()
+        
+    params_str = str(params) if params else ""
+    return f"{model_type}_{data_hash}_{hashlib.md5(params_str.encode()).hexdigest()}"
+
+# Function to save model to cache
+def save_to_cache(model, cache_key, memory_only=False):
+    """Save model to memory cache and optionally to disk"""
+    _model_cache[cache_key] = model
+    
+    if not memory_only:
+        try:
+            with open(f"models_cache/{cache_key}.pkl", 'wb') as f:
+                pickle.dump(model, f)
+        except Exception as e:
+            print(f"Error saving model to disk: {str(e)}")
+            
+# Function to load model from cache
+def load_from_cache(cache_key, memory_only=False):
+    """Load model from memory cache or disk"""
+    # Check memory cache first
+    if cache_key in _model_cache:
+        return _model_cache[cache_key]
+    
+    # Then check disk cache if needed
+    if not memory_only:
+        try:
+            if os.path.exists(f"models_cache/{cache_key}.pkl"):
+                with open(f"models_cache/{cache_key}.pkl", 'rb') as f:
+                    model = pickle.load(f)
+                _model_cache[cache_key] = model  # Also add to memory cache
+                return model
+        except Exception as e:
+            print(f"Error loading model from disk: {str(e)}")
+    
+    return None
 
 # ================================
 # 1. ADVANCED DATA PREPROCESSING
@@ -751,10 +806,11 @@ def auto_select_best_model(data,
                            forecast_periods=12,
                            hyperparameter_tuning=True,
                            complex_models_threshold=24,
-                           progress_callback=None):
+                           progress_callback=None,
+                           use_cache=True):
     """
     Automatically select the best forecasting model based on data characteristics
-    and test performance.
+    and test performance, with optional caching for faster results.
 
     Parameters:
     -----------
@@ -780,6 +836,25 @@ def auto_select_best_model(data,
     """
     # Copy data to avoid modifying original
     data = data.copy()
+    
+    # Check cache if enabled
+    if use_cache:
+        # Create cache key based on data and parameters
+        cache_params = {
+            'models': models_to_try,
+            'test_size': test_size,
+            'forecast_periods': forecast_periods,
+            'hp_tuning': hyperparameter_tuning
+        }
+        cache_key = create_cache_key(data, "auto_select", cache_params)
+        
+        # Check if model exists in cache
+        cached_result = load_from_cache(cache_key)
+        if cached_result is not None:
+            if progress_callback:
+                progress_callback(1, "cached_model", 1, 
+                                 "Using cached model selection result", "success")
+            return cached_result
 
     # Default models to try if none specified
     if models_to_try is None:
@@ -1483,14 +1558,28 @@ def auto_select_best_model(data,
         model_results[best_model] = evaluate_forecast(
             test_data['quantity'].values, test_forecast)
 
-    # Return the best model and all model results
-    return {
+    # Prepare result dictionary
+    result = {
         'best_model': best_model,
         'metrics': model_results,
         'forecasts': forecasts,
         'test_data': test_data,
         'train_data': train_data
     }
+    
+    # Save result to cache if enabled
+    if use_cache:
+        cache_params = {
+            'models': models_to_try,
+            'test_size': test_size,
+            'forecast_periods': forecast_periods,
+            'hp_tuning': hyperparameter_tuning
+        }
+        cache_key = create_cache_key(data, "auto_select", cache_params)
+        save_to_cache(result, cache_key)
+    
+    # Return the best model and all model results
+    return result
 
 
 # ================================

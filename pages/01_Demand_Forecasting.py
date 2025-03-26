@@ -23,6 +23,14 @@ st.set_page_config(
     layout="wide"
 )
 
+# Initialize cache for forecast results
+if 'forecast_cache' not in st.session_state:
+    st.session_state.forecast_cache = {}
+    
+# Flag to track if models are loaded (lazy loading)
+if 'models_loaded' not in st.session_state:
+    st.session_state.models_loaded = False
+
 # Check if data is loaded in session state
 if 'sales_data' not in st.session_state or st.session_state.sales_data is None:
     st.warning("Please upload sales data on the main page first.")
@@ -213,20 +221,41 @@ with st.sidebar:
 
     # Create a run button with a unique key
     if should_show_button:
+        # Generate a cache key based on selected parameters
+        cache_key = f"{forecast_scope}_{len(selected_skus_to_forecast)}_{forecast_periods}_{num_clusters}_{'-'.join(models_to_evaluate)}"
+        
+        # Check if we have cached results for these parameters
+        cached_results_available = cache_key in st.session_state.forecast_cache
+        
+        # Show different button text if cached results are available
+        button_text = f"{forecast_button_text} (Cached)" if cached_results_available else forecast_button_text
+        
         run_forecast_clicked = st.button(
-            forecast_button_text, 
+            button_text, 
             key="run_forecast_button",
             use_container_width=True
         )
 
         if run_forecast_clicked:
-            # Set forecast in progress flag
-            st.session_state.forecast_in_progress = True
-            st.session_state.forecast_progress = 0
-            st.session_state.run_forecast = True
-
-            # Create an enhanced progress display
-            with progress_placeholder.container():
+            # If we have cached results, use them
+            if cached_results_available:
+                st.toast("Using cached forecast results", icon="✅")
+                st.session_state.forecasts = st.session_state.forecast_cache[cache_key]['forecasts']
+                st.session_state.clusters = st.session_state.forecast_cache[cache_key]['clusters']
+                st.session_state.run_forecast = True
+                st.session_state.models_loaded = True
+                
+                # Show success message
+                st.success(f"Loaded cached forecasts for {len(st.session_state.forecasts)} SKUs!")
+                
+            else:
+                # Set forecast in progress flag
+                st.session_state.forecast_in_progress = True
+                st.session_state.forecast_progress = 0
+                st.session_state.run_forecast = True
+                
+                # Create an enhanced progress display
+                with progress_placeholder.container():
                 # Create a two-column layout for the progress display
                 progress_cols = st.columns([3, 1])
 
@@ -327,6 +356,15 @@ with st.sidebar:
                         st.session_state.sku_options = sku_list
                         if sku_list and not st.session_state.selected_sku in sku_list:
                             st.session_state.selected_sku = sku_list[0]
+                            
+                        # Cache the forecast results for future use
+                        cache_key = f"{forecast_scope}_{len(selected_skus_to_forecast)}_{forecast_periods}_{num_clusters}_{'-'.join(models_to_evaluate)}"
+                        st.session_state.forecast_cache[cache_key] = {
+                            'forecasts': st.session_state.forecasts,
+                            'clusters': st.session_state.clusters,
+                            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        }
+                        st.session_state.models_loaded = True
 
                     num_skus = len(st.session_state.forecasts)
                     if num_skus > 0:

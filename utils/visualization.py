@@ -5,26 +5,12 @@ import io
 import base64
 from datetime import datetime, timedelta
 import numpy as np
+import streamlit as st
 
+@st.cache_data(ttl=1800, show_spinner=False)  # 30 minute cache for visualizations
 def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
     """
-    Plot historical data and forecasts for a specific SKU
-
-    Parameters:
-    -----------
-    sales_data : pandas.DataFrame
-        Historical sales data
-    forecast_data : dict
-        Forecast data for the specific SKU
-    sku : str
-        The SKU to plot
-    selected_models : list, optional
-        List of specific models to display
-
-    Returns:
-    --------
-    plotly.graph_objects.Figure
-        Plot of historical and forecast data
+    Create interactive forecast visualization with caching for better performance
     """
     # Filter sales data for this SKU
     sku_data = sales_data[sales_data['sku'] == sku].copy()
@@ -120,19 +106,19 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
         if 'model_evaluation' in forecast_data:
             # Get test data
             test_set = forecast_data['model_evaluation']['test_set'] if 'test_set' in forecast_data['model_evaluation'] else forecast_data.get('test_set', None)
-            
+
             # Get test predictions for the selected models
             if 'all_models_test_pred' in forecast_data['model_evaluation']:
                 for model in selected_models:
                     if model.lower() in forecast_data['model_evaluation']['all_models_test_pred']:
                         test_predictions = forecast_data['model_evaluation']['all_models_test_pred'][model.lower()]
-                        
+
                         # Choose a color for this model that matches the forecast
                         color = model_colors.get(model.lower(), 'orange')
-                        
+
                         if not isinstance(test_predictions, pd.Series) or test_predictions.empty:
                             continue
-                            
+
                         fig.add_trace(
                             go.Scatter(
                                 x=test_predictions.index,
@@ -147,7 +133,7 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
             elif 'test_predictions' in forecast_data['model_evaluation']:
                 # Fall back to the best model's predictions
                 test_predictions = forecast_data['model_evaluation']['test_predictions']
-                
+
                 if not isinstance(test_predictions, pd.Series) or not test_predictions.empty:
                     fig.add_trace(
                         go.Scatter(
@@ -160,7 +146,7 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
                             hovertemplate='%{x|%b %Y}: %{y:,.0f} units'
                         )
                     )
-            
+
             # Add test actuals if available
             if test_set is not None and not isinstance(test_set, pd.Series) or not test_set.empty:
                 fig.add_trace(
@@ -211,7 +197,7 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
     max_date = sku_data['date'].max()
     if isinstance(max_date, pd.Timestamp):
         max_date = max_date.strftime('%Y-%m-%d')
-    
+
     forecast_start_line = dict(
         type="line",
         xref="x",
@@ -225,7 +211,7 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
             dash="dash",
         )
     )
-    
+
     # Add annotation for the line
     # Use the same string-formatted date to ensure consistency
     forecast_annotation = dict(
@@ -240,13 +226,13 @@ def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
         bgcolor="rgba(255, 255, 255, 0.8)",
         font=dict(size=12)
     )
-    
+
     # Update layout to include the shape and annotation
     if 'shapes' in fig.layout:
         fig.layout.shapes = list(fig.layout.shapes) + [forecast_start_line]
     else:
         fig.layout.shapes = [forecast_start_line]
-        
+
     if 'annotations' in fig.layout:
         fig.layout.annotations = list(fig.layout.annotations) + [forecast_annotation]
     else:
@@ -715,7 +701,7 @@ def plot_model_comparison(sku, forecast_data):
 
     # Get model evaluation metrics
     metrics = forecast_data['model_evaluation']['metrics']
-    
+
     # Check if best_model key exists
     if 'best_model' in forecast_data['model_evaluation']:
         best_model = forecast_data['model_evaluation']['best_model']
