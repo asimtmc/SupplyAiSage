@@ -124,7 +124,8 @@ with tab1:
                             title=file['filename'],
                             text=[
                                 f"Type: {file['file_type'].replace('_', ' ').title()}",
-                                f"Uploaded: {formatted_date}"
+                                f"Uploaded: {formatted_date}",
+                                "📥 Click to view/download"
                             ],
                             image=None,
                             url=None,
@@ -151,33 +152,71 @@ with tab2:
                 # Display file details
                 st.subheader(f"File: {filename}")
                 
-                # Display file preview if it's an Excel file
+                # Determine file type and MIME type
+                mime_type = "application/octet-stream"  # Default MIME type
                 if filename.endswith(('.xlsx', '.xls')):
-                    try:
-                        df = pd.read_excel(io.BytesIO(file_data))
-                        st.dataframe(df, use_container_width=True)
-                        
-                        # Download button
-                        st.download_button(
-                            label="Download File",
-                            data=file_data,
-                            file_name=filename,
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        )
-                        
-                        # Delete button
-                        if st.button("Delete File", key="delete_btn", help="Delete this file permanently", type="primary"):
-                            if delete_file(st.session_state.selected_file_id):
-                                st.session_state.selected_file_id = None
-                                st.success("File deleted successfully")
-                                st.experimental_rerun()
-                            else:
-                                st.error("Failed to delete file")
-                            
-                    except Exception as e:
-                        st.error(f"Error previewing file: {str(e)}")
-                else:
-                    st.info("File preview not available for this file type")
+                    mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                elif filename.endswith('.csv'):
+                    mime_type = "text/csv"
+                elif filename.endswith('.json'):
+                    mime_type = "application/json"
+                elif filename.endswith('.txt'):
+                    mime_type = "text/plain"
+                elif filename.endswith('.pdf'):
+                    mime_type = "application/pdf"
+                
+                # Display file preview for supported file types
+                preview_col, download_col = st.columns([3, 1])
+                
+                with preview_col:
+                    if filename.endswith(('.xlsx', '.xls')):
+                        try:
+                            df = pd.read_excel(io.BytesIO(file_data))
+                            st.dataframe(df, use_container_width=True)
+                        except Exception as e:
+                            st.error(f"Error previewing Excel file: {str(e)}")
+                    elif filename.endswith('.csv'):
+                        try:
+                            df = pd.read_csv(io.BytesIO(file_data))
+                            st.dataframe(df, use_container_width=True)
+                        except Exception as e:
+                            st.error(f"Error previewing CSV file: {str(e)}")
+                    elif filename.endswith('.json'):
+                        try:
+                            data_str = file_data.decode('utf-8')
+                            json_data = json.loads(data_str)
+                            st.json(json_data)
+                        except Exception as e:
+                            st.error(f"Error previewing JSON file: {str(e)}")
+                    elif filename.endswith('.txt'):
+                        try:
+                            st.text(file_data.decode('utf-8'))
+                        except Exception as e:
+                            st.error(f"Error previewing text file: {str(e)}")
+                    else:
+                        st.info("File preview not available for this file type")
+                
+                with download_col:
+                    # Download button with appropriate styling
+                    st.markdown("<h3>Download Options</h3>", unsafe_allow_html=True)
+                    st.download_button(
+                        label="📥 Download File",
+                        data=file_data,
+                        file_name=filename,
+                        mime=mime_type,
+                        key="download_btn",
+                        help="Download this file to your computer",
+                        use_container_width=True
+                    )
+                
+                # Delete button
+                if st.button("🗑️ Delete File", key="delete_btn", help="Delete this file permanently", type="primary", use_container_width=True):
+                    if delete_file(st.session_state.selected_file_id):
+                        st.session_state.selected_file_id = None
+                        st.success("File deleted successfully")
+                        st.experimental_rerun()
+                    else:
+                        st.error("Failed to delete file")
             else:
                 st.warning("File not found. It may have been deleted.")
         except Exception as e:
