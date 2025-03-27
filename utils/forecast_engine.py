@@ -14,10 +14,16 @@ from datetime import datetime, timedelta
 import io
 import base64
 import json
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, LSTM, Dropout
-from tensorflow.keras.callbacks import EarlyStopping
-import tensorflow as tf
+# TensorFlow imports wrapped in try-except to handle compatibility issues
+try:
+    from tensorflow.keras.models import Sequential
+    from tensorflow.keras.layers import Dense, LSTM, Dropout
+    from tensorflow.keras.callbacks import EarlyStopping
+    import tensorflow as tf
+    tensorflow_available = True
+except (ImportError, TypeError, AttributeError) as e:
+    print(f"TensorFlow import error: {e}")
+    tensorflow_available = False
 import math
 
 # Import the database functionality
@@ -585,9 +591,14 @@ def create_lstm_model(sequence_length, units=50, dropout_rate=0.2, recurrent_dro
         
     Returns:
     --------
-    tensorflow.keras.models.Sequential
-        Compiled LSTM model
+    tensorflow.keras.models.Sequential or None
+        Compiled LSTM model or None if TensorFlow is not available
     """
+    # Check if TensorFlow is available
+    if not globals().get('tensorflow_available', False):
+        print("TensorFlow is not available. LSTM model creation skipped.")
+        return None
+        
     # Set random seeds for reproducibility
     np.random.seed(42)
     tf.random.set_seed(42)
@@ -689,7 +700,14 @@ def train_lstm_model(data, test_size=0.2, sequence_length=12, epochs=50, include
     --------
     tuple
         (model, scaler, test_mape, test_rmse) where model is the trained LSTM model
+        If TensorFlow is not available, returns (None, scaler, np.nan, np.nan)
     """
+    # Check if TensorFlow is available
+    if not globals().get('tensorflow_available', False):
+        print("TensorFlow is not available. LSTM model training skipped.")
+        scaler = MinMaxScaler()
+        scaler.fit(data.reshape(-1, 1))
+        return None, scaler, float('nan'), float('nan')
     # Generate a cache key based on data characteristics
     if use_cache:
         # Create a fingerprint of the data
@@ -826,8 +844,8 @@ def forecast_with_lstm(model, scaler, last_sequence, forecast_periods=12):
 
     Parameters:
     -----------
-    model : tensorflow.keras.models.Sequential
-        Trained LSTM model
+    model : tensorflow.keras.models.Sequential or None
+        Trained LSTM model or None if TensorFlow is not available
     scaler : sklearn.preprocessing.MinMaxScaler
         Fitted scaler for data normalization
     last_sequence : numpy.ndarray
@@ -838,8 +856,12 @@ def forecast_with_lstm(model, scaler, last_sequence, forecast_periods=12):
     Returns:
     --------
     numpy.ndarray
-        Forecasted values
+        Forecasted values or zeros if model is None
     """
+    # Check if model is None (TensorFlow not available)
+    if model is None:
+        print("LSTM model is not available. Returning zeros for forecast.")
+        return np.zeros(forecast_periods)
     # Make a copy of the last sequence
     curr_sequence = last_sequence.copy()
 
