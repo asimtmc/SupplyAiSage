@@ -18,12 +18,32 @@ from datetime import datetime, timedelta
 import json
 import math
 import random
-import tensorflow as tf
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, LSTM, GRU, Dropout, Conv1D, MaxPooling1D, Flatten, BatchNormalization, GlobalAveragePooling1D
-from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
-from tensorflow.keras.optimizers import Adam
 from scipy import stats, signal
+
+# Import TensorFlow with proper error handling
+tensorflow_available = False
+try:
+    import tensorflow as tf
+    from tensorflow.keras.models import Sequential
+    from tensorflow.keras.layers import Dense, LSTM, GRU, Dropout, Conv1D, MaxPooling1D, Flatten, BatchNormalization, GlobalAveragePooling1D
+    from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
+    from tensorflow.keras.optimizers import Adam
+    tensorflow_available = True
+except (ImportError, TypeError, AttributeError) as e:
+    print(f"TensorFlow import error: {str(e)}")
+    # Create dummy placeholder classes to prevent import errors
+    class Sequential:
+        pass
+    class Dense:
+        pass
+    class LSTM: 
+        pass
+    class Dropout:
+        pass
+    class BatchNormalization:
+        pass
+    class EarlyStopping:
+        pass
 
 # Import the database functionality
 from utils.database import save_forecast_result, get_forecast_history

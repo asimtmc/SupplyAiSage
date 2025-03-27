@@ -1,9 +1,11 @@
-[server]
-headless = true
-address = "0.0.0.0"
-port = 5000
 
-[theme]
-base = "light"
-primaryColor = "#0078D7"
-secondaryBackgroundColor = "#F0F2F5"
+[server]
+port = 5000
+headless = true
+enableCORS = false
+enableXsrfProtection = false
+address = "0.0.0.0"
+
+[browser]
+serverAddress = "0.0.0.0"
+serverPort = 5000
