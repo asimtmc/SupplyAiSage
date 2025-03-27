@@ -1134,7 +1134,7 @@ if st.session_state.run_advanced_forecast and 'advanced_forecasts' in st.session
                                     f"{error_stats.get('mean_abs_error', 0):.2f}",
                                     f"{error_stats.get('rmse', 0):.2f}",
                                     f"{error_stats.get('mape', 0):.2f}%",
-                                    f"{error_stats.get('median_abs_error', 0):.2f}"ian_abs_error', 0):.2f}"
+                                    f"{error_stats.get('median_abs_error', 0):.2f}"
                                 ]
                             })
                             
@@ -1163,7 +1163,7 @@ if st.session_state.run_advanced_forecast and 'advanced_forecasts' in st.session
                             st.dataframe(dist_df, use_container_width=True, hide_index=True)
                         
                         # Display error distribution histogram
-                        st.subheader("Error Distribution")er("Error Distribution")
+                        st.subheader("Error Distribution")
                         if 'error_details' in error_analysis:
                             error_details = error_analysis['error_details']
                             
@@ -1218,7 +1218,6 @@ if st.session_state.run_advanced_forecast and 'advanced_forecasts' in st.session
                     dates = None
                     
                     if 'test_dates' in forecast_data:
-                        dates = forecast_data['test_dates']dates' in forecast_data:
                         dates = forecast_data['test_dates']
                     
                     if len(actuals) > 0 and len(predictions) > 0:
