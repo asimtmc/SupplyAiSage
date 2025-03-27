@@ -1269,9 +1269,7 @@ if st.session_state.run_advanced_forecast and 'advanced_forecasts' in st.session
                                 fig = px.bar(
                                     x=list(range(len(autocorr))),
                                     y=autocorr,
-                                    title="Autocorrelation of Errors",
-                                labels={'x': 'Lag', 'y': 'Autocorrelation'}
-                                )ion of Forecast Errors",
+                                    title="Autocorrelation of Forecast Errors",
                                     labels={'x': 'Lag', 'y': 'Autocorrelation'},
                                     color_discrete_sequence=['rgba(54, 162, 235, 0.8)']
                                 )
