@@ -1077,6 +1077,12 @@ if st.session_state.run_advanced_forecast and 'advanced_forecasts' in st.session
                             st.warning("⚠️ **Error Autocorrelation Detected**: Errors follow a pattern over time.")
                             st.markdown("""
                             **Recommendations:**
+                            - Consider models that better capture temporal dependencies
+                            - Add more time-related features or seasonality components
+                            - Try a time series model with built-in autocorrelation handling
+                            """)
+                            st.markdown("""
+                            **Recommendations:**
                             - Your model is missing important seasonal patterns
                             - Try models with stronger seasonal components
                             - Consider adding calendar features or external regressors
@@ -1128,7 +1134,7 @@ if st.session_state.run_advanced_forecast and 'advanced_forecasts' in st.session
                                     f"{error_stats.get('mean_abs_error', 0):.2f}",
                                     f"{error_stats.get('rmse', 0):.2f}",
                                     f"{error_stats.get('mape', 0):.2f}%",
-                                    f"{error_stats.get('median_abs_error', 0):.2f}"
+                                    f"{error_stats.get('median_abs_error', 0):.2f}"ian_abs_error', 0):.2f}"
                                 ]
                             })
                             
@@ -1157,7 +1163,7 @@ if st.session_state.run_advanced_forecast and 'advanced_forecasts' in st.session
                             st.dataframe(dist_df, use_container_width=True, hide_index=True)
                         
                         # Display error distribution histogram
-                        st.subheader("Error Distribution")
+                        st.subheader("Error Distribution")er("Error Distribution")
                         if 'error_details' in error_analysis:
                             error_details = error_analysis['error_details']
                             
@@ -1212,6 +1218,7 @@ if st.session_state.run_advanced_forecast and 'advanced_forecasts' in st.session
                     dates = None
                     
                     if 'test_dates' in forecast_data:
+                        dates = forecast_data['test_dates']dates' in forecast_data:
                         dates = forecast_data['test_dates']
                     
                     if len(actuals) > 0 and len(predictions) > 0:
@@ -1263,7 +1270,9 @@ if st.session_state.run_advanced_forecast and 'advanced_forecasts' in st.session
                                 fig = px.bar(
                                     x=list(range(len(autocorr))),
                                     y=autocorr,
-                                    title="Autocorrelation of Forecast Errors",
+                                    title="Autocorrelation of Errors",
+                                labels={'x': 'Lag', 'y': 'Autocorrelation'}
+                                )ion of Forecast Errors",
                                     labels={'x': 'Lag', 'y': 'Autocorrelation'},
                                     color_discrete_sequence=['rgba(54, 162, 235, 0.8)']
                                 )
