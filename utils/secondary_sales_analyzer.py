@@ -296,15 +296,23 @@ def analyze_sku_sales_pattern(sales_data, sku, algorithm='robust_filter'):
         # Convert the date index to datetime if it's not already
         if hasattr(idx, 'to_pydatetime'):
             date_obj = idx.to_pydatetime()
+        elif isinstance(idx, datetime):
+            date_obj = idx
         else:
             # If idx is an integer or other non-datetime type, handle accordingly
-            # Convert to string and then parse with datetime
+            # Try to convert it to a valid datetime
             from datetime import datetime
             try:
-                date_obj = datetime.fromisoformat(str(idx))
+                if isinstance(idx, int) or (isinstance(idx, str) and idx.isdigit()):
+                    # Handle integer timestamps or numeric strings by using a reference date
+                    from datetime import datetime, timedelta
+                    reference_date = datetime(2025, 1, 1)  # Use January 1st, 2025 as reference
+                    date_obj = reference_date + timedelta(days=int(idx))
+                else:
+                    date_obj = datetime.fromisoformat(str(idx))
             except:
-                # If that fails, use the date as is (database will handle conversion)
-                date_obj = idx
+                # If all conversions fail, use current date as fallback
+                date_obj = datetime.now()
             
         save_secondary_sales(
             sku=sku,
