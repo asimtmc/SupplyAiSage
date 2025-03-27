@@ -1999,12 +1999,15 @@ if st.sidebar.button(
     if not run_for_all and st.session_state.advanced_selected_sku:
         selected_sku = st.session_state.advanced_selected_sku
         
-    # Run the analysis
+    # Run the analysis without triggering forecast generation
     run_secondary_sales_analysis(
         selected_sku=selected_sku,
         run_for_all=run_for_all,
         algorithm=st.session_state.secondary_sales_algorithm
     )
+    
+    # Don't set the flag to run forecast after secondary analysis
+    st.session_state.run_advanced_forecast = False
 
     # Create an enhanced progress display
     with progress_placeholder.container():
