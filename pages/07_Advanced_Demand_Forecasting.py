@@ -19,6 +19,8 @@ from utils.advanced_forecast import (
 from utils.visualization import plot_forecast, plot_cluster_summary, plot_model_comparison
 from utils.parameter_optimizer import optimize_parameters_async, get_optimization_status
 from utils.error_analysis import analyze_forecast_errors, analyze_model_performance, generate_error_report
+from utils.secondary_sales_analyzer import analyze_sku_sales_pattern, bulk_analyze_sales
+from utils.database import get_secondary_sales
 
 # Initialize session state variables
 if 'advanced_forecast_periods' not in st.session_state:
@@ -53,6 +55,15 @@ if 'advanced_current_model' not in st.session_state:
     st.session_state.advanced_current_model = ""
 if 'parameter_tuning_in_progress' not in st.session_state:
     st.session_state.parameter_tuning_in_progress = False
+# Secondary sales analysis session state variables
+if 'secondary_sales_results' not in st.session_state:
+    st.session_state.secondary_sales_results = {}
+if 'run_secondary_analysis' not in st.session_state:
+    st.session_state.run_secondary_analysis = False
+if 'secondary_sales_algorithm' not in st.session_state:
+    st.session_state.secondary_sales_algorithm = "robust_filter"
+if 'forecast_data_type' not in st.session_state:
+    st.session_state.forecast_data_type = "primary"  # or "secondary"
 
 # Set page config
 st.set_page_config(
@@ -210,6 +221,46 @@ with st.sidebar:
     # Run Forecast button placeholder (will be populated in the main function)
     should_show_button = not st.session_state.advanced_forecast_in_progress
     forecast_button_text = "Run Advanced Forecast"
+    
+    # Secondary Sales Analysis Section
+    st.subheader("Secondary Sales Analysis")
+    
+    # Explain the primary vs secondary sales concept
+    st.markdown("""
+    In business models with distributors, primary sales (factory to distributor) 
+    may not reflect actual consumer demand (secondary sales). This tool analyzes primary 
+    sales patterns to estimate true secondary sales and identify sales noise.
+    """)
+    
+    # Algorithm selection for secondary sales calculation
+    st.write("Select algorithm for secondary sales estimation:")
+    secondary_algorithm = st.radio(
+        "Algorithm",
+        options=["robust_filter", "decomposition", "arima_smoothing"],
+        index=0,
+        horizontal=True,
+        help="Choose method for calculating secondary sales from primary sales data"
+    )
+    st.session_state.secondary_sales_algorithm = secondary_algorithm
+    
+    # Option to run analysis on selected SKU only or all SKUs
+    run_for_all = st.checkbox("Run for all selected SKUs", value=False)
+    
+    # Data type selection for forecasting
+    st.write("Select data type for forecasting:")
+    forecast_data_type = st.radio(
+        "Forecast based on:",
+        options=["primary", "secondary"],
+        index=0,
+        horizontal=True,
+        help="Choose whether to run forecasts on primary or calculated secondary sales data"
+    )
+    st.session_state.forecast_data_type = forecast_data_type
+    
+    # Button to run secondary sales analysis
+    secondary_button_text = "Run Secondary Sales Analysis"
+    if not run_for_all and st.session_state.advanced_selected_skus:
+        secondary_button_text = f"Analyze Secondary Sales for Selected SKU"
 
 def update_selected_skus():
     """Update the list of selected SKUs based on cluster selection"""
@@ -222,6 +273,141 @@ def update_selected_skus():
             st.session_state.advanced_clusters['cluster_name'].isin(selected_clusters)
         ]['sku'].tolist()
         st.session_state.advanced_selected_skus = cluster_skus
+        
+def plot_secondary_sales_analysis(sku, analysis_result):
+    """
+    Plot secondary sales analysis results with primary, secondary, and noise
+    
+    Parameters:
+    -----------
+    sku : str
+        SKU identifier
+    analysis_result : dict
+        Analysis results from analyze_sku_sales_pattern
+    
+    Returns:
+    --------
+    plotly.graph_objects.Figure
+        Plotly figure with primary sales, secondary sales, and noise
+    """
+    # Extract data from analysis result
+    if analysis_result['status'] != 'success' or 'data' not in analysis_result:
+        return None
+    
+    data = analysis_result['data']
+    
+    # Create a Plotly figure
+    fig = go.Figure()
+    
+    # Add primary sales line
+    fig.add_trace(go.Scatter(
+        x=data['date'],
+        y=data['primary_sales'],
+        mode='lines+markers',
+        name='Primary Sales',
+        line=dict(color='blue', width=2)
+    ))
+    
+    # Add secondary sales line
+    fig.add_trace(go.Scatter(
+        x=data['date'],
+        y=data['secondary_sales'],
+        mode='lines+markers',
+        name='Estimated Secondary Sales',
+        line=dict(color='green', width=2)
+    ))
+    
+    # Add noise as a bar chart
+    fig.add_trace(go.Bar(
+        x=data['date'],
+        y=data['noise'],
+        name='Noise (Difference)',
+        marker_color='rgba(255, 0, 0, 0.5)'
+    ))
+    
+    # Customize layout
+    fig.update_layout(
+        title=f'Primary vs Secondary Sales Analysis for SKU: {sku}',
+        xaxis_title='Date',
+        yaxis_title='Sales Quantity',
+        legend=dict(x=0.01, y=0.99, bgcolor='rgba(255, 255, 255, 0.8)'),
+        hovermode='x unified',
+        barmode='overlay'
+    )
+    
+    return fig
+
+def run_secondary_sales_analysis(selected_sku=None, run_for_all=False, algorithm="robust_filter"):
+    """
+    Run secondary sales analysis for selected SKU(s)
+    
+    Parameters:
+    -----------
+    selected_sku : str, optional
+        SKU to analyze. If None and run_for_all is True, analyzes all selected SKUs.
+    run_for_all : bool, optional
+        Whether to run analysis for all selected SKUs
+    algorithm : str, optional
+        Algorithm to use for secondary sales estimation
+        
+    Returns:
+    --------
+    dict
+        Results of the analysis
+    """
+    # Progress indicators
+    progress_container = st.empty()
+    status_container = st.empty()
+    
+    # Determine which SKUs to analyze
+    skus_to_analyze = []
+    if run_for_all:
+        if st.session_state.advanced_selected_skus:
+            skus_to_analyze = st.session_state.advanced_selected_skus
+        else:
+            skus_to_analyze = sorted(st.session_state.sales_data['sku'].unique().tolist())
+        status_container.info(f"Analyzing secondary sales patterns for {len(skus_to_analyze)} SKUs...")
+    elif selected_sku:
+        skus_to_analyze = [selected_sku]
+        status_container.info(f"Analyzing secondary sales pattern for SKU: {selected_sku}")
+    else:
+        status_container.warning("No SKU selected for analysis")
+        return {}
+    
+    results = {}
+    
+    # Define progress callback
+    def secondary_progress_callback(current_index, current_sku, total_skus):
+        progress = min(float(current_index) / total_skus, 1.0)
+        progress_container.progress(progress)
+        status_container.info(f"Analyzing SKU {current_index+1}/{total_skus}: {current_sku}")
+    
+    try:
+        # Run analysis
+        results = bulk_analyze_sales(
+            st.session_state.sales_data,
+            selected_skus=skus_to_analyze,
+            algorithm=algorithm,
+            progress_callback=secondary_progress_callback
+        )
+        
+        # Store in session state
+        st.session_state.secondary_sales_results = results
+        st.session_state.run_secondary_analysis = True
+        
+        # Clear progress indicators
+        progress_container.empty()
+        if len(skus_to_analyze) > 1:
+            status_container.success(f"✅ Secondary sales analysis completed for {len(skus_to_analyze)} SKUs")
+        else:
+            status_container.success(f"✅ Secondary sales analysis completed for {skus_to_analyze[0]}")
+        
+        return results
+    
+    except Exception as e:
+        progress_container.empty()
+        status_container.error(f"❌ Error analyzing secondary sales: {str(e)}")
+        return {}
 
 def forecast_progress_callback(current_index, current_sku, total_skus, message=None, level="info"):
     """
@@ -1714,10 +1900,78 @@ else:
     else:
         st.error("No sales data loaded. Please upload sales data first.")
 
+# Add secondary sales analysis section if results exist
+if st.session_state.run_secondary_analysis and st.session_state.secondary_sales_results:
+    st.header("Secondary Sales Analysis")
+    
+    # Get list of analyzed SKUs
+    analyzed_skus = sorted(list(st.session_state.secondary_sales_results.keys()))
+    
+    if analyzed_skus:
+        # Select SKU for secondary sales analysis
+        selected_secondary_sku = st.selectbox(
+            "Select a SKU to view secondary sales analysis",
+            options=analyzed_skus,
+            index=0 if st.session_state.advanced_selected_sku not in analyzed_skus else analyzed_skus.index(st.session_state.advanced_selected_sku)
+        )
+        
+        if selected_secondary_sku in st.session_state.secondary_sales_results:
+            analysis_result = st.session_state.secondary_sales_results[selected_secondary_sku]
+            
+            # Show analysis overview
+            st.subheader(f"Secondary Sales Analysis for {selected_secondary_sku}")
+            
+            # Status message
+            if analysis_result['status'] == 'success':
+                st.success("✅ Analysis completed successfully")
+                
+                # Show metrics
+                if 'metrics' in analysis_result:
+                    metrics = analysis_result['metrics']
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    with col1:
+                        st.metric("Avg Primary Sales", f"{metrics['avg_primary']:.2f}")
+                    
+                    with col2:
+                        st.metric("Avg Secondary Sales", f"{metrics['avg_secondary']:.2f}")
+                    
+                    with col3:
+                        st.metric("Avg Noise", f"{metrics['avg_noise']:.2f}")
+                    
+                    with col4:
+                        st.metric("Noise %", f"{metrics['noise_percentage']:.2f}%")
+                
+                # Plot the analysis
+                if 'data' in analysis_result:
+                    fig = plot_secondary_sales_analysis(selected_secondary_sku, analysis_result)
+                    if fig:
+                        st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Show data table
+                    with st.expander("View Data Table"):
+                        st.dataframe(analysis_result['data'], use_container_width=True)
+                        
+                    # Download button for data
+                    csv_buffer = io.BytesIO()
+                    analysis_result['data'].to_csv(csv_buffer, index=False)
+                    csv_buffer.seek(0)
+                    
+                    st.download_button(
+                        label="Download Secondary Sales Data",
+                        data=csv_buffer,
+                        file_name=f"secondary_sales_{selected_secondary_sku}.csv",
+                        mime="text/csv",
+                    )
+            else:
+                st.error(f"❌ Analysis failed: {analysis_result['message']}")
+    else:
+        st.warning("No secondary sales analysis results available")
+
 # Create a placeholder for the progress bar
 progress_placeholder = st.empty()
 
-# Create a run button with a unique key
+# Create forecast button in sidebar
 if should_show_button and st.sidebar.button(
     forecast_button_text, 
     key="run_advanced_forecast_button",
@@ -1727,6 +1981,24 @@ if should_show_button and st.sidebar.button(
     st.session_state.advanced_forecast_in_progress = True
     st.session_state.advanced_forecast_progress = 0
     st.session_state.run_advanced_forecast = True
+    
+# Create secondary sales analysis button in sidebar
+if st.sidebar.button(
+    secondary_button_text,
+    key="run_secondary_analysis_button",
+    use_container_width=True
+):
+    # Determine which SKU to analyze
+    selected_sku = None
+    if not run_for_all and st.session_state.advanced_selected_sku:
+        selected_sku = st.session_state.advanced_selected_sku
+        
+    # Run the analysis
+    run_secondary_sales_analysis(
+        selected_sku=selected_sku,
+        run_for_all=run_for_all,
+        algorithm=st.session_state.secondary_sales_algorithm
+    )
 
     # Create an enhanced progress display
     with progress_placeholder.container():
@@ -1891,8 +2163,42 @@ if should_show_button and st.sidebar.button(
             try:
                 # Start the forecasting process
                 add_log_message("Starting advanced forecasting process...", "info")
+                
+                # Check if we need to use secondary sales data for forecasting
+                forecast_data_type = st.session_state.forecast_data_type
+                if forecast_data_type == "secondary" and st.session_state.secondary_sales_results:
+                    # Create a modified version of sales_data with secondary sales
+                    add_log_message("Using SECONDARY sales data for forecasting...", "info")
+                    
+                    # Get the secondary sales data
+                    secondary_data_list = []
+                    
+                    for sku in st.session_state.secondary_sales_results:
+                        if st.session_state.secondary_sales_results[sku]['status'] == 'success' and 'data' in st.session_state.secondary_sales_results[sku]:
+                            data = st.session_state.secondary_sales_results[sku]['data']
+                            for _, row in data.iterrows():
+                                secondary_data_list.append({
+                                    'date': row['date'],
+                                    'sku': sku,
+                                    'quantity': row['secondary_sales']  # Use secondary sales as quantity
+                                })
+                    
+                    if secondary_data_list:
+                        # Create a new DataFrame with secondary sales
+                        secondary_sales_df = pd.DataFrame(secondary_data_list)
+                        add_log_message(f"Created secondary sales DataFrame with {len(secondary_sales_df)} records", "info")
+                        
+                        # Use this for forecasting
+                        sales_data_to_use = secondary_sales_df
+                    else:
+                        add_log_message("No secondary sales data available, using primary sales instead", "warning")
+                        sales_data_to_use = sales_data
+                else:
+                    add_log_message("Using PRIMARY sales data for forecasting...", "info")
+                    sales_data_to_use = sales_data
+                
                 forecasts = advanced_generate_forecasts(
-                    sales_data=sales_data,
+                    sales_data=sales_data_to_use,
                     cluster_info=cluster_info,
                     forecast_periods=st.session_state.advanced_forecast_periods,
                     auto_select=True,

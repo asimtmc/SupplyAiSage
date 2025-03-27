@@ -6,7 +6,7 @@ import pandas as pd
 from sqlalchemy import create_engine, Column, String, LargeBinary, DateTime, Text, Integer, Float
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-from datetime import datetime
+from datetime import datetime, timedelta
 from sqlalchemy.sql import text
 
 # Get the database URL from environment variable
@@ -53,6 +53,18 @@ class ModelParameterCache(Base):
     tuning_iterations = Column(Integer, default=0)  # Number of tuning iterations performed
     best_score = Column(Float, nullable=True)  # Best score achieved during tuning
 
+class SecondarySales(Base):
+    __tablename__ = 'secondary_sales'
+    
+    id = Column(String(36), primary_key=True)
+    sku = Column(String(100), nullable=False)
+    date = Column(DateTime, nullable=False)
+    primary_sales = Column(Float, nullable=False)
+    estimated_secondary_sales = Column(Float, nullable=False)
+    noise = Column(Float, nullable=False)  # Difference between primary and secondary
+    created_at = Column(DateTime, default=datetime.now)
+    algorithm_used = Column(String(100), nullable=False)  # Which algorithm was used to calculate
+    
 # Create the tables
 Base.metadata.create_all(engine)
 
@@ -641,6 +653,127 @@ def delete_old_parameters(days_threshold=90):
         if session:
             session.rollback()
         return 0
+    finally:
+        if session:
+            session.close()
+
+def save_secondary_sales(sku, date, primary_sales, estimated_secondary_sales, noise, algorithm_used):
+    """
+    Save secondary sales calculation results to the database
+    
+    Parameters:
+    -----------
+    sku : str
+        SKU identifier
+    date : datetime
+        Date of the sales data
+    primary_sales : float
+        Primary sales value from the uploaded data
+    estimated_secondary_sales : float
+        Calculated secondary sales value
+    noise : float
+        Calculated noise (difference between primary and secondary)
+    algorithm_used : str
+        Name of algorithm used for calculation
+        
+    Returns:
+    --------
+    str
+        ID of the saved record
+    """
+    try:
+        session = SessionFactory()
+        
+        # Check if record already exists for this SKU and date
+        existing = session.query(SecondarySales).filter(
+            SecondarySales.sku == sku,
+            SecondarySales.date == date
+        ).first()
+        
+        if existing:
+            # Update existing record
+            existing.primary_sales = primary_sales
+            existing.estimated_secondary_sales = estimated_secondary_sales
+            existing.noise = noise
+            existing.algorithm_used = algorithm_used
+            existing.created_at = datetime.now()
+            record_id = existing.id
+        else:
+            # Generate a unique ID
+            record_id = str(uuid.uuid4())
+            
+            # Create new record
+            new_record = SecondarySales(
+                id=record_id,
+                sku=sku,
+                date=date,
+                primary_sales=primary_sales,
+                estimated_secondary_sales=estimated_secondary_sales,
+                noise=noise,
+                algorithm_used=algorithm_used
+            )
+            session.add(new_record)
+        
+        session.commit()
+        return record_id
+    
+    except Exception as e:
+        if session:
+            session.rollback()
+        print(f"Error saving secondary sales: {str(e)}")
+        raise e
+    finally:
+        if session:
+            session.close()
+
+def get_secondary_sales(sku=None):
+    """
+    Get secondary sales data from the database
+    
+    Parameters:
+    -----------
+    sku : str, optional
+        SKU identifier to filter results. If None, returns data for all SKUs.
+        
+    Returns:
+    --------
+    pandas.DataFrame
+        DataFrame with secondary sales data
+    """
+    try:
+        session = SessionFactory()
+        
+        query = session.query(
+            SecondarySales.sku,
+            SecondarySales.date,
+            SecondarySales.primary_sales,
+            SecondarySales.estimated_secondary_sales,
+            SecondarySales.noise,
+            SecondarySales.algorithm_used
+        )
+        
+        if sku:
+            query = query.filter(SecondarySales.sku == sku)
+            
+        results = query.order_by(SecondarySales.sku, SecondarySales.date).all()
+        
+        # Convert to DataFrame
+        data = []
+        for record in results:
+            data.append({
+                'sku': record.sku,
+                'date': record.date,
+                'primary_sales': record.primary_sales,
+                'secondary_sales': record.estimated_secondary_sales,
+                'noise': record.noise,
+                'algorithm': record.algorithm_used
+            })
+        
+        return pd.DataFrame(data)
+    
+    except Exception as e:
+        print(f"Error retrieving secondary sales: {str(e)}")
+        return pd.DataFrame()
     finally:
         if session:
             session.close()
