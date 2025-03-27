@@ -293,9 +293,22 @@ def analyze_sku_sales_pattern(sales_data, sku, algorithm='robust_filter'):
     
     # Save results to database
     for idx, row in result_df.iterrows():
+        # Convert the date index to datetime if it's not already
+        if hasattr(idx, 'to_pydatetime'):
+            date_obj = idx.to_pydatetime()
+        else:
+            # If idx is an integer or other non-datetime type, handle accordingly
+            # Convert to string and then parse with datetime
+            from datetime import datetime
+            try:
+                date_obj = datetime.fromisoformat(str(idx))
+            except:
+                # If that fails, use the date as is (database will handle conversion)
+                date_obj = idx
+            
         save_secondary_sales(
             sku=sku,
-            date=idx.to_pydatetime(),
+            date=date_obj,
             primary_sales=float(row['primary_sales']),
             estimated_secondary_sales=float(row['secondary_sales']),
             noise=float(row['noise']),
