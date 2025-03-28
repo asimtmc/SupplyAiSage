@@ -1162,7 +1162,7 @@ with tab_forecast:
                 st.subheader("Forecast Visualization")
                 
                 # Get the plot from visualization utility
-                forecast_fig = plot_forecast(forecast_result, show_anomalies=True, confidence_interval=0.90)
+                forecast_fig = plot_forecast(forecast_result)
                 if forecast_fig:
                     st.plotly_chart(forecast_fig, use_container_width=True)
                 
