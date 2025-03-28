@@ -98,27 +98,37 @@ def save_uploaded_file(file, file_type, description=None):
     str
         ID of the saved file
     """
+    session = None
     try:
+        # Make sure the data directory exists
+        os.makedirs('data', exist_ok=True)
+        
+        # Create database session
         session = SessionFactory()
 
         # Check if file of this type already exists
+        print(f"Checking for existing files of type: {file_type}")
         existing_files = session.query(UploadedFile).filter(
             UploadedFile.file_type == file_type
         ).all()
 
         # Delete existing files if any
         if existing_files:
+            print(f"Found {len(existing_files)} existing files to delete")
             for existing_file in existing_files:
                 session.delete(existing_file)
 
             # Use confirm_deleted_rows=False to suppress the warning
             session.commit()
+            print(f"Deleted existing files of type: {file_type}")
 
         # Generate a unique ID
         file_id = str(uuid.uuid4())
 
         # Read the file data
+        file.seek(0)  # Reset file pointer to beginning
         file_data = file.read()
+        print(f"Read {len(file_data)} bytes from file: {file.name}")
 
         # Create a new UploadedFile record
         new_file = UploadedFile(
@@ -132,10 +142,13 @@ def save_uploaded_file(file, file_type, description=None):
         # Add to session and commit
         session.add(new_file)
         session.commit()
+        print(f"Successfully saved file {file.name} with ID: {file_id}")
 
         return file_id
     except Exception as e:
         print(f"Error saving file: {str(e)}")
+        import traceback
+        traceback.print_exc()
         if session:
             session.rollback()
         return None
@@ -222,8 +235,24 @@ def get_file_by_type(file_type):
     tuple
         (filename, pandas_dataframe) or None if no file found
     """
+    session = None
     try:
+        # First check if database exists and has been created
+        if not os.path.exists('data/supply_chain.db'):
+            print(f"Database file does not exist. Path: {os.path.abspath('data/supply_chain.db')}")
+            return None
+            
+        # Create session and check for the file
         session = SessionFactory()
+        
+        # Debug - check if the table exists
+        try:
+            file_count = session.query(UploadedFile).count()
+            print(f"Total files in database: {file_count}")
+        except Exception as table_err:
+            print(f"Error checking UploadedFile table: {str(table_err)}")
+            
+        # Query the specific file type
         file = session.query(UploadedFile).filter(
             UploadedFile.file_type == file_type
         ).order_by(
@@ -231,19 +260,27 @@ def get_file_by_type(file_type):
         ).first()
 
         if file:
+            print(f"Found file: {file.filename} (ID: {file.id}, Size: {len(file.file_data) if file.file_data else 0} bytes)")
+            if not file.file_data or len(file.file_data) == 0:
+                print(f"Error: File data is empty for {file.filename}")
+                return None
+                
             try:
                 # Convert bytes data to pandas DataFrame
                 file_bytes = io.BytesIO(file.file_data)
                 df = pd.read_excel(file_bytes)
+                print(f"Successfully parsed file {file.filename} - found {len(df)} rows")
                 return (file.filename, df)
             except Exception as e:
-                print(f"Error parsing file data: {str(e)}")
+                print(f"Error parsing file data for {file.filename}: {str(e)}")
                 return None
         else:
             print(f"No file of type '{file_type}' found in database")
             return None
     except Exception as e:
         print(f"Database error in get_file_by_type: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return None
     finally:
         if session:
