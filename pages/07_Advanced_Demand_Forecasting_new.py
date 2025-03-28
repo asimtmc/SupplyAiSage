@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -21,7 +22,7 @@ from utils.visualization import plot_forecast, plot_cluster_summary, plot_model_
 from utils.parameter_optimizer import optimize_parameters_async, get_optimization_status
 from utils.error_analysis import analyze_forecast_errors, analyze_model_performance, generate_error_report
 from utils.secondary_sales_analyzer import analyze_sku_sales_pattern, bulk_analyze_sales
-from utils.database import get_secondary_sales
+from utils.database import get_secondary_sales, get_model_parameters
 
 # Initialize session state variables
 if 'advanced_forecast_periods' not in st.session_state:
@@ -56,6 +57,13 @@ if 'advanced_current_model' not in st.session_state:
     st.session_state.advanced_current_model = ""
 if 'parameter_tuning_in_progress' not in st.session_state:
     st.session_state.parameter_tuning_in_progress = False
+if 'log_messages' not in st.session_state:
+    st.session_state.log_messages = []
+if 'show_hyperparameters' not in st.session_state:
+    st.session_state.show_hyperparameters = False
+if 'hyperparameter_sku' not in st.session_state:
+    st.session_state.hyperparameter_sku = None
+
 # Secondary sales analysis session state variables
 if 'secondary_sales_results' not in st.session_state:
     st.session_state.secondary_sales_results = {}
@@ -219,9 +227,26 @@ with st.sidebar:
     # Divider
     st.divider()
     
-    # Run Forecast button placeholder (will be populated in the main function)
-    should_show_button = not st.session_state.advanced_forecast_in_progress
+    # Run Forecast button in sidebar
     forecast_button_text = "Run Advanced Forecast"
+    should_show_button = not st.session_state.advanced_forecast_in_progress
+    
+    if should_show_button:
+        if st.button(
+            forecast_button_text, 
+            key="run_advanced_forecast_button",
+            use_container_width=True
+        ):
+            # Set forecast in progress flag
+            st.session_state.advanced_forecast_in_progress = True
+            st.session_state.advanced_forecast_progress = 0
+            st.session_state.run_advanced_forecast = True
+            st.rerun()  # Rerun to update the UI with forecast tab active
+    else:
+        st.info("Forecast generation in progress...")
+    
+    # Divider
+    st.divider()
     
     # Secondary Sales Analysis Section
     st.subheader("Secondary Sales Analysis")
@@ -262,6 +287,24 @@ with st.sidebar:
     secondary_button_text = "Run Secondary Sales Analysis"
     if not run_for_all and st.session_state.advanced_selected_skus:
         secondary_button_text = f"Analyze Secondary Sales for Selected SKU"
+    
+    if st.button(
+        secondary_button_text,
+        key="run_secondary_analysis_button",
+        use_container_width=True
+    ):
+        # Determine which SKU to analyze
+        selected_sku = None
+        if not run_for_all and st.session_state.advanced_selected_skus:
+            selected_sku = st.session_state.advanced_selected_skus[0]
+            
+        # Run the analysis without triggering forecast generation
+        run_secondary_sales_analysis(
+            selected_sku=selected_sku,
+            run_for_all=run_for_all,
+            algorithm=st.session_state.secondary_sales_algorithm
+        )
+        st.rerun()  # Rerun to update the UI with secondary tab active
 
 def update_selected_skus():
     """Update the list of selected SKUs based on cluster selection"""
@@ -566,6 +609,52 @@ def forecast_progress_callback(current_index, current_sku, total_skus, message=N
             "level": level
         })
 
+def tuning_progress_callback(sku, model_type, message, level="info"):
+    """
+    Callback function to log hyperparameter tuning progress
+    
+    Parameters:
+    -----------
+    sku : str
+        SKU identifier
+    model_type : str
+        Model type being tuned
+    message : str
+        Message to log
+    level : str, optional
+        Message level ('info', 'warning', 'error', 'success')
+    """
+    # Add to log messages
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    st.session_state.log_messages.append({
+        "timestamp": timestamp,
+        "message": f"[{sku} - {model_type}] {message}",
+        "level": level
+    })
+
+def format_parameters(params, model_type):
+    """Format model parameters for display"""
+    if not params:
+        return "No parameters available"
+    
+    formatted = []
+    if model_type == "arima":
+        formatted.append(f"Order: (p={params.get('p', '?')}, d={params.get('d', '?')}, q={params.get('q', '?')})")
+    elif model_type == "prophet":
+        formatted.append(f"Changepoint prior scale: {params.get('changepoint_prior_scale', '?')}")
+        formatted.append(f"Seasonality prior scale: {params.get('seasonality_prior_scale', '?')}")
+        formatted.append(f"Seasonality mode: {params.get('seasonality_mode', '?')}")
+    elif model_type == "ets":
+        formatted.append(f"Trend: {params.get('trend', 'None')}")
+        formatted.append(f"Seasonal: {params.get('seasonal', 'None')}")
+        formatted.append(f"Seasonal periods: {params.get('seasonal_periods', '?')}")
+        formatted.append(f"Damped trend: {params.get('damped_trend', 'False')}")
+    else:
+        for key, value in params.items():
+            formatted.append(f"{key}: {value}")
+    
+    return "\n".join(formatted)
+
 # Main content
 # Create main tabs for different analyses
 tab_sales, tab_secondary, tab_forecast = st.tabs(["Sales Data Analysis", "Secondary Sales Analysis", "Forecast Analysis"])
@@ -746,18 +835,44 @@ with tab_forecast:
     # Create a placeholder for the progress bar
     progress_placeholder = st.empty()
     
-    # Create forecast button in main tab
-    if should_show_button and st.button(
-        forecast_button_text, 
-        key="run_advanced_forecast_button_tab",
-        use_container_width=True
-    ):
-        # Set forecast in progress flag
-        st.session_state.advanced_forecast_in_progress = True
-        st.session_state.advanced_forecast_progress = 0
-        st.session_state.run_advanced_forecast = True
+    # Create a container for the control buttons
+    control_col1, control_col2 = st.columns(2)
+    
+    with control_col1:
+        # Create forecast button in main tab
+        should_show_button = not st.session_state.advanced_forecast_in_progress
+        forecast_button_text = "Run Advanced Forecast"
         
-        # Create an enhanced progress display
+        if should_show_button:
+            if st.button(
+                forecast_button_text, 
+                key="run_advanced_forecast_button_tab",
+                use_container_width=True
+            ):
+                # Set forecast in progress flag
+                st.session_state.advanced_forecast_in_progress = True
+                st.session_state.advanced_forecast_progress = 0
+                st.session_state.run_advanced_forecast = True
+                st.rerun()  # Rerun to update UI
+        else:
+            st.info("Forecast generation in progress...")
+    
+    with control_col2:
+        # Separate Hyperparameter Tuning button
+        if not st.session_state.parameter_tuning_in_progress:
+            if st.button(
+                "Run Hyperparameter Tuning",
+                key="run_hyperparameter_tuning_button",
+                use_container_width=True
+            ):
+                st.session_state.parameter_tuning_in_progress = True
+                st.session_state.log_messages = []  # Reset log messages
+                st.rerun()  # Rerun to update UI
+        else:
+            st.info("Hyperparameter tuning in progress...")
+    
+    # Show progress bar when forecast is in progress
+    if st.session_state.advanced_forecast_in_progress:
         with progress_placeholder.container():
             # Create a two-column layout for the progress display
             progress_cols = st.columns([3, 1])
@@ -767,39 +882,33 @@ with tab_forecast:
                 st.markdown('<h3 style="color:#0066cc;"><span class="highlight">🔄 Advanced Forecast Generation in Progress</span></h3>', unsafe_allow_html=True)
 
                 # Progress bar with custom styling
-                progress_bar = st.progress(0)
+                progress_bar = st.progress(st.session_state.advanced_forecast_progress)
 
                 # Status text placeholder
                 status_text = st.empty()
+                status_text.info(f"Processing SKU: {st.session_state.advanced_current_sku}")
 
                 # Add a progress details section
                 progress_details = st.empty()
+                progress_percentage = int(st.session_state.advanced_forecast_progress * 100)
+                progress_details.markdown(f"""
+                **Progress:** {progress_percentage}%  
+                **Current SKU:** {st.session_state.advanced_current_sku}  
+                **Current Model:** {st.session_state.advanced_current_model if st.session_state.advanced_current_model else "Initializing..."}  
+                **Models being evaluated:** {', '.join(st.session_state.advanced_models)}
+                """)
 
             with progress_cols[1]:
                 # Add a spinning icon or other visual indicator
                 st.markdown('<div class="loader"></div>', unsafe_allow_html=True)
 
             # Create a detailed log area
-            log_area = st.empty()
-            log_container = log_area.container()
-            log_header = log_container.empty()
-            log_content = log_container.empty()
-            
-            # Initialize a list to store log messages
-            if 'log_messages' not in st.session_state:
-                st.session_state.log_messages = []
-            else:
-                st.session_state.log_messages = []  # Reset log messages for new run
-            
-            # Function to add log messages
-            def add_log_message(message, level="info"):
-                timestamp = datetime.now().strftime("%H:%M:%S")
-                st.session_state.log_messages.append({"timestamp": timestamp, "message": message, "level": level})
-                
+            log_area = st.expander("View Processing Log", expanded=True)
+            with log_area:
                 # Format log messages with appropriate styling
                 log_html = '<div style="height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.8em; background-color: #f0f0f0; padding: 10px; border-radius: 5px;">'
                 
-                for log in st.session_state.log_messages[-100:]:  # Show last 100 messages to avoid performance issues
+                for log in st.session_state.log_messages[-100:]:  # Show last 100 messages
                     if log["level"] == "info":
                         color = "black"
                     elif log["level"] == "warning":
@@ -815,184 +924,196 @@ with tab_forecast:
                 
                 log_html += '</div>'
                 
-                # Update the log display
-                log_header.markdown("### Real-time Processing Log")
-                log_content.markdown(log_html, unsafe_allow_html=True)
-            
-            # Add initial log message
-            add_log_message(f"Starting advanced forecast generation for {len(st.session_state.advanced_selected_skus) if st.session_state.advanced_selected_skus else 'all'} SKUs", "info")
-            add_log_message(f"Forecast periods: {st.session_state.advanced_forecast_periods}", "info")
-            add_log_message(f"Models to evaluate: {', '.join(selected_models)}", "info")
-            add_log_message(f"Hyperparameter tuning: {'Enabled' if st.session_state.advanced_hyperparameter_tuning else 'Disabled'}", "info")
-            add_log_message(f"Human-like sense check: {'Enabled' if st.session_state.advanced_apply_sense_check else 'Disabled'}", "info")
-            add_log_message("Beginning clustering and feature extraction...", "info")
-            
-            # Create a custom callback that also updates logs
-            def enhanced_progress_callback(current_index, current_sku, total_skus, message=None, level="info"):
-                # Update progress
-                progress = min(float(current_index) / total_skus, 1.0)
-                st.session_state.advanced_forecast_progress = progress
-                st.session_state.advanced_current_sku = current_sku
+                # Display the log
+                st.markdown(log_html, unsafe_allow_html=True)
                 
-                # Extract current model from message if present
-                current_model = ""
-                if message and "model" in message.lower():
-                    # Try to extract model name from messages like "Training and evaluating MODEL model"
-                    model_indicators = ["training", "evaluating", "testing", "selected"]
-                    for indicator in model_indicators:
-                        if indicator in message.lower():
-                            parts = message.split()
-                            for i, part in enumerate(parts):
-                                if part.lower() in [m.lower() for m in selected_models]:
-                                    current_model = part.upper()
-                                    break
-                
-                # Add to log if there's a message
-                if message:
-                    add_log_message(f"[SKU: {current_sku}] {message}", level)
-                else:
-                    # Default message
-                    add_log_message(f"Processing SKU: {current_sku} ({current_index+1}/{total_skus})", "info")
-                
-                # Update UI elements
-                progress_bar.progress(progress)
-                progress_percentage = int(progress * 100)
-                progress_details.markdown(f"""
-                **Progress:** {progress_percentage}%  
-                **Current SKU:** {current_sku} ({current_index+1}/{total_skus})  
-                **Current Model:** {st.session_state.advanced_current_model if st.session_state.advanced_current_model else "Initializing..."}  
-                **Models being evaluated:** {', '.join(selected_models)}
-                """)
-            
-            # Override print function to capture output to log
-            original_print = print
-            def custom_print(*args, **kwargs):
-                message = " ".join(map(str, args))
-                add_log_message(message)
-                original_print(*args, **kwargs)  # Still print to console for debugging
-            
-            # Monkey patch print function
-            import builtins
-            builtins.print = custom_print
-            
-            try:
-                # Start the forecasting process
-                add_log_message("Starting advanced forecasting process...", "info")
-                
-                # Check if we need to use secondary sales data for forecasting
-                forecast_data_type = st.session_state.forecast_data_type
-                if forecast_data_type == "secondary" and st.session_state.secondary_sales_results:
-                    # Create a modified version of sales_data with secondary sales
-                    add_log_message("Using SECONDARY sales data for forecasting...", "info")
-                    
-                    # Get the secondary sales data
-                    secondary_data_list = []
-                    
-                    for sku in st.session_state.secondary_sales_results:
-                        if st.session_state.secondary_sales_results[sku]['status'] == 'success' and 'data' in st.session_state.secondary_sales_results[sku]:
-                            data = st.session_state.secondary_sales_results[sku]['data']
-                            for _, row in data.iterrows():
-                                secondary_data_list.append({
-                                    'date': row['date'],
-                                    'sku': sku,
-                                    'quantity': row['secondary_sales']  # Use secondary sales as quantity
-                                })
-                    
-                    if secondary_data_list:
-                        # Create a new DataFrame with secondary sales
-                        secondary_sales_df = pd.DataFrame(secondary_data_list)
-                        add_log_message(f"Created secondary sales DataFrame with {len(secondary_sales_df)} records", "info")
+                # Run forecast if this is the first load after setting the flag
+                if st.session_state.run_advanced_forecast and not st.session_state.forecasts:
+                    # This will be executed by Streamlit after the UI has been updated
+                    # Create a placeholder to hold the button
+                    if 'forecast_button_clicked' not in st.session_state:
+                        st.session_state.forecast_button_clicked = True
                         
-                        # Use this for forecasting
-                        sales_data_to_use = secondary_sales_df
-                    else:
-                        add_log_message("No secondary sales data available, using primary sales instead", "warning")
-                        sales_data_to_use = st.session_state.sales_data
-                else:
-                    add_log_message("Using PRIMARY sales data for forecasting...", "info")
-                    sales_data_to_use = st.session_state.sales_data
-                
-                # Extract features for clustering if not already done
-                if st.session_state.advanced_clusters is None:
-                    status_text.write("Extracting features for clustering...")
-                    features_df = extract_features(sales_data_to_use)
-                    
-                    # Update progress
-                    st.session_state.advanced_forecast_progress = 0.1
-                    progress_bar.progress(st.session_state.advanced_forecast_progress)
-                    
-                    # Perform clustering
-                    status_text.write("Clustering SKUs by pattern...")
-                    cluster_info = cluster_skus(features_df)
-                    st.session_state.advanced_clusters = cluster_info
-                    
-                    # Update progress
-                    st.session_state.advanced_forecast_progress = 0.2
-                    progress_bar.progress(st.session_state.advanced_forecast_progress)
-                else:
-                    # Use existing clusters
-                    cluster_info = st.session_state.advanced_clusters
-                    
-                    # Update progress
-                    st.session_state.advanced_forecast_progress = 0.2
-                    progress_bar.progress(st.session_state.advanced_forecast_progress)
-                
-                # Generate forecasts
-                status_text.write("Generating advanced forecasts...")
-                
-                # Get selected SKUs
-                selected_skus = st.session_state.advanced_selected_skus
-                
-                # Make sure we have at least one model selected
-                if not selected_models:
-                    selected_models = ["auto_arima", "prophet", "ets"]
-                
-                forecasts = advanced_generate_forecasts(
-                    sales_data=sales_data_to_use,
-                    cluster_info=cluster_info,
-                    forecast_periods=st.session_state.advanced_forecast_periods,
-                    auto_select=True,
-                    models_to_evaluate=selected_models,
-                    selected_skus=selected_skus,
-                    progress_callback=enhanced_progress_callback,
-                    hyperparameter_tuning=st.session_state.advanced_hyperparameter_tuning,
-                    apply_sense_check=st.session_state.advanced_apply_sense_check,
-                    use_param_cache=st.session_state.advanced_use_param_cache,
-                    schedule_tuning=False  # We'll use the dedicated button for parameter tuning
+                        # Add initial log message
+                        timestamp = datetime.now().strftime("%H:%M:%S")
+                        st.session_state.log_messages.append({
+                            "timestamp": timestamp,
+                            "message": f"Starting advanced forecast generation for {len(st.session_state.advanced_selected_skus) if st.session_state.advanced_selected_skus else 'all'} SKUs",
+                            "level": "info"
+                        })
+    
+    # Show hyperparameter tuning interface if it's in progress
+    if st.session_state.parameter_tuning_in_progress:
+        tuning_container = st.container()
+        with tuning_container:
+            st.markdown("### Hyperparameter Tuning")
+            
+            # Get all SKUs from the data
+            all_skus = sorted(st.session_state.sales_data['sku'].unique().tolist())
+            
+            # Select SKUs for tuning
+            tuning_col1, tuning_col2 = st.columns([2, 1])
+            
+            with tuning_col1:
+                selected_tuning_skus = st.multiselect(
+                    "Select SKUs for tuning:",
+                    options=all_skus,
+                    default=st.session_state.advanced_selected_skus[:1] if st.session_state.advanced_selected_skus else all_skus[:1],
+                    key="tuning_sku_selector"
                 )
-                
-                # Update session state with the generated forecasts
-                st.session_state.advanced_forecasts = forecasts
-                add_log_message(f"Successfully generated forecasts for {len(forecasts)} SKUs", "success")
-                
-                # Reset run_advanced_forecast flag
-                st.session_state.run_advanced_forecast = False
-                
-                # Update progress to 100%
-                progress_bar.progress(1.0)
-                status_text.write("Forecast generation complete!")
-                add_log_message("Forecast generation complete!", "success")
             
-            except Exception as e:
-                error_message = f"Error during forecast generation: {str(e)}"
-                add_log_message(error_message, "error")
-                st.error(error_message)
+            with tuning_col2:
+                # Models to tune
+                tuning_models = st.multiselect(
+                    "Models to tune:",
+                    options=["arima", "prophet", "ets", "lstm"],
+                    default=["arima", "prophet", "ets"],
+                    key="tuning_model_selector"
+                )
+            
+            # Show log messages for tuning
+            tuning_log_area = st.expander("Live Tuning Log", expanded=True)
+            with tuning_log_area:
+                # Format log messages with appropriate styling
+                log_html = '<div style="height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.8em; background-color: #f0f0f0; padding: 10px; border-radius: 5px;">'
                 
-                # Reset run_advanced_forecast flag in case of error
-                st.session_state.run_advanced_forecast = False
+                for log in st.session_state.log_messages[-100:]:  # Show last 100 messages
+                    if log["level"] == "info":
+                        color = "black"
+                    elif log["level"] == "warning":
+                        color = "orange"
+                    elif log["level"] == "error":
+                        color = "red"
+                    elif log["level"] == "success":
+                        color = "green"
+                    else:
+                        color = "blue"
+                    
+                    log_html += f'<div style="margin-bottom: 3px;"><span style="color: gray;">[{log["timestamp"]}]</span> <span style="color: {color};">{log["message"]}</span></div>'
+                
+                log_html += '</div>'
+                
+                # Display the log
+                st.markdown(log_html, unsafe_allow_html=True)
             
-            finally:
-                # Restore original print function
-                builtins.print = original_print
+            # Start button
+            start_col1, start_col2 = st.columns([1, 1])
             
-            # Set final progress
-            progress_bar.progress(1.0)
-            status_text.write("Forecast generation complete!")
-            progress_details.markdown("""
-            **Progress:** 100%  
-            **Status:** Complete  
-            **Next steps:** Explore the forecast results below
-            """)
+            with start_col1:
+                if st.button("Start Tuning", key="start_tuning_button", use_container_width=True):
+                    # Reset log messages
+                    st.session_state.log_messages = []
+                    
+                    # Add initial message
+                    timestamp = datetime.now().strftime("%H:%M:%S")
+                    st.session_state.log_messages.append({
+                        "timestamp": timestamp,
+                        "message": f"Starting hyperparameter tuning for {len(selected_tuning_skus)} SKUs and {len(tuning_models)} models",
+                        "level": "info"
+                    })
+                    
+                    # Start tuning for each selected SKU and model
+                    for sku in selected_tuning_skus:
+                        sku_data = st.session_state.sales_data[st.session_state.sales_data['sku'] == sku]
+                        
+                        for model_type in tuning_models:
+                            # Log the start of tuning
+                            timestamp = datetime.now().strftime("%H:%M:%S")
+                            st.session_state.log_messages.append({
+                                "timestamp": timestamp,
+                                "message": f"Scheduling tuning for {sku} with model {model_type}",
+                                "level": "info"
+                            })
+                            
+                            # Start the tuning
+                            optimize_parameters_async(
+                                sku=sku,
+                                model_type=model_type,
+                                data=sku_data,
+                                cross_validation=True,
+                                progress_callback=tuning_progress_callback
+                            )
+            
+            with start_col2:
+                if st.button("Check Tuning Status", key="check_tuning_status_button", use_container_width=True):
+                    status_info = get_optimization_status()
+                    
+                    # Log the status
+                    timestamp = datetime.now().strftime("%H:%M:%S")
+                    if status_info:
+                        st.session_state.log_messages.append({
+                            "timestamp": timestamp,
+                            "message": f"Active tuning tasks: {len(status_info)}",
+                            "level": "info"
+                        })
+                        
+                        for task_key, task_info in status_info.items():
+                            st.session_state.log_messages.append({
+                                "timestamp": timestamp,
+                                "message": f"Task {task_key}: {task_info['status']} (running for {task_info['runtime_seconds']:.1f} seconds)",
+                                "level": "info"
+                            })
+                    else:
+                        st.session_state.log_messages.append({
+                            "timestamp": timestamp,
+                            "message": "No active tuning jobs found.",
+                            "level": "info"
+                        })
+            
+            # Button to view hyperparameters
+            st.subheader("View Optimized Hyperparameters")
+            
+            hyper_col1, hyper_col2 = st.columns([2, 1])
+            
+            with hyper_col1:
+                hyperparameter_sku = st.selectbox(
+                    "Select SKU to view hyperparameters:",
+                    options=all_skus,
+                    key="hyperparameter_view_sku"
+                )
+                st.session_state.hyperparameter_sku = hyperparameter_sku
+            
+            with hyper_col2:
+                if st.button("View Parameters", key="view_parameters_button", use_container_width=True):
+                    st.session_state.show_hyperparameters = True
+            
+            # Show hyperparameters if requested
+            if st.session_state.show_hyperparameters and st.session_state.hyperparameter_sku:
+                sku = st.session_state.hyperparameter_sku
+                
+                st.markdown(f"### Optimized Parameters for {sku}")
+                
+                # Get parameters for all models
+                model_params = {}
+                for model_type in ["arima", "prophet", "ets", "lstm"]:
+                    params = get_model_parameters(sku, model_type)
+                    if params:
+                        model_params[model_type] = params
+                
+                if model_params:
+                    # Create tabs for each model
+                    model_tabs = st.tabs(list(model_params.keys()))
+                    
+                    for i, (model_type, params) in enumerate(model_params.items()):
+                        with model_tabs[i]:
+                            st.markdown(f"#### {model_type.upper()} Parameters")
+                            
+                            # Format parameters for display
+                            formatted_params = format_parameters(params, model_type)
+                            st.code(formatted_params)
+                            
+                            # Show additional metadata if available
+                            if 'timestamp' in params:
+                                st.markdown(f"*Last updated: {params['timestamp']}*")
+                            if 'score' in params:
+                                st.markdown(f"*Score: {params['score']:.4f}*")
+                else:
+                    st.warning(f"No optimized parameters found for {sku}. Run hyperparameter tuning first.")
+            
+            # Button to finish tuning
+            if st.button("Finish Tuning", key="finish_tuning_button", use_container_width=True):
+                st.session_state.parameter_tuning_in_progress = False
+                st.rerun()
     
     # Display forecast results if available
     if st.session_state.run_advanced_forecast and st.session_state.advanced_forecasts:
@@ -1055,41 +1176,6 @@ with tab_forecast:
                     if 'ds' in forecast_df.columns:
                         forecast_df['date'] = forecast_df['ds'].dt.strftime('%Y-%m-%d')
                     
-                    # Function to highlight data columns
-                    def highlight_data_columns(df):
-                        # Define styles for different column types
-                        styles = []
-                        
-                        # Style for actual values
-                        if 'y' in df.columns:
-                            styles.append({
-                                'selector': 'td:nth-child(3)',  # y column is usually 3rd
-                                'props': 'background-color: rgba(144, 238, 144, 0.2);'  # light green
-                            })
-                        
-                        # Style for predicted values
-                        if 'yhat' in df.columns:
-                            styles.append({
-                                'selector': 'td:nth-child(4)',  # yhat column is usually 4th
-                                'props': 'background-color: rgba(135, 206, 250, 0.2);'  # light blue
-                            })
-                        
-                        # Style for lower bound
-                        if 'yhat_lower' in df.columns:
-                            styles.append({
-                                'selector': 'td:nth-child(5)',  # yhat_lower column
-                                'props': 'color: #999; font-style: italic;'
-                            })
-                        
-                        # Style for upper bound
-                        if 'yhat_upper' in df.columns:
-                            styles.append({
-                                'selector': 'td:nth-child(6)',  # yhat_upper column
-                                'props': 'color: #999; font-style: italic;'
-                            })
-                        
-                        return styles
-                    
                     # Display the data with custom styling
                     st.dataframe(forecast_df, use_container_width=True)
                     
@@ -1121,17 +1207,8 @@ with tab_forecast:
                         if model_data:
                             model_df = pd.DataFrame(model_data)
                             
-                            # Function to highlight best model
-                            def highlight_best_model(row):
-                                if row['model'] == forecast_result['selected_model']:
-                                    return ['background-color: rgba(144, 238, 144, 0.3)'] * len(row)
-                                return [''] * len(row)
-                            
-                            # Apply styling
-                            styled_df = model_df.style.apply(highlight_best_model, axis=1)
-                            
-                            # Display styled table
-                            st.dataframe(styled_df, use_container_width=True)
+                            # Display the data
+                            st.dataframe(model_df, use_container_width=True)
                             
                             # Show visual comparison of models
                             comparison_fig = plot_model_comparison(model_comparison, forecast_result['selected_model'])
@@ -1139,129 +1216,189 @@ with tab_forecast:
                                 st.plotly_chart(comparison_fig, use_container_width=True)
     else:
         # Show instructions for running a forecast
-        st.info("Configure forecast settings in the sidebar and click 'Run Advanced Forecast' to generate demand forecasts.")
-        
-        # Show a placeholder visualization
-        col1, col2 = st.columns([1, 1])
-        with col1:
-            st.markdown("""
-            ### Advanced AI Forecasting Features:
+        if not st.session_state.advanced_forecast_in_progress:
+            st.info("Configure forecast settings in the sidebar and click 'Run Advanced Forecast' to generate demand forecasts.")
             
-            - **Automatic Model Selection**: System evaluates multiple models and selects the best for each SKU
-            - **Intelligent Preprocessing**: Outlier detection and data cleaning before forecasting
-            - **Clustering**: Groups similar SKUs for better pattern recognition
-            - **Hyperparameter Tuning**: Optimizes model parameters for maximum accuracy
-            - **Human-like Sense Check**: Applies business logic to ensure realistic projections
-            """)
-        
-        with col2:
-            st.markdown("""
-            ### Benefits:
+            # Show a placeholder visualization
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                st.markdown("""
+                ### Advanced AI Forecasting Features:
+                
+                - **Automatic Model Selection**: System evaluates multiple models and selects the best for each SKU
+                - **Intelligent Preprocessing**: Outlier detection and data cleaning before forecasting
+                - **Clustering**: Groups similar SKUs for better pattern recognition
+                - **Hyperparameter Tuning**: Optimizes model parameters for maximum accuracy (now with a dedicated button!)
+                - **Human-like Sense Check**: Applies business logic to ensure realistic projections
+                """)
             
-            - Reduce forecast error by up to 25%
-            - Optimize inventory with accurate demand predictions
-            - Save time with automated model selection
-            - Improve planning with reliable long-term forecasts
-            - Enhance decision-making with detailed forecast explanations
-            """)
+            with col2:
+                st.markdown("""
+                ### Benefits:
+                
+                - Reduce forecast error by up to 25%
+                - Optimize inventory with accurate demand predictions
+                - Save time with automated model selection
+                - Improve planning with reliable long-term forecasts
+                - Enhance decision-making with detailed forecast explanations
+                - View live console logs during model tuning
+                """)
+
+# Code to run the forecast if the button was clicked
+if st.session_state.run_advanced_forecast and st.session_state.advanced_forecast_in_progress:
+    # Create container for the progress display
+    forecast_container = st.empty()
     
-    # Add hyperparameter tuning section
-    if st.session_state.advanced_clusters is not None:
-        # Add expander for advanced tuning
-        with st.expander("Hyperparameter Tuning", expanded=False):
-            st.markdown("""
-            ### Model Parameter Tuning
+    with forecast_container.container():
+        try:
+            # Start the forecasting process
+            if 'log_messages' not in st.session_state:
+                st.session_state.log_messages = []
             
-            Fine-tune forecast model parameters to maximize accuracy for your specific data patterns.
-            This process can significantly improve forecast accuracy but requires more computation time.
-            """)
+            st.session_state.log_messages.append({
+                "timestamp": datetime.now().strftime("%H:%M:%S"),
+                "message": "Starting advanced forecasting process...",
+                "level": "info"
+            })
             
-            if st.button("Run Hyperparameter Tuning", key="run_parameter_tuning"):
-                st.session_state.parameter_tuning_in_progress = True
+            # Check if we need to use secondary sales data for forecasting
+            forecast_data_type = st.session_state.forecast_data_type
+            if forecast_data_type == "secondary" and st.session_state.secondary_sales_results:
+                # Create a modified version of sales_data with secondary sales
+                st.session_state.log_messages.append({
+                    "timestamp": datetime.now().strftime("%H:%M:%S"),
+                    "message": "Using SECONDARY sales data for forecasting...",
+                    "level": "info"
+                })
                 
-                # Progress display for tuning
-                tuning_progress = st.progress(0)
-                tuning_status = st.empty()
+                # Get the secondary sales data
+                secondary_data_list = []
                 
-                # Create callback for tuning progress
-                def tuning_progress_callback(current_step, total_steps, message, level="info"):
-                    progress = min(float(current_step) / total_steps, 1.0)
-                    tuning_progress.progress(progress)
-                    
-                    if level == "error":
-                        tuning_status.error(message)
-                    elif level == "warning":
-                        tuning_status.warning(message)
-                    else:
-                        tuning_status.info(message)
+                for sku in st.session_state.secondary_sales_results:
+                    if st.session_state.secondary_sales_results[sku]['status'] == 'success' and 'data' in st.session_state.secondary_sales_results[sku]:
+                        data = st.session_state.secondary_sales_results[sku]['data']
+                        for _, row in data.iterrows():
+                            secondary_data_list.append({
+                                'date': row['date'],
+                                'sku': sku,
+                                'quantity': row['secondary_sales']  # Use secondary sales as quantity
+                            })
                 
-                # Run tuning process
-                try:
-                    # Get selected SKUs for tuning
-                    tuning_skus = st.session_state.advanced_selected_skus
-                    if not tuning_skus:
-                        # If no specific SKUs selected, choose representatives from each cluster
-                        if st.session_state.advanced_clusters is not None:
-                            cluster_groups = st.session_state.advanced_clusters.groupby('cluster_name')
-                            tuning_skus = [group.iloc[0]['sku'] for _, group in cluster_groups]
+                if secondary_data_list:
+                    # Create a new DataFrame with secondary sales
+                    secondary_sales_df = pd.DataFrame(secondary_data_list)
+                    st.session_state.log_messages.append({
+                        "timestamp": datetime.now().strftime("%H:%M:%S"),
+                        "message": f"Created secondary sales DataFrame with {len(secondary_sales_df)} records",
+                        "level": "info"
+                    })
                     
-                    # Start tuning
-                    tuning_status.info(f"Starting hyperparameter tuning for {len(tuning_skus)} representative SKUs...")
-                    
-                    # Call the optimizer
-                    optimize_parameters_async(
-                        st.session_state.sales_data,
-                        tuning_skus,
-                        st.session_state.advanced_models,
-                        progress_callback=tuning_progress_callback
-                    )
-                    
-                    # Complete
-                    tuning_progress.progress(1.0)
-                    tuning_status.success("✅ Hyperparameter tuning scheduled successfully! Optimized parameters will be used for future forecasts.")
-                    
-                except Exception as e:
-                    tuning_status.error(f"❌ Error during hyperparameter tuning: {str(e)}")
-                
-                finally:
-                    st.session_state.parameter_tuning_in_progress = False
-            
-            # Show tuning status if available
-            if st.button("Check Tuning Status", key="check_tuning_status"):
-                status_info = get_optimization_status()
-                
-                if status_info:
-                    st.json(status_info)
+                    # Use this for forecasting
+                    sales_data_to_use = secondary_sales_df
                 else:
-                    st.info("No active tuning jobs found.")
-
-# Create forecast button in sidebar
-if should_show_button and st.sidebar.button(
-    forecast_button_text, 
-    key="run_advanced_forecast_button",
-    use_container_width=True
-):
-    # Set forecast in progress flag
-    st.session_state.advanced_forecast_in_progress = True
-    st.session_state.advanced_forecast_progress = 0
-    st.session_state.run_advanced_forecast = True
-    st.rerun()  # Rerun to update the UI with forecast tab active
-
-# Create secondary sales analysis button in sidebar
-if st.sidebar.button(
-    secondary_button_text,
-    key="run_secondary_analysis_button",
-    use_container_width=True
-):
-    # Determine which SKU to analyze
-    selected_sku = None
-    if not run_for_all and st.session_state.advanced_selected_sku:
-        selected_sku = st.session_state.advanced_selected_sku
+                    st.session_state.log_messages.append({
+                        "timestamp": datetime.now().strftime("%H:%M:%S"),
+                        "message": "No secondary sales data available, using primary sales instead",
+                        "level": "warning"
+                    })
+                    sales_data_to_use = st.session_state.sales_data
+            else:
+                st.session_state.log_messages.append({
+                    "timestamp": datetime.now().strftime("%H:%M:%S"),
+                    "message": "Using PRIMARY sales data for forecasting...",
+                    "level": "info"
+                })
+                sales_data_to_use = st.session_state.sales_data
+            
+            # Extract features for clustering if not already done
+            if st.session_state.advanced_clusters is None:
+                st.session_state.log_messages.append({
+                    "timestamp": datetime.now().strftime("%H:%M:%S"),
+                    "message": "Extracting features for clustering...",
+                    "level": "info"
+                })
+                features_df = extract_features(sales_data_to_use)
+                
+                # Update progress
+                st.session_state.advanced_forecast_progress = 0.1
+                
+                # Perform clustering
+                st.session_state.log_messages.append({
+                    "timestamp": datetime.now().strftime("%H:%M:%S"),
+                    "message": "Clustering SKUs by pattern...",
+                    "level": "info"
+                })
+                cluster_info = cluster_skus(features_df)
+                st.session_state.advanced_clusters = cluster_info
+                
+                # Update progress
+                st.session_state.advanced_forecast_progress = 0.2
+            else:
+                # Use existing clusters
+                cluster_info = st.session_state.advanced_clusters
+                
+                # Update progress
+                st.session_state.advanced_forecast_progress = 0.2
+            
+            # Generate forecasts
+            st.session_state.log_messages.append({
+                "timestamp": datetime.now().strftime("%H:%M:%S"),
+                "message": "Generating advanced forecasts...",
+                "level": "info"
+            })
+            
+            # Get selected SKUs
+            selected_skus = st.session_state.advanced_selected_skus
+            
+            # Make sure we have at least one model selected
+            if not st.session_state.advanced_models:
+                st.session_state.advanced_models = ["auto_arima", "prophet", "ets"]
+            
+            forecasts = advanced_generate_forecasts(
+                sales_data=sales_data_to_use,
+                cluster_info=cluster_info,
+                forecast_periods=st.session_state.advanced_forecast_periods,
+                auto_select=True,
+                models_to_evaluate=st.session_state.advanced_models,
+                selected_skus=selected_skus,
+                progress_callback=forecast_progress_callback,
+                hyperparameter_tuning=st.session_state.advanced_hyperparameter_tuning,
+                apply_sense_check=st.session_state.advanced_apply_sense_check,
+                use_param_cache=st.session_state.advanced_use_param_cache,
+                schedule_tuning=False  # We'll use the dedicated button for parameter tuning
+            )
+            
+            # Update session state with the generated forecasts
+            st.session_state.advanced_forecasts = forecasts
+            st.session_state.log_messages.append({
+                "timestamp": datetime.now().strftime("%H:%M:%S"),
+                "message": f"Successfully generated forecasts for {len(forecasts)} SKUs",
+                "level": "success"
+            })
+            
+            # Reset forecast flags
+            st.session_state.advanced_forecast_in_progress = False
+            st.session_state.forecast_progress = 1.0
+            
+            # Show success message
+            st.success(f"Successfully generated forecasts for {len(forecasts)} SKUs!")
+            
+        except Exception as e:
+            # Log error
+            error_message = f"Error during forecast generation: {str(e)}"
+            st.session_state.log_messages.append({
+                "timestamp": datetime.now().strftime("%H:%M:%S"),
+                "message": error_message,
+                "level": "error"
+            })
+            st.error(error_message)
+            
+            # Reset flags
+            st.session_state.advanced_forecast_in_progress = False
         
-    # Run the analysis without triggering forecast generation
-    run_secondary_sales_analysis(
-        selected_sku=selected_sku,
-        run_for_all=run_for_all,
-        algorithm=st.session_state.secondary_sales_algorithm
-    )
-    st.rerun()  # Rerun to update the UI with secondary tab active
+        finally:
+            # Set final progress
+            st.session_state.advanced_forecast_progress = 1.0
+            
+            # Rerun to update the UI
+            st.rerun()
