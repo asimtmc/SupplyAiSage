@@ -1,3 +1,4 @@
+
 import os
 import io
 import uuid
@@ -9,14 +10,11 @@ from sqlalchemy.orm import sessionmaker
 from datetime import datetime, timedelta
 from sqlalchemy.sql import text
 
-# Use SQLite for local development
-import os
-
 # Create database directory if it doesn't exist
 os.makedirs('data', exist_ok=True)
 
 # Use SQLite database
-DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///data/supply_chain.db")
+DATABASE_URL = "sqlite:///data/supply_chain.db"
 
 # Create the engine
 engine = create_engine(DATABASE_URL)
@@ -329,8 +327,7 @@ def save_forecast_result(sku, model_type, forecast_periods, mape, rmse, mae, for
         True if save successful, False otherwise
     """
     try:
-        # Create a database engine
-        engine = create_engine(DATABASE_URL) #Use existing engine
+        session = SessionFactory()
 
         # Generate a unique ID for this forecast
         forecast_id = str(uuid.uuid4())
@@ -345,36 +342,29 @@ def save_forecast_result(sku, model_type, forecast_periods, mape, rmse, mae, for
             mae = float(mae)
 
         # Create a new forecast record
-        new_forecast = {
-            'id': forecast_id,
-            'sku': sku,
-            'model_type': model_type,
-            'forecast_date': datetime.now(),
-            'forecast_periods': forecast_periods,
-            'mape': mape,
-            'rmse': rmse,
-            'mae': mae,
-            'forecast_data': forecast_data,
-            'model_params': model_params
-        }
+        new_forecast = ForecastResult(
+            id=forecast_id,
+            sku=sku,
+            model_type=model_type,
+            forecast_date=datetime.now(),
+            forecast_periods=forecast_periods,
+            mape=mape,
+            rmse=rmse,
+            mae=mae,
+            forecast_data=forecast_data,
+            model_params=model_params
+        )
 
-        # Insert the record using text() to prevent SQL injection vulnerabilities.
-        with engine.connect() as conn:
-            conn.execute(
-                text("""
-                INSERT INTO forecast_results 
-                (id, sku, model_type, forecast_date, forecast_periods, mape, rmse, mae, forecast_data, model_params)
-                VALUES 
-                (:id, :sku, :model_type, :forecast_date, :forecast_periods, :mape, :rmse, :mae, :forecast_data, :model_params)
-                """),
-                new_forecast
-            )
-            conn.commit()
+        # Add to session and commit
+        session.add(new_forecast)
+        session.commit()
 
         return True
 
     except Exception as e:
         print(f"Error saving forecast to database: {str(e)}")
+        if session:
+            session.rollback()
         return False
 
 
