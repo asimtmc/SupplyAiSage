@@ -9,8 +9,14 @@ from sqlalchemy.orm import sessionmaker
 from datetime import datetime, timedelta
 from sqlalchemy.sql import text
 
-# Get the database URL from environment variable
-DATABASE_URL = os.environ.get("DATABASE_URL")
+# Use SQLite for local development
+import os
+
+# Create database directory if it doesn't exist
+os.makedirs('data', exist_ok=True)
+
+# Use SQLite database
+DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///data/supply_chain.db")
 
 # Create the engine
 engine = create_engine(DATABASE_URL)
@@ -127,9 +133,10 @@ def save_uploaded_file(file, file_type, description=None):
 
         return file_id
     except Exception as e:
+        print(f"Error saving file: {str(e)}")
         if session:
             session.rollback()
-        raise e
+        return None
     finally:
         if session:
             session.close()
