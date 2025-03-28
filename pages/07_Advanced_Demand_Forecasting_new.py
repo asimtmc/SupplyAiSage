@@ -965,6 +965,9 @@ with tab_forecast:
                 st.session_state.advanced_forecasts = forecasts
                 add_log_message(f"Successfully generated forecasts for {len(forecasts)} SKUs", "success")
                 
+                # Reset run_advanced_forecast flag
+                st.session_state.run_advanced_forecast = False
+                
                 # Update progress to 100%
                 progress_bar.progress(1.0)
                 status_text.write("Forecast generation complete!")
@@ -974,6 +977,9 @@ with tab_forecast:
                 error_message = f"Error during forecast generation: {str(e)}"
                 add_log_message(error_message, "error")
                 st.error(error_message)
+                
+                # Reset run_advanced_forecast flag in case of error
+                st.session_state.run_advanced_forecast = False
             
             finally:
                 # Restore original print function

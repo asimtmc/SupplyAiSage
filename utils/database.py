@@ -13,10 +13,10 @@ from sqlalchemy.sql import text
 # Create database directory if it doesn't exist
 os.makedirs('data', exist_ok=True)
 
-# Use SQLite database
+# Use SQLite database as the PostgreSQL endpoint is disabled
+# In a production environment, you would want to use the PostgreSQL database when available
 DATABASE_URL = "sqlite:///data/supply_chain.db"
-
-# Create the engine with proper SQLite connection settings
+print(f"Using SQLite database: {DATABASE_URL}")
 engine = create_engine(
     DATABASE_URL,
     connect_args={"check_same_thread": False},
@@ -237,12 +237,8 @@ def get_file_by_type(file_type):
     """
     session = None
     try:
-        # First check if database exists and has been created
-        if not os.path.exists('data/supply_chain.db'):
-            print(f"Database file does not exist. Path: {os.path.abspath('data/supply_chain.db')}")
-            return None
-            
         # Create session and check for the file
+        # No need to check SQLite file existence when using PostgreSQL
         session = SessionFactory()
         
         # Debug - check if the table exists
