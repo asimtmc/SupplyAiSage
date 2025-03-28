@@ -16,8 +16,12 @@ os.makedirs('data', exist_ok=True)
 # Use SQLite database
 DATABASE_URL = "sqlite:///data/supply_chain.db"
 
-# Create the engine
-engine = create_engine(DATABASE_URL)
+# Create the engine with proper SQLite connection settings
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"check_same_thread": False},
+    pool_pre_ping=True
+)
 Base = declarative_base()
 
 # Define the tables
@@ -227,14 +231,20 @@ def get_file_by_type(file_type):
         ).first()
 
         if file:
-            # Convert bytes data to pandas DataFrame
-            file_bytes = io.BytesIO(file.file_data)
-            df = pd.read_excel(file_bytes)
-            return (file.filename, df)
+            try:
+                # Convert bytes data to pandas DataFrame
+                file_bytes = io.BytesIO(file.file_data)
+                df = pd.read_excel(file_bytes)
+                return (file.filename, df)
+            except Exception as e:
+                print(f"Error parsing file data: {str(e)}")
+                return None
         else:
+            print(f"No file of type '{file_type}' found in database")
             return None
     except Exception as e:
-        raise e
+        print(f"Database error in get_file_by_type: {str(e)}")
+        return None
     finally:
         if session:
             session.close()
