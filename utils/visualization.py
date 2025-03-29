@@ -8,10 +8,122 @@ import numpy as np
 import streamlit as st
 
 @st.cache_data(ttl=1800, show_spinner=False)  # 30 minute cache for visualizations
-def plot_forecast(sales_data, forecast_data, sku, selected_models=None):
+def plot_forecast(forecast_result, sales_data=None, forecast_data=None, sku=None, selected_models=None):
     """
     Create interactive forecast visualization with caching for better performance
+    
+    This function supports two calling patterns:
+    1. plot_forecast(forecast_result) - single parameter from the Advanced Demand Forecasting page
+    2. plot_forecast(sales_data, forecast_data, sku, selected_models) - original calling pattern
     """
+    # Handle the case where forecast_result is passed as a single parameter
+    if sales_data is None and forecast_data is None and sku is None:
+        # Extract data from forecast_result
+        if isinstance(forecast_result, dict):
+            # Extract required data from the forecast_result dictionary
+            if 'historical_data' in forecast_result:
+                sku_data = forecast_result['historical_data'].copy() if isinstance(forecast_result['historical_data'], pd.DataFrame) else pd.DataFrame()
+            elif 'data' in forecast_result:
+                sku_data = forecast_result['data'].copy() if isinstance(forecast_result['data'], pd.DataFrame) else pd.DataFrame()
+            else:
+                sku_data = pd.DataFrame()
+            
+            # Get the SKU from the forecast_result if available
+            if 'sku' in forecast_result:
+                sku = forecast_result['sku']
+            else:
+                sku = "Unknown SKU"
+            
+            # Create figure
+            fig = go.Figure()
+            
+            # Add historical data if available
+            if not sku_data.empty and 'date' in sku_data.columns and 'quantity' in sku_data.columns:
+                sku_data = sku_data.sort_values('date')
+                fig.add_trace(
+                    go.Scatter(
+                        x=sku_data['date'],
+                        y=sku_data['quantity'],
+                        mode='lines+markers',
+                        name='Historical Sales',
+                        line=dict(color='blue'),
+                        marker=dict(size=8, symbol='circle'),
+                        hovertemplate='%{x|%b %Y}: %{y:,.0f} units'
+                    )
+                )
+            
+            # Add forecast
+            if 'forecast_data' in forecast_result and not forecast_result['forecast_data'].empty:
+                forecast_df = forecast_result['forecast_data'].copy()
+                
+                # Get the forecast values
+                if 'yhat' in forecast_df.columns:
+                    # Prophet-style output
+                    fig.add_trace(
+                        go.Scatter(
+                            x=forecast_df['ds'],
+                            y=forecast_df['yhat'],
+                            mode='lines+markers',
+                            name='Forecast',
+                            line=dict(color='red', dash='solid'),
+                            marker=dict(size=8, symbol='circle'),
+                            hovertemplate='%{x|%b %Y}: %{y:,.0f} units'
+                        )
+                    )
+                    
+                    # Add confidence intervals if available
+                    if 'yhat_lower' in forecast_df.columns and 'yhat_upper' in forecast_df.columns:
+                        fig.add_trace(
+                            go.Scatter(
+                                x=forecast_df['ds'].tolist() + forecast_df['ds'].tolist()[::-1],
+                                y=forecast_df['yhat_upper'].tolist() + forecast_df['yhat_lower'].tolist()[::-1],
+                                fill='toself',
+                                fillcolor='rgba(255, 0, 0, 0.2)',
+                                line=dict(color='rgba(255, 255, 255, 0)'),
+                                hoverinfo='skip',
+                                showlegend=False
+                            )
+                        )
+                
+                # Update layout
+                max_date = sku_data['date'].max() if not sku_data.empty and 'date' in sku_data.columns else None
+                
+                fig.update_layout(
+                    title=f"<b>Sales Forecast for {sku}</b>",
+                    xaxis_title="Date",
+                    yaxis_title="Units Sold",
+                    template="plotly_white",
+                    height=500
+                )
+                
+                # Add vertical line separating history and forecast if possible
+                if max_date is not None:
+                    fig.add_vline(
+                        x=max_date, 
+                        line_dash="dash", 
+                        line_color="gray",
+                        annotation_text="Forecast Start",
+                        annotation_position="top right"
+                    )
+                
+                return fig
+            
+            # If no forecast data, just return whatever we have
+            if not sku_data.empty:
+                fig.update_layout(
+                    title=f"<b>Historical Sales for {sku}</b>",
+                    xaxis_title="Date",
+                    yaxis_title="Units Sold",
+                    template="plotly_white",
+                    height=500
+                )
+                return fig
+            
+            # Return empty figure if nothing to plot
+            fig.update_layout(title=f"No data available for {sku}")
+            return fig
+    
+    # Original implementation for the old calling pattern
     # Filter sales data for this SKU
     sku_data = sales_data[sales_data['sku'] == sku].copy()
     sku_data = sku_data.sort_values('date')
