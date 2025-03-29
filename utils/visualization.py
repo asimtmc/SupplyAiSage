@@ -61,6 +61,8 @@ def plot_forecast(forecast_result, sales_data=None, forecast_data=None, sku=None
             sku_data = forecast_result['historical_data'].copy()
         elif 'data' in forecast_result and isinstance(forecast_result['data'], pd.DataFrame):
             sku_data = forecast_result['data'].copy()
+        elif 'history' in forecast_result and isinstance(forecast_result['history'], pd.DataFrame):
+            sku_data = forecast_result['history'].copy()
             
         # Get the SKU from the forecast_result if available
         if 'sku' in forecast_result:
@@ -104,16 +106,79 @@ def plot_forecast(forecast_result, sales_data=None, forecast_data=None, sku=None
                     )
         
         # Add forecast
+        forecast_df = pd.DataFrame()
+        
+        # Check all possible forecast data keys
         if 'forecast_data' in forecast_result and isinstance(forecast_result['forecast_data'], pd.DataFrame) and not forecast_result['forecast_data'].empty:
             forecast_df = forecast_result['forecast_data'].copy()
+        elif 'forecast' in forecast_result and isinstance(forecast_result['forecast'], pd.DataFrame) and not forecast_result['forecast'].empty:
+            forecast_df = forecast_result['forecast'].copy()
             
-            # Get the forecast values
+        # If we have forecast data, add it to the plot
+        if not forecast_df.empty:
+            # Check column formats and normalize if needed
+            if 'ds' in forecast_df.columns and 'date' not in forecast_df.columns:
+                forecast_df['date'] = forecast_df['ds']
+            elif 'date' in forecast_df.columns and 'ds' not in forecast_df.columns:
+                forecast_df['ds'] = forecast_df['date']
+                
+            # Get the forecast values based on column naming convention
             if 'yhat' in forecast_df.columns:
-                # Prophet-style output
+                # Prophet-style output with yhat column
+                x_col = 'ds'
+                y_col = 'yhat'
+                lower_col = 'yhat_lower'
+                upper_col = 'yhat_upper'
+            elif 'forecast' in forecast_df.columns:
+                # ARIMA/SARIMA style with forecast column
+                x_col = 'date' if 'date' in forecast_df.columns else 'ds'
+                y_col = 'forecast'
+                lower_col = 'lower_bound' if 'lower_bound' in forecast_df.columns else None
+                upper_col = 'upper_bound' if 'upper_bound' in forecast_df.columns else None
+            elif 'predicted' in forecast_df.columns:
+                # Generic ML model style with predicted column
+                x_col = 'date' if 'date' in forecast_df.columns else 'ds'
+                y_col = 'predicted'
+                lower_col = 'lower_bound' if 'lower_bound' in forecast_df.columns else None
+                upper_col = 'upper_bound' if 'upper_bound' in forecast_df.columns else None
+            elif 'mean' in forecast_df.columns:
+                # statsmodels style with mean column
+                x_col = 'date' if 'date' in forecast_df.columns else 'ds'
+                y_col = 'mean'
+                lower_col = 'mean_ci_lower' if 'mean_ci_lower' in forecast_df.columns else None
+                upper_col = 'mean_ci_upper' if 'mean_ci_upper' in forecast_df.columns else None
+            else:
+                # Default case - use first datetime column as x and first numeric column as y
+                datetime_cols = [col for col in forecast_df.columns if pd.api.types.is_datetime64_any_dtype(forecast_df[col])]
+                numeric_cols = [col for col in forecast_df.columns if pd.api.types.is_numeric_dtype(forecast_df[col])]
+                
+                if datetime_cols and numeric_cols:
+                    x_col = datetime_cols[0]
+                    y_col = numeric_cols[0]
+                    lower_col = None
+                    upper_col = None
+                else:
+                    # Unable to determine columns
+                    fig.update_layout(
+                        title="Unknown forecast data format",
+                        annotations=[{
+                            'text': "Forecast data format not recognized",
+                            'showarrow': False,
+                            'font': {'size': 16},
+                            'xref': 'paper',
+                            'yref': 'paper',
+                            'x': 0.5,
+                            'y': 0.5
+                        }]
+                    )
+                    return fig
+                
+            # Add the forecast trace
+            if x_col in forecast_df.columns and y_col in forecast_df.columns:
                 fig.add_trace(
                     go.Scatter(
-                        x=forecast_df['ds'],
-                        y=forecast_df['yhat'],
+                        x=forecast_df[x_col],
+                        y=forecast_df[y_col],
                         mode='lines+markers',
                         name='Forecast',
                         line=dict(color='red', dash='solid'),
@@ -123,11 +188,11 @@ def plot_forecast(forecast_result, sales_data=None, forecast_data=None, sku=None
                 )
                 
                 # Add confidence intervals if available
-                if 'yhat_lower' in forecast_df.columns and 'yhat_upper' in forecast_df.columns:
+                if lower_col and upper_col and lower_col in forecast_df.columns and upper_col in forecast_df.columns:
                     fig.add_trace(
                         go.Scatter(
-                            x=forecast_df['ds'].tolist() + forecast_df['ds'].tolist()[::-1],
-                            y=forecast_df['yhat_upper'].tolist() + forecast_df['yhat_lower'].tolist()[::-1],
+                            x=forecast_df[x_col].tolist() + forecast_df[x_col].tolist()[::-1],
+                            y=forecast_df[upper_col].tolist() + forecast_df[lower_col].tolist()[::-1],
                             fill='toself',
                             fillcolor='rgba(255, 0, 0, 0.2)',
                             line=dict(color='rgba(255, 255, 255, 0)'),

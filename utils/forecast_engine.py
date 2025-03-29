@@ -14,17 +14,62 @@ from datetime import datetime, timedelta
 import io
 import base64
 import json
-# TensorFlow imports wrapped in try-except to handle compatibility issues
-try:
-    from tensorflow.keras.models import Sequential
-    from tensorflow.keras.layers import Dense, LSTM, Dropout
-    from tensorflow.keras.callbacks import EarlyStopping
-    import tensorflow as tf
-    tensorflow_available = True
-except (ImportError, TypeError, AttributeError) as e:
-    print(f"TensorFlow import error: {e}")
-    tensorflow_available = False
 import math
+
+# TensorFlow imports wrapped in try-except to handle compatibility issues
+tensorflow_available = False
+
+# Define dummy classes to prevent import errors
+class Sequential:
+    def __init__(self, *args, **kwargs):
+        pass
+    def add(self, *args, **kwargs):
+        pass
+    def compile(self, *args, **kwargs):
+        pass
+    def fit(self, *args, **kwargs):
+        return self
+    def predict(self, *args, **kwargs):
+        return np.zeros((1, 1))
+
+class Dense:
+    def __init__(self, *args, **kwargs):
+        pass
+
+class LSTM:
+    def __init__(self, *args, **kwargs):
+        pass
+
+class Dropout:
+    def __init__(self, *args, **kwargs):
+        pass
+
+class EarlyStopping:
+    def __init__(self, *args, **kwargs):
+        pass
+
+# Attempt to import TensorFlow only if needed
+def try_import_tensorflow():
+    global tensorflow_available
+    if not tensorflow_available:
+        try:
+            import tensorflow as tf
+            from tensorflow.keras.models import Sequential as TFSequential
+            from tensorflow.keras.layers import Dense as TFDense, LSTM as TFLSTM, Dropout as TFDropout
+            from tensorflow.keras.callbacks import EarlyStopping as TFEarlyStopping
+            # Override the dummy classes with real implementations
+            global Sequential, Dense, LSTM, Dropout, EarlyStopping
+            Sequential = TFSequential
+            Dense = TFDense
+            LSTM = TFLSTM
+            Dropout = TFDropout
+            EarlyStopping = TFEarlyStopping
+            tensorflow_available = True
+            return True
+        except (ImportError, TypeError, AttributeError) as e:
+            print(f"TensorFlow import error: {e}")
+            return False
+    return tensorflow_available
 
 # Import the database functionality
 from utils.database import save_forecast_result, get_forecast_history

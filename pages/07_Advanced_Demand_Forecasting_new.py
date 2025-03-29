@@ -928,7 +928,7 @@ with tab_forecast:
                 st.markdown(log_html, unsafe_allow_html=True)
                 
                 # Run forecast if this is the first load after setting the flag
-                if st.session_state.run_advanced_forecast and not st.session_state.forecasts:
+                if st.session_state.run_advanced_forecast and not st.session_state.advanced_forecasts:
                     # This will be executed by Streamlit after the UI has been updated
                     # Create a placeholder to hold the button
                     if 'forecast_button_clicked' not in st.session_state:
@@ -941,6 +941,100 @@ with tab_forecast:
                             "message": f"Starting advanced forecast generation for {len(st.session_state.advanced_selected_skus) if st.session_state.advanced_selected_skus else 'all'} SKUs",
                             "level": "info"
                         })
+                        
+                        # Trigger forecast generation
+                        sales_data = st.session_state.sales_data
+                        if sales_data is not None and len(sales_data) > 0:
+                            # Extract features for clustering if needed
+                            features_df = extract_features(sales_data)
+                            
+                            # Perform clustering if not already done
+                            if st.session_state.advanced_clusters is None:
+                                # Log clustering step
+                                st.session_state.log_messages.append({
+                                    "timestamp": datetime.now().strftime("%H:%M:%S"),
+                                    "message": "Clustering SKUs by pattern...",
+                                    "level": "info"
+                                })
+                                
+                                cluster_info = cluster_skus(features_df)
+                                st.session_state.advanced_clusters = cluster_info
+                            else:
+                                # Use existing clusters
+                                cluster_info = st.session_state.advanced_clusters
+                            
+                            # Get selected SKUs
+                            selected_skus = st.session_state.advanced_selected_skus
+                            
+                            # Make sure we have at least one model selected
+                            if not st.session_state.advanced_models:
+                                st.session_state.advanced_models = ["auto_arima", "prophet", "ets"]
+                            
+                            # Generate forecasts
+                            st.session_state.log_messages.append({
+                                "timestamp": datetime.now().strftime("%H:%M:%S"),
+                                "message": "Generating advanced forecasts...",
+                                "level": "info"
+                            })
+                            
+                            try:
+                                # Create a variable for accessing sales data
+                                sales_data_to_use = sales_data
+                                
+                                forecasts = advanced_generate_forecasts(
+                                    sales_data=sales_data_to_use,
+                                    cluster_info=cluster_info,
+                                    forecast_periods=st.session_state.advanced_forecast_periods,
+                                    auto_select=True,
+                                    models_to_evaluate=st.session_state.advanced_models,
+                                    selected_skus=selected_skus,
+                                    progress_callback=forecast_progress_callback,
+                                    hyperparameter_tuning=st.session_state.advanced_hyperparameter_tuning,
+                                    apply_sense_check=st.session_state.advanced_apply_sense_check,
+                                    use_param_cache=st.session_state.advanced_use_param_cache,
+                                    schedule_tuning=False
+                                )
+                                
+                                # Update session state with the generated forecasts
+                                st.session_state.advanced_forecasts = forecasts
+                                
+                                # Successfully completed forecasting
+                                st.session_state.log_messages.append({
+                                    "timestamp": datetime.now().strftime("%H:%M:%S"),
+                                    "message": "Forecasting completed successfully.",
+                                    "level": "success"
+                                })
+                                
+                                # Set forecast completion flag
+                                st.session_state.advanced_forecast_in_progress = False
+                                st.session_state.advanced_forecast_progress = 1.0  # 100% complete
+                                
+                                # Force rerun to update UI with completed forecast
+                                st.rerun()
+                                
+                            except Exception as e:
+                                # Log the error
+                                error_message = f"Error during forecast generation: {str(e)}"
+                                st.session_state.log_messages.append({
+                                    "timestamp": datetime.now().strftime("%H:%M:%S"),
+                                    "message": error_message,
+                                    "level": "error"
+                                })
+                                
+                                # Set error state
+                                st.session_state.advanced_forecast_in_progress = False
+                                st.session_state.run_advanced_forecast = False
+                                st.error(error_message)
+                        else:
+                            # No sales data available
+                            st.session_state.log_messages.append({
+                                "timestamp": datetime.now().strftime("%H:%M:%S"),
+                                "message": "No sales data available for forecasting.",
+                                "level": "error"
+                            })
+                            st.session_state.advanced_forecast_in_progress = False
+                            st.session_state.run_advanced_forecast = False
+                            st.error("No sales data available. Please upload sales data first.")
     
     # Show hyperparameter tuning interface if it's in progress
     if st.session_state.parameter_tuning_in_progress:

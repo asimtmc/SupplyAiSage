@@ -22,28 +22,116 @@ from scipy import stats, signal
 
 # Import TensorFlow with proper error handling
 tensorflow_available = False
-try:
-    import tensorflow as tf
-    from tensorflow.keras.models import Sequential
-    from tensorflow.keras.layers import Dense, LSTM, GRU, Dropout, Conv1D, MaxPooling1D, Flatten, BatchNormalization, GlobalAveragePooling1D
-    from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
-    from tensorflow.keras.optimizers import Adam
-    tensorflow_available = True
-except (ImportError, TypeError, AttributeError) as e:
-    print(f"TensorFlow import error: {str(e)}")
-    # Create dummy placeholder classes to prevent import errors
-    class Sequential:
+
+# Create dummy placeholder classes to prevent import errors
+class Sequential:
+    def __init__(self, *args, **kwargs):
         pass
-    class Dense:
+    def add(self, *args, **kwargs):
         pass
-    class LSTM: 
+    def compile(self, *args, **kwargs):
         pass
-    class Dropout:
+    def fit(self, *args, **kwargs):
+        return self
+    def predict(self, *args, **kwargs):
+        return np.zeros((1, 1))
+        
+class Dense:
+    def __init__(self, *args, **kwargs):
         pass
-    class BatchNormalization:
+        
+class LSTM:
+    def __init__(self, *args, **kwargs):
         pass
-    class EarlyStopping:
+        
+class GRU:
+    def __init__(self, *args, **kwargs):
         pass
+        
+class Dropout:
+    def __init__(self, *args, **kwargs):
+        pass
+        
+class Conv1D:
+    def __init__(self, *args, **kwargs):
+        pass
+        
+class MaxPooling1D:
+    def __init__(self, *args, **kwargs):
+        pass
+        
+class Flatten:
+    def __init__(self, *args, **kwargs):
+        pass
+        
+class BatchNormalization:
+    def __init__(self, *args, **kwargs):
+        pass
+        
+class GlobalAveragePooling1D:
+    def __init__(self, *args, **kwargs):
+        pass
+        
+class EarlyStopping:
+    def __init__(self, *args, **kwargs):
+        pass
+        
+class ReduceLROnPlateau:
+    def __init__(self, *args, **kwargs):
+        pass
+        
+class Adam:
+    def __init__(self, *args, **kwargs):
+        pass
+
+def try_import_tensorflow():
+    """Try to import TensorFlow and return whether it was successful"""
+    global tensorflow_available
+    global Sequential, Dense, LSTM, GRU, Dropout, Conv1D, MaxPooling1D
+    global Flatten, BatchNormalization, GlobalAveragePooling1D
+    global EarlyStopping, ReduceLROnPlateau, Adam
+    
+    if not tensorflow_available:
+        try:
+            import tensorflow as tf
+            from tensorflow.keras.models import Sequential as TFSequential
+            from tensorflow.keras.layers import (
+                Dense as TFDense, 
+                LSTM as TFLSTM, 
+                GRU as TFGRU,
+                Dropout as TFDropout, 
+                Conv1D as TFConv1D, 
+                MaxPooling1D as TFMaxPooling1D, 
+                Flatten as TFFlatten, 
+                BatchNormalization as TFBatchNormalization, 
+                GlobalAveragePooling1D as TFGlobalAveragePooling1D
+            )
+            from tensorflow.keras.callbacks import (
+                EarlyStopping as TFEarlyStopping, 
+                ReduceLROnPlateau as TFReduceLROnPlateau
+            )
+            from tensorflow.keras.optimizers import Adam as TFAdam
+            
+            # Override the dummy classes with real implementations
+            Sequential = TFSequential
+            Dense = TFDense
+            LSTM = TFLSTM
+            GRU = TFGRU
+            Dropout = TFDropout
+            Conv1D = TFConv1D
+            MaxPooling1D = TFMaxPooling1D
+            Flatten = TFFlatten
+            BatchNormalization = TFBatchNormalization
+            GlobalAveragePooling1D = TFGlobalAveragePooling1D
+            EarlyStopping = TFEarlyStopping
+            ReduceLROnPlateau = TFReduceLROnPlateau
+            Adam = TFAdam
+            tensorflow_available = True
+            return True
+        except (ImportError, TypeError, AttributeError) as e:
+            print(f"TensorFlow import error: {str(e)}")
+            return False
+    return tensorflow_available
 
 # Import the database functionality
 from utils.database import save_forecast_result, get_forecast_history
