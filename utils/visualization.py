@@ -8,107 +8,164 @@ import numpy as np
 import streamlit as st
 
 @st.cache_data(ttl=1800, show_spinner=False)  # 30 minute cache for visualizations
-def plot_forecast(forecast_result, sales_data=None, forecast_data=None, sku=None, selected_models=None):
+def plot_forecast(forecast_result, sales_data=None, forecast_data=None, sku=None, selected_models=None, show_anomalies=False, confidence_interval=0.95):
     """
     Create interactive forecast visualization with caching for better performance
     
     This function supports two calling patterns:
     1. plot_forecast(forecast_result) - single parameter from the Advanced Demand Forecasting page
     2. plot_forecast(sales_data, forecast_data, sku, selected_models) - original calling pattern
+    
+    Parameters:
+    -----------
+    forecast_result : dict
+        Forecast result dictionary containing historical data and forecast data
+    sales_data : pandas.DataFrame, optional
+        Historical sales data (used in original calling pattern)
+    forecast_data : dict, optional
+        Forecast information (used in original calling pattern)
+    sku : str, optional
+        SKU identifier (used in original calling pattern)
+    selected_models : list, optional
+        List of models to display (used in original calling pattern)
+    show_anomalies : bool, optional
+        Whether to highlight anomalies in the data
+    confidence_interval : float, optional
+        Confidence interval level for forecast bounds (0-1)
     """
+    # Create a default figure
+    fig = go.Figure()
+    
     # Handle the case where forecast_result is passed as a single parameter
     if sales_data is None and forecast_data is None and sku is None:
+        # Check if forecast_result is None or not a dictionary
+        if forecast_result is None or not isinstance(forecast_result, dict):
+            fig.update_layout(
+                title="No forecast data available",
+                annotations=[{
+                    'text': "Please run a forecast first to see results",
+                    'showarrow': False,
+                    'font': {'size': 16},
+                    'xref': 'paper',
+                    'yref': 'paper',
+                    'x': 0.5,
+                    'y': 0.5
+                }]
+            )
+            return fig
+            
         # Extract data from forecast_result
-        if isinstance(forecast_result, dict):
-            # Extract required data from the forecast_result dictionary
-            if 'historical_data' in forecast_result:
-                sku_data = forecast_result['historical_data'].copy() if isinstance(forecast_result['historical_data'], pd.DataFrame) else pd.DataFrame()
-            elif 'data' in forecast_result:
-                sku_data = forecast_result['data'].copy() if isinstance(forecast_result['data'], pd.DataFrame) else pd.DataFrame()
-            else:
-                sku_data = pd.DataFrame()
+        # Get historical data
+        sku_data = pd.DataFrame()
+        if 'historical_data' in forecast_result and isinstance(forecast_result['historical_data'], pd.DataFrame):
+            sku_data = forecast_result['historical_data'].copy()
+        elif 'data' in forecast_result and isinstance(forecast_result['data'], pd.DataFrame):
+            sku_data = forecast_result['data'].copy()
             
-            # Get the SKU from the forecast_result if available
-            if 'sku' in forecast_result:
-                sku = forecast_result['sku']
-            else:
-                sku = "Unknown SKU"
+        # Get the SKU from the forecast_result if available
+        if 'sku' in forecast_result:
+            sku = forecast_result['sku']
+        else:
+            sku = "Unknown SKU"
+        
+        # Add historical data if available
+        if not sku_data.empty and 'date' in sku_data.columns and 'quantity' in sku_data.columns:
+            sku_data = sku_data.sort_values('date')
+            fig.add_trace(
+                go.Scatter(
+                    x=sku_data['date'],
+                    y=sku_data['quantity'],
+                    mode='lines+markers',
+                    name='Historical Sales',
+                    line=dict(color='blue'),
+                    marker=dict(size=8, symbol='circle'),
+                    hovertemplate='%{x|%b %Y}: %{y:,.0f} units'
+                )
+            )
             
-            # Create figure
-            fig = go.Figure()
+            # Add anomalies if requested
+            if show_anomalies and 'anomalies' in forecast_result:
+                anomalies = forecast_result['anomalies']
+                if isinstance(anomalies, pd.DataFrame) and not anomalies.empty:
+                    fig.add_trace(
+                        go.Scatter(
+                            x=anomalies['date'],
+                            y=anomalies['quantity'],
+                            mode='markers',
+                            name='Anomalies',
+                            marker=dict(
+                                size=12, 
+                                symbol='x',
+                                color='red',
+                                line=dict(width=2, color='black')
+                            ),
+                            hovertemplate='Anomaly: %{x|%b %Y}: %{y:,.0f} units'
+                        )
+                    )
+        
+        # Add forecast
+        if 'forecast_data' in forecast_result and isinstance(forecast_result['forecast_data'], pd.DataFrame) and not forecast_result['forecast_data'].empty:
+            forecast_df = forecast_result['forecast_data'].copy()
             
-            # Add historical data if available
-            if not sku_data.empty and 'date' in sku_data.columns and 'quantity' in sku_data.columns:
-                sku_data = sku_data.sort_values('date')
+            # Get the forecast values
+            if 'yhat' in forecast_df.columns:
+                # Prophet-style output
                 fig.add_trace(
                     go.Scatter(
-                        x=sku_data['date'],
-                        y=sku_data['quantity'],
+                        x=forecast_df['ds'],
+                        y=forecast_df['yhat'],
                         mode='lines+markers',
-                        name='Historical Sales',
-                        line=dict(color='blue'),
+                        name='Forecast',
+                        line=dict(color='red', dash='solid'),
                         marker=dict(size=8, symbol='circle'),
                         hovertemplate='%{x|%b %Y}: %{y:,.0f} units'
                     )
                 )
-            
-            # Add forecast
-            if 'forecast_data' in forecast_result and not forecast_result['forecast_data'].empty:
-                forecast_df = forecast_result['forecast_data'].copy()
                 
-                # Get the forecast values
-                if 'yhat' in forecast_df.columns:
-                    # Prophet-style output
+                # Add confidence intervals if available
+                if 'yhat_lower' in forecast_df.columns and 'yhat_upper' in forecast_df.columns:
                     fig.add_trace(
                         go.Scatter(
-                            x=forecast_df['ds'],
-                            y=forecast_df['yhat'],
-                            mode='lines+markers',
-                            name='Forecast',
-                            line=dict(color='red', dash='solid'),
-                            marker=dict(size=8, symbol='circle'),
-                            hovertemplate='%{x|%b %Y}: %{y:,.0f} units'
+                            x=forecast_df['ds'].tolist() + forecast_df['ds'].tolist()[::-1],
+                            y=forecast_df['yhat_upper'].tolist() + forecast_df['yhat_lower'].tolist()[::-1],
+                            fill='toself',
+                            fillcolor='rgba(255, 0, 0, 0.2)',
+                            line=dict(color='rgba(255, 255, 255, 0)'),
+                            hoverinfo='skip',
+                            name='Confidence Interval',
+                            showlegend=True
                         )
                     )
-                    
-                    # Add confidence intervals if available
-                    if 'yhat_lower' in forecast_df.columns and 'yhat_upper' in forecast_df.columns:
-                        fig.add_trace(
-                            go.Scatter(
-                                x=forecast_df['ds'].tolist() + forecast_df['ds'].tolist()[::-1],
-                                y=forecast_df['yhat_upper'].tolist() + forecast_df['yhat_lower'].tolist()[::-1],
-                                fill='toself',
-                                fillcolor='rgba(255, 0, 0, 0.2)',
-                                line=dict(color='rgba(255, 255, 255, 0)'),
-                                hoverinfo='skip',
-                                showlegend=False
-                            )
-                        )
-                
-                # Update layout
-                max_date = sku_data['date'].max() if not sku_data.empty and 'date' in sku_data.columns else None
-                
-                fig.update_layout(
-                    title=f"<b>Sales Forecast for {sku}</b>",
-                    xaxis_title="Date",
-                    yaxis_title="Units Sold",
-                    template="plotly_white",
-                    height=500
-                )
-                
-                # Add vertical line separating history and forecast if possible
-                if max_date is not None:
-                    fig.add_vline(
-                        x=max_date, 
-                        line_dash="dash", 
-                        line_color="gray",
-                        annotation_text="Forecast Start",
-                        annotation_position="top right"
-                    )
-                
-                return fig
             
-            # If no forecast data, just return whatever we have
+            # Update layout
+            max_date = sku_data['date'].max() if not sku_data.empty and 'date' in sku_data.columns else None
+            
+            fig.update_layout(
+                title=f"<b>Sales Forecast for {sku}</b>",
+                xaxis_title="Date",
+                yaxis_title="Units Sold",
+                template="plotly_white",
+                height=500,
+                legend=dict(
+                    orientation="h",
+                    yanchor="bottom",
+                    y=1.02,
+                    xanchor="right",
+                    x=1
+                )
+            )
+            
+            # Add vertical line separating history and forecast if possible
+            if max_date is not None:
+                fig.add_vline(
+                    x=max_date, 
+                    line_dash="dash", 
+                    line_color="gray",
+                    annotation_text="Forecast Start",
+                    annotation_position="top right"
+                )
+        else:
+            # If no forecast data but we have historical data
             if not sku_data.empty:
                 fig.update_layout(
                     title=f"<b>Historical Sales for {sku}</b>",
@@ -117,11 +174,22 @@ def plot_forecast(forecast_result, sales_data=None, forecast_data=None, sku=None
                     template="plotly_white",
                     height=500
                 )
-                return fig
-            
-            # Return empty figure if nothing to plot
-            fig.update_layout(title=f"No data available for {sku}")
-            return fig
+            else:
+                # Truly empty data case
+                fig.update_layout(
+                    title=f"No data available for {sku}",
+                    annotations=[{
+                        'text': "No data available for this SKU",
+                        'showarrow': False,
+                        'font': {'size': 16},
+                        'xref': 'paper',
+                        'yref': 'paper',
+                        'x': 0.5,
+                        'y': 0.5
+                    }]
+                )
+        
+        return fig
     
     # Original implementation for the old calling pattern
     # Filter sales data for this SKU
@@ -788,44 +856,77 @@ def plot_inventory_health(sales_data, forecast_data):
 
     return fig
 
-def plot_model_comparison(sku, forecast_data):
+def plot_model_comparison(model_comparison, selected_model=None):
     """
     Create a plotly figure comparing different forecasting models for a specific SKU
     with detailed error metrics visualization - using a clustered bar chart with a line for MAPE
 
     Parameters:
     -----------
-    sku : str
-        SKU identifier
-    forecast_data : dict
-        Forecast information for the SKU containing model evaluation data
+    model_comparison : dict
+        Dictionary containing model evaluation data with metrics for each model
+    selected_model : str, optional
+        The name of the selected (best) model to highlight
 
     Returns:
     --------
     plotly.graph_objects.Figure
         Plotly figure object with the model comparison
     """
-    # Check if model evaluation data exists
-    if 'model_evaluation' not in forecast_data or not forecast_data['model_evaluation'].get('metrics'):
-        fig = go.Figure()
-        fig.update_layout(title=f"No model comparison data available for SKU: {sku}")
+    # Create default figure
+    fig = go.Figure()
+    
+    # Check if model_comparison is valid
+    if not isinstance(model_comparison, dict) or not model_comparison:
+        fig.update_layout(
+            title="No model comparison data available",
+            annotations=[{
+                'text': "No model comparison data available",
+                'showarrow': False,
+                'font': {'size': 16},
+                'xref': 'paper',
+                'yref': 'paper',
+                'x': 0.5,
+                'y': 0.5
+            }]
+        )
         return fig
 
-    # Get model evaluation metrics
-    metrics = forecast_data['model_evaluation']['metrics']
+    # Get metrics for each model
+    metrics = {}
+    for model_name, model_data in model_comparison.items():
+        if isinstance(model_data, dict):
+            metrics[model_name] = model_data
+    
+    # If no valid metrics found
+    if not metrics:
+        fig.update_layout(
+            title="Invalid model comparison data",
+            annotations=[{
+                'text': "Model comparison data is not in the expected format",
+                'showarrow': False,
+                'font': {'size': 16},
+                'xref': 'paper',
+                'yref': 'paper',
+                'x': 0.5,
+                'y': 0.5
+            }]
+        )
+        return fig
 
-    # Check if best_model key exists
-    if 'best_model' in forecast_data['model_evaluation']:
-        best_model = forecast_data['model_evaluation']['best_model']
-    else:
-        # Fallback to the model with the lowest error metric (MAPE if available)
-        best_model = min(metrics.keys(), key=lambda m: metrics[m].get('mape', float('inf')) 
-                         if not pd.isna(metrics[m].get('mape', float('inf'))) else float('inf'))
+    # If selected_model is not provided or not in metrics, determine the best model
+    if selected_model is None or selected_model not in metrics:
+        # Find model with lowest MAPE (or RMSE if MAPE not available)
+        selected_model = min(
+            metrics.keys(), 
+            key=lambda m: metrics[m].get('mape', float('inf')) 
+            if not pd.isna(metrics[m].get('mape', float('inf'))) else metrics[m].get('rmse', float('inf'))
+        )
 
     # Create data for bar chart
     models = sorted(list(metrics.keys()))  # Sort alphabetically for consistent ordering
     rmse_values = [metrics[m].get('rmse', 0) for m in models]
-    mape_values = [metrics[m].get('mape', 0) if not np.isnan(metrics[m].get('mape', 0)) else 0 for m in models]
+    mape_values = [metrics[m].get('mape', 0) if not pd.isna(metrics[m].get('mape', 0)) else 0 for m in models]
     mae_values = [metrics[m].get('mae', 0) for m in models]
 
     # Create figure with multiple traces

@@ -8,7 +8,7 @@ deploymentTarget = "autoscale"
 run = ["sh", "-c", "streamlit run app.py --server.port 5000"]
 
 [workflows]
-runButton = "Streamlit with SQLite"
+runButton = "Streamlit Server"
 
 [[workflows.workflow]]
 name = "Project"

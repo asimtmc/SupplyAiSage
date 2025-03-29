@@ -1162,19 +1162,26 @@ with tab_forecast:
                 st.subheader("Forecast Visualization")
                 
                 # Get the plot from visualization utility
-                forecast_fig = plot_forecast(forecast_result)
+                forecast_fig = plot_forecast(forecast_result, show_anomalies=True, confidence_interval=0.90)
                 if forecast_fig:
                     st.plotly_chart(forecast_fig, use_container_width=True)
                 
                 # Show forecast data table
                 st.subheader("Forecast Data")
                 
-                if 'forecast_data' in forecast_result:
+                if 'forecast_data' in forecast_result and isinstance(forecast_result['forecast_data'], pd.DataFrame):
                     forecast_df = forecast_result['forecast_data'].copy()
                     
                     # Format date for display
                     if 'ds' in forecast_df.columns:
                         forecast_df['date'] = forecast_df['ds'].dt.strftime('%Y-%m-%d')
+                        
+                    # Function to highlight data columns
+                    def highlight_forecast_values(val):
+                        # Different background colors for different column types
+                        if 'yhat' in forecast_df.columns:
+                            return 'background-color: rgba(135, 206, 250, 0.2)'
+                        return ''
                     
                     # Display the data with custom styling
                     st.dataframe(forecast_df, use_container_width=True)
@@ -1187,6 +1194,8 @@ with tab_forecast:
                         file_name=f"forecast_{selected_forecast_sku}.csv",
                         mime="text/csv"
                     )
+                else:
+                    st.info("No forecast data available for this SKU. Please run a forecast first.")
                 
                 # Show model comparison if available
                 if 'model_comparison' in forecast_result:
@@ -1207,13 +1216,26 @@ with tab_forecast:
                         if model_data:
                             model_df = pd.DataFrame(model_data)
                             
-                            # Display the data
-                            st.dataframe(model_df, use_container_width=True)
+                            # Function to highlight best model
+                            def highlight_best_model(row):
+                                is_best = row['model'] == forecast_result.get('selected_model', '')
+                                return ['background-color: rgba(144, 238, 144, 0.3)' if is_best else '' for _ in row]
+                            
+                            # Apply styling if selected_model is available
+                            if 'selected_model' in forecast_result:
+                                styled_df = model_df.style.apply(highlight_best_model, axis=1)
+                                st.dataframe(styled_df, use_container_width=True)
+                            else:
+                                st.dataframe(model_df, use_container_width=True)
                             
                             # Show visual comparison of models
-                            comparison_fig = plot_model_comparison(model_comparison, forecast_result['selected_model'])
+                            comparison_fig = plot_model_comparison(model_comparison, forecast_result.get('selected_model', ''))
                             if comparison_fig:
                                 st.plotly_chart(comparison_fig, use_container_width=True)
+                        else:
+                            st.info("No model comparison data available.")
+                    else:
+                        st.info("Model comparison data is not in the expected format.")
     else:
         # Show instructions for running a forecast
         if not st.session_state.advanced_forecast_in_progress:
@@ -1243,6 +1265,102 @@ with tab_forecast:
                 - Enhance decision-making with detailed forecast explanations
                 - View live console logs during model tuning
                 """)
+                
+            # Add a placeholder chart to show what to expect
+            st.subheader("Forecast Visualization Example")
+            
+            # Create simple placeholder data
+            dates = pd.date_range(start='2023-01-01', periods=24, freq='MS')
+            historical_values = [100, 110, 90, 120, 115, 125, 140, 130, 120, 135, 145, 160]
+            forecast_values = [165, 175, 180, 190, 200, 210, 220, 215, 225, 230, 240, 245]
+            
+            # Create a placeholder figure
+            placeholder_fig = go.Figure()
+            
+            # Add historical data
+            placeholder_fig.add_trace(
+                go.Scatter(
+                    x=dates[:12],
+                    y=historical_values,
+                    mode='lines+markers',
+                    name='Historical Sales',
+                    line=dict(color='blue'),
+                    marker=dict(size=8, symbol='circle')
+                )
+            )
+            
+            # Add forecast data
+            placeholder_fig.add_trace(
+                go.Scatter(
+                    x=dates[12:],
+                    y=forecast_values,
+                    mode='lines+markers',
+                    name='Forecast (Example)',
+                    line=dict(color='red', dash='solid'),
+                    marker=dict(size=8, symbol='circle')
+                )
+            )
+            
+            # Add confidence intervals (placeholder)
+            upper_values = [v * 1.15 for v in forecast_values]
+            lower_values = [v * 0.85 for v in forecast_values]
+            
+            placeholder_fig.add_trace(
+                go.Scatter(
+                    x=dates[12:].tolist() + dates[12:].tolist()[::-1],
+                    y=upper_values + lower_values[::-1],
+                    fill='toself',
+                    fillcolor='rgba(255, 0, 0, 0.2)',
+                    line=dict(color='rgba(255, 255, 255, 0)'),
+                    hoverinfo='skip',
+                    name='Confidence Interval (Example)',
+                    showlegend=True
+                )
+            )
+            
+            # Add vertical line separating history and forecast
+            placeholder_fig.add_vline(
+                x=dates[11],
+                line_dash="dash",
+                line_color="gray",
+                annotation_text="Forecast Start",
+                annotation_position="top right"
+            )
+            
+            # Update layout
+            placeholder_fig.update_layout(
+                title="<b>Example Forecast Visualization</b>",
+                xaxis_title="Date",
+                yaxis_title="Units Sold",
+                template="plotly_white",
+                height=500,
+                legend=dict(
+                    orientation="h",
+                    yanchor="bottom",
+                    y=1.02,
+                    xanchor="right",
+                    x=1
+                )
+            )
+            
+            # Display the placeholder chart
+            st.plotly_chart(placeholder_fig, use_container_width=True)
+            
+            # Add sample data table
+            st.subheader("Example Forecast Data")
+            
+            # Create sample forecast data
+            sample_data = {
+                'date': dates[12:],
+                'forecast': forecast_values,
+                'lower_bound': lower_values,
+                'upper_bound': upper_values
+            }
+            sample_df = pd.DataFrame(sample_data)
+            sample_df['date'] = sample_df['date'].dt.strftime('%Y-%m-%d')
+            
+            # Display sample data table
+            st.dataframe(sample_df, use_container_width=True)
 
 # Code to run the forecast if the button was clicked
 if st.session_state.run_advanced_forecast and st.session_state.advanced_forecast_in_progress:
