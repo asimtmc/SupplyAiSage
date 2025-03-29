@@ -227,22 +227,23 @@ with st.sidebar:
     # Divider
     st.divider()
     
-    # Run Forecast button in sidebar
+    # Run Forecast button in sidebar - always visible
     forecast_button_text = "Run Advanced Forecast"
-    should_show_button = not st.session_state.advanced_forecast_in_progress
     
-    if should_show_button:
-        if st.button(
-            forecast_button_text, 
-            key="run_advanced_forecast_button",
-            use_container_width=True
-        ):
-            # Set forecast in progress flag
-            st.session_state.advanced_forecast_in_progress = True
-            st.session_state.advanced_forecast_progress = 0
-            st.session_state.run_advanced_forecast = True
-            st.rerun()  # Rerun to update the UI with forecast tab active
-    else:
+    # Show button regardless of state
+    if st.button(
+        forecast_button_text, 
+        key="run_advanced_forecast_button",
+        use_container_width=True
+    ):
+        # Set forecast in progress flag
+        st.session_state.advanced_forecast_in_progress = True
+        st.session_state.advanced_forecast_progress = 0
+        st.session_state.run_advanced_forecast = True
+        st.rerun()  # Rerun to update the UI with forecast tab active
+    
+    # Show status message but don't hide the button
+    if st.session_state.advanced_forecast_in_progress:
         st.info("Forecast generation in progress...")
     
     # Divider
@@ -839,22 +840,23 @@ with tab_forecast:
     control_col1, control_col2 = st.columns(2)
     
     with control_col1:
-        # Create forecast button in main tab
-        should_show_button = not st.session_state.advanced_forecast_in_progress
+        # Create forecast button in main tab - always visible
         forecast_button_text = "Run Advanced Forecast"
         
-        if should_show_button:
-            if st.button(
-                forecast_button_text, 
-                key="run_advanced_forecast_button_tab",
-                use_container_width=True
-            ):
-                # Set forecast in progress flag
-                st.session_state.advanced_forecast_in_progress = True
-                st.session_state.advanced_forecast_progress = 0
-                st.session_state.run_advanced_forecast = True
-                st.rerun()  # Rerun to update UI
-        else:
+        # Always show the button regardless of state
+        if st.button(
+            forecast_button_text, 
+            key="run_advanced_forecast_button_tab",
+            use_container_width=True
+        ):
+            # Set forecast in progress flag
+            st.session_state.advanced_forecast_in_progress = True
+            st.session_state.advanced_forecast_progress = 0
+            st.session_state.run_advanced_forecast = True
+            st.rerun()  # Rerun to update UI
+        
+        # Show status message but don't hide the button
+        if st.session_state.advanced_forecast_in_progress:
             st.info("Forecast generation in progress...")
     
     with control_col2:
@@ -1457,7 +1459,7 @@ with tab_forecast:
             st.dataframe(sample_df, use_container_width=True)
 
 # Code to run the forecast if the button was clicked
-if st.session_state.run_advanced_forecast and st.session_state.advanced_forecast_in_progress:
+if st.session_state.run_advanced_forecast:
     # Create container for the progress display
     forecast_container = st.empty()
     
