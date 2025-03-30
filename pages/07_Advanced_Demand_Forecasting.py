@@ -856,6 +856,10 @@ with tab_forecast:
                 # Display the log
                 st.markdown(log_html, unsafe_allow_html=True)
             
+            # Define log content area placeholders
+            log_header = st.empty()
+            log_content = st.empty()
+            
             # Function to add log messages
             def add_log_message(message, level="info"):
                 timestamp = datetime.now().strftime("%H:%M:%S")
