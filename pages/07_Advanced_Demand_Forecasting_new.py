@@ -821,7 +821,7 @@ with tab_secondary:
                         if noise_pct > 20:
                             st.warning(f"⚠️ High distribution noise detected ({noise_pct:.2f}%). This SKU shows significant discrepancy between primary and secondary sales, suggesting potential supply chain inefficiencies.")
                         elif noise_pct > 10:
-                            st.info(f"ℹ️ Moderate distribution noise detected ({noise_pct:.2f}%). Consider optimizing inventory levels for this SKU.")
+                            st.info(f"ℹ️ Moderate distribution noise detected ({noisepct:.2f}%). Consider optimizing inventory levels for this SKU.")
                         else:
                             st.success(f"✅ Low distribution noise ({noise_pct:.2f}%). This SKU shows good alignment between primary and secondary sales patterns.")
                 else:
@@ -931,11 +931,15 @@ with tab_forecast:
             st.markdown(log_html, unsafe_allow_html=True)
 
             # Run forecast if this is the first load after setting the flag
-            if st.session_state.run_advanced_forecast and not st.session_state.advanced_forecasts:
+            if st.session_state.run_advanced_forecast and ('advanced_forecasts' not in st.session_state or not st.session_state.advanced_forecasts):
                 # This will be executed by Streamlit after the UI has been updated
                 # Create a placeholder to hold the button
                 if 'forecast_button_clicked' not in st.session_state:
                     st.session_state.forecast_button_clicked = True
+
+                    # Initialize log_messages as an empty list if needed
+                    if not hasattr(st.session_state, 'log_messages'):
+                        st.session_state.log_messages = []
 
                     # Add initial log message
                     timestamp = datetime.now().strftime("%H:%M:%S")

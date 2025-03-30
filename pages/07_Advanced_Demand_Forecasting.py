@@ -1321,6 +1321,10 @@ if st.session_state.run_advanced_forecast:
             # Start the forecasting process
             if 'log_messages' not in st.session_state:
                 st.session_state.log_messages = []
+                
+            # Initialize log_messages as an empty list if needed
+            if not hasattr(st.session_state, 'log_messages'):
+                st.session_state.log_messages = []
             
             st.session_state.log_messages.append({
                 "timestamp": datetime.now().strftime("%H:%M:%S"),
