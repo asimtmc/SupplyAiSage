@@ -818,8 +818,7 @@ with tab_secondary:
                         metrics = analysis_result['metrics']
                         noise_pct = metrics['noise_percentage']
 
-                        if noise_pct > 20:
-                            st.warning(f"⚠️ High distribution noise detected ({noise_pct:.2f}%). This SKU shows significant discrepancy between primary and secondary sales, suggesting potential supply chain inefficiencies.")
+                        if noise_pct > 20:                            st.warning(f"⚠️ High distribution noise detected ({noise_pct:.2f}%). This SKU shows significant discrepancy between primary and secondary sales, suggesting potential supply chain inefficiencies.")
                         elif noise_pct > 10:
                             st.info(f"ℹ️ Moderate distribution noise detected ({noise_pct:.2f}%). Consider optimizing inventory levels for this SKU.")
                         else:
@@ -908,10 +907,10 @@ with tab_forecast:
         # Create a detailed log area
         log_area = st.expander("View Processing Log", expanded=True)
         with log_area:
-            # Create placeholders for log content
+            # Define log header and content placeholders
             log_header = st.empty()
             log_content = st.empty()
-            
+
             # Format log messages with appropriate styling
             log_html = '<div style="height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.8em; background-color: #f0f0f0; padding: 10px; border-radius: 5px;">'
 
