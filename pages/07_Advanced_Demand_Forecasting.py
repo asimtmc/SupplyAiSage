@@ -56,6 +56,8 @@ if 'advanced_current_model' not in st.session_state:
     st.session_state.advanced_current_model = ""
 if 'parameter_tuning_in_progress' not in st.session_state:
     st.session_state.parameter_tuning_in_progress = False
+if 'log_messages' not in st.session_state:
+    st.session_state.log_messages = []
 # Secondary sales analysis session state variables
 if 'secondary_sales_results' not in st.session_state:
     st.session_state.secondary_sales_results = {}
