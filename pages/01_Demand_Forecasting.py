@@ -256,8 +256,8 @@ with st.sidebar:
                 
                 # Create an enhanced progress display
                 with progress_placeholder.container():
-                # Create a two-column layout for the progress display
-                progress_cols = st.columns([3, 1])
+                    # Create a two-column layout for the progress display
+                    progress_cols = st.columns([3, 1])
 
                 with progress_cols[0]:
                     # Header for progress display with animation effect
