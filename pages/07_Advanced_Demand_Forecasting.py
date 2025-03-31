@@ -1103,20 +1103,37 @@ with tab_forecast:
                 # Show forecast plot
                 st.subheader("Forecast Visualization")
 
+                # Create the properly formatted data structure for visualization
+                visualization_data = {
+                    'sku': forecast_result.get('sku', selected_forecast_sku),
+                    'historical_data': forecast_result.get('train_set', pd.DataFrame()),
+                    'forecast_data': pd.DataFrame({
+                        'date': forecast_result['forecast'].index,
+                        'forecast': forecast_result['forecast'].values,
+                        'lower_bound': forecast_result['lower_bound'].values,
+                        'upper_bound': forecast_result['upper_bound'].values
+                    })
+                }
+                
                 # Get the plot from visualization utility
-                forecast_fig = plot_forecast(forecast_result, show_anomalies=True, confidence_interval=0.90)
+                forecast_fig = plot_forecast(visualization_data, show_anomalies=True, confidence_interval=0.90)
                 if forecast_fig:
                     st.plotly_chart(forecast_fig, use_container_width=True)
 
                 # Show forecast data table
                 st.subheader("Forecast Data")
 
-                if 'forecast_data' in forecast_result:
-                    forecast_df = forecast_result['forecast_data'].copy()
+                # Create a forecast dataframe for display
+                forecast_df = pd.DataFrame({
+                    'date': forecast_result['forecast'].index,
+                    'forecast': forecast_result['forecast'].values,
+                    'lower_bound': forecast_result['lower_bound'].values,
+                    'upper_bound': forecast_result['upper_bound'].values
+                })
 
-                    # Format date for display
-                    if 'ds' in forecast_df.columns:
-                        forecast_df['date'] = forecast_df['ds'].dt.strftime('%Y-%m-%d')
+                # Format date for display
+                if 'ds' in forecast_df.columns:
+                    forecast_df['date'] = forecast_df['ds'].dt.strftime('%Y-%m-%d')
 
                     # Function to highlight data columns
                     def highlight_data_columns(df):
