@@ -222,12 +222,30 @@ def plot_forecast(forecast_result, sales_data=None, forecast_data=None, sku=None
             
             # Add vertical line separating history and forecast if possible
             if max_date is not None:
-                fig.add_vline(
-                    x=max_date, 
-                    line_dash="dash", 
-                    line_color="gray",
-                    annotation_text="Forecast Start",
-                    annotation_position="top right"
+                # Convert to string representation to avoid timestamp math issues
+                fig.add_shape(
+                    type="line",
+                    x0=max_date,
+                    y0=0,
+                    x1=max_date,
+                    y1=1,
+                    yref="paper",
+                    line=dict(
+                        color="gray",
+                        width=2,
+                        dash="dash",
+                    )
+                )
+                
+                # Add annotation for the forecast start
+                fig.add_annotation(
+                    x=max_date,
+                    y=1,
+                    yref="paper",
+                    text="Forecast Start",
+                    showarrow=False,
+                    xanchor="right",
+                    yanchor="top"
                 )
         else:
             # If no forecast data but we have historical data

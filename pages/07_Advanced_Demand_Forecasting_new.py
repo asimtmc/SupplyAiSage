@@ -1268,15 +1268,25 @@ with tab_forecast:
                 st.subheader("Forecast Visualization")
 
                 # Create the properly formatted data structure for visualization
+                # Make a copy of the train set for historical data to avoid modifying the original
+                historical_data = forecast_result.get('train_set', pd.DataFrame()).copy()
+                
+                # Create a DataFrame with dates converted to strings to avoid timestamp math issues
+                last_date = historical_data['date'].max() if not historical_data.empty else None
+                
+                # Create forecast dataframe with dates converted to strings to avoid timestamp math
+                forecast_data = pd.DataFrame({
+                    # Convert index timestamps to datetime
+                    'date': pd.to_datetime(forecast_result['forecast'].index),
+                    'forecast': forecast_result['forecast'].values,
+                    'lower_bound': forecast_result['lower_bound'].values,
+                    'upper_bound': forecast_result['upper_bound'].values
+                })
+                
                 visualization_data = {
                     'sku': forecast_result.get('sku', selected_forecast_sku),
-                    'historical_data': forecast_result.get('train_set', pd.DataFrame()),
-                    'forecast_data': pd.DataFrame({
-                        'date': forecast_result['forecast'].index,
-                        'forecast': forecast_result['forecast'].values,
-                        'lower_bound': forecast_result['lower_bound'].values,
-                        'upper_bound': forecast_result['upper_bound'].values
-                    })
+                    'historical_data': historical_data,
+                    'forecast_data': forecast_data
                 }
                 
                 # Get the plot from visualization utility
