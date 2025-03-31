@@ -84,8 +84,7 @@ if 'parameter_tuning_in_progress' not in st.session_state:
     st.session_state.parameter_tuning_in_progress = False
 if 'log_messages' not in st.session_state:
     st.session_state.log_messages = []
-if 'active_tab' not in st.session_state:
-    st.session_state.active_tab = 0  # Default to first tab
+# No longer need active_tab since we can't set tab index directly
 # Secondary sales analysis session state variables
 if 'secondary_sales_results' not in st.session_state:
     st.session_state.secondary_sales_results = {}
@@ -262,7 +261,7 @@ with st.sidebar:
         st.session_state.advanced_forecast_in_progress = True
         st.session_state.advanced_forecast_progress = 0
         st.session_state.run_advanced_forecast = True
-        st.session_state.active_tab = 1  # Set active tab to forecast tab
+        # Tab will remain the same
         st.rerun()  # Rerun to update the UI with forecast tab active
 
     # Show status message but don't hide the button
@@ -614,9 +613,9 @@ def forecast_progress_callback(current_index, current_sku, total_skus, message=N
 
 # Main content
 # Create main tabs for different analyses
-# Create tabs and automatically select the active tab based on session state
+# Create tabs
 tab_names = ["Sales Data Analysis", "Multi-Model Forecasting", "Secondary Sales Analysis", "Hyperparameter Tuning"]
-tab_sales, tab_forecast, tab_secondary, tab_hyperparameter = st.tabs(tab_names, index=st.session_state.active_tab)
+tab_sales, tab_forecast, tab_secondary, tab_hyperparameter = st.tabs(tab_names)
 
 # Add any needed session state variables for hyperparameter tuning
 if 'tuning_progress' not in st.session_state:
@@ -856,7 +855,6 @@ with tab_forecast:
         st.session_state.advanced_forecast_in_progress = True
         st.session_state.advanced_forecast_progress = 0
         st.session_state.run_advanced_forecast = True
-        st.session_state.active_tab = 1  # Set active tab to forecast tab
         st.rerun()  # Rerun to update UI
     
     # Show status message if forecast in progress
@@ -1650,7 +1648,7 @@ with tab_hyperparameter:
             st.session_state.parameter_tuning_in_progress = True
             st.session_state.tuning_progress = 0
             st.session_state.tuning_models = tuning_models
-            st.session_state.active_tab = 3  # Set to hyperparameter tuning tab
+            # Tab will remain the same
             st.rerun()
     else:
         st.info("Hyperparameter tuning in progress...")
