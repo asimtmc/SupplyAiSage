@@ -184,6 +184,12 @@ with st.sidebar:
         help="Use previously optimized parameters from database for faster and more accurate forecasts"
     )
     st.session_state.advanced_use_param_cache = use_param_cache
+    
+    # Add a separate button for hyperparameter tuning
+    st.divider()
+    if st.button("Go to Hyperparameter Tuning", key="goto_hyperparam_tuning"):
+        st.session_state.active_tab = "Hyperparameter Tuning"
+        st.rerun()
 
     # Apply Sense Check
     apply_sense_check = st.toggle(
@@ -615,6 +621,19 @@ def forecast_progress_callback(current_index, current_sku, total_skus, message=N
 # Create main tabs for different analyses
 # Create tabs
 tab_names = ["Sales Data Analysis", "Multi-Model Forecasting", "Secondary Sales Analysis", "Hyperparameter Tuning"]
+
+# Use active_tab to determine which tab should be active
+if 'active_tab' in st.session_state and st.session_state.active_tab is not None:
+    # Find the index of the active tab
+    try:
+        active_tab_index = tab_names.index(st.session_state.active_tab)
+        # Clear the active tab to avoid persisting after reload
+        st.session_state.active_tab = None
+    except ValueError:
+        active_tab_index = 0
+else:
+    active_tab_index = 0
+
 tab_sales, tab_forecast, tab_secondary, tab_hyperparameter = st.tabs(tab_names)
 
 # Add any needed session state variables for hyperparameter tuning
@@ -624,6 +643,10 @@ if 'tuning_models' not in st.session_state:
     st.session_state.tuning_models = []
 if 'tuning_results' not in st.session_state:
     st.session_state.tuning_results = {}
+if 'tuning_log_messages' not in st.session_state:
+    st.session_state.tuning_log_messages = []
+if 'active_tab' not in st.session_state:
+    st.session_state.active_tab = tab_names[0]
 
 # Tab 1: Sales Data Analysis
 with tab_sales:
@@ -1334,10 +1357,18 @@ with tab_forecast:
                 tuning_progress = st.progress(0)
                 tuning_status = st.empty()
 
-                # Create callback for tuning progress
-                def tuning_progress_callback(current_step, total_steps, message, level="info"):
+                # Create callback for tuning step progress
+                def tuning_step_callback(current_step, total_steps, message, level="info"):
                     progress = min(float(current_step) / total_steps, 1.0)
                     tuning_progress.progress(progress)
+                    
+                    # Also add to the tuning log messages
+                    timestamp = datetime.now().strftime("%H:%M:%S")
+                    st.session_state.tuning_log_messages.append({
+                        "timestamp": timestamp,
+                        "message": message,
+                        "level": level
+                    })
 
                     if level == "error":
                         tuning_status.error(message)
@@ -1364,7 +1395,7 @@ with tab_forecast:
                         st.session_state.sales_data,
                         tuning_skus,
                         st.session_state.advanced_models,
-                        progress_callback=tuning_progress_callback
+                        progress_callback=tuning_step_callback
                     )
 
                     # Complete
@@ -1655,15 +1686,70 @@ with tab_hyperparameter:
     
     # Show tuning progress when in progress
     if st.session_state.parameter_tuning_in_progress:
-        # Progress display for tuning
-        tuning_progress = st.progress(st.session_state.tuning_progress)
-        tuning_status = st.empty()
+        # Create a two-column layout for the progress display
+        tuning_progress_cols = st.columns([3, 1])
         
-        # Create callback for tuning progress
+        with tuning_progress_cols[0]:
+            # Header for progress display with animation effect
+            st.markdown('<h3 style="color:#0066cc;"><span class="highlight">🔄 Hyperparameter Tuning in Progress</span></h3>', unsafe_allow_html=True)
+            
+            # Progress bar with custom styling
+            tuning_progress = st.progress(st.session_state.tuning_progress)
+            
+            # Status text placeholder
+            tuning_status = st.empty()
+            
+            # Add a progress details section
+            tuning_progress_details = st.empty()
+            tuning_progress_percentage = int(st.session_state.tuning_progress * 100)
+            model_names = [model_options[model] for model in st.session_state.tuning_models]
+            tuning_progress_details.markdown(f"""
+            **Progress:** {tuning_progress_percentage}%  
+            **Models being tuned:** {', '.join(model_names)}
+            """)
+        
+        with tuning_progress_cols[1]:
+            # Add a spinning icon or other visual indicator
+            st.markdown('<div class="loader"></div>', unsafe_allow_html=True)
+        
+        # Create a detailed log area
+        tuning_log_area = st.expander("View Tuning Log", expanded=True)
+        with tuning_log_area:
+            # Format log messages with appropriate styling
+            tuning_log_html = '<div style="height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.8em; background-color: #f0f0f0; padding: 10px; border-radius: 5px;">'
+            
+            for log in st.session_state.tuning_log_messages[-100:]:  # Show last 100 messages
+                if log["level"] == "info":
+                    color = "black"
+                elif log["level"] == "warning":
+                    color = "orange"
+                elif log["level"] == "error":
+                    color = "red"
+                elif log["level"] == "success":
+                    color = "green"
+                else:
+                    color = "blue"
+                
+                tuning_log_html += f'<div style="margin-bottom: 3px;"><span style="color: gray;">[{log["timestamp"]}]</span> <span style="color: {color};">{log["message"]}</span></div>'
+            
+            tuning_log_html += '</div>'
+            
+            # Display the log
+            st.markdown(tuning_log_html, unsafe_allow_html=True)
+        
+        # Create callback for tuning progress that uses separate logs from forecasting
         def tuning_progress_callback(sku, model_type, message, level="info"):
             # Update progress value from session state
             current_progress = st.session_state.get('tuning_progress', 0)
             tuning_progress.progress(current_progress)
+            
+            # Add message to the tuning log
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            st.session_state.tuning_log_messages.append({
+                "timestamp": timestamp,
+                "message": f"[{sku}] [{model_type}] {message}",
+                "level": level
+            })
             
             # Update status message
             if level == "error":
