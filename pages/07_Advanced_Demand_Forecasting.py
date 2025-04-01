@@ -26,7 +26,7 @@ from utils.database import get_secondary_sales
 # Initialize session state variables
 if 'advanced_forecast_periods' not in st.session_state:
     st.session_state.advanced_forecast_periods = 12  # default 12 months
-    
+
 # Helper function for formatting model parameters
 def format_parameters(params, model_type):
     """Format model parameters for display"""
@@ -50,7 +50,7 @@ def format_parameters(params, model_type):
         formatted.append(f"Units: {params.get('units', '?')}")
         formatted.append(f"Dropout: {params.get('dropout', '?')}")
         formatted.append(f"Epochs: {params.get('epochs', '?')}")
-    
+
     return "; ".join(formatted)
 if 'run_advanced_forecast' not in st.session_state:
     st.session_state.run_advanced_forecast = False
@@ -177,7 +177,7 @@ with st.sidebar:
         help="Use previously optimized parameters from database for faster and more accurate forecasts"
     )
     st.session_state.advanced_use_param_cache = use_param_cache
-    
+
     # Add a separate button for hyperparameter tuning
     st.divider()
     if not st.session_state.get('parameter_tuning_in_progress', False):
@@ -823,10 +823,10 @@ with tab_secondary:
 # Tab 3: Forecast Analysis
 with tab_forecast:
     st.subheader("Multi-Model Demand Forecasting")
-    
+
     # Model selection section
     st.write("#### 1. Select Forecasting Models")
-    
+
     # Define available models with descriptions
     available_models = {
         "auto_arima": "Auto ARIMA (Statistical time series model with automatic parameter selection)",
@@ -836,10 +836,10 @@ with tab_forecast:
         "lstm": "LSTM (Deep learning model for sequence prediction)",
         "ensemble": "Ensemble (Combines multiple models for improved accuracy)"
     }
-    
+
     # Multi-model selection
     model_col1, model_col2 = st.columns(2)
-    
+
     selected_models = []
     with model_col1:
         for model_key in list(available_models.keys())[:3]:  # First half of models
@@ -848,7 +848,7 @@ with tab_forecast:
                         help=available_models[model_key],
                         key=f"forecast_model_{model_key}"):
                 selected_models.append(model_key)
-    
+
     with model_col2:
         for model_key in list(available_models.keys())[3:]:  # Second half of models
             if st.checkbox(f"{model_key.upper()}", 
@@ -856,20 +856,20 @@ with tab_forecast:
                         help=available_models[model_key],
                         key=f"forecast_model_{model_key}"):
                 selected_models.append(model_key)
-    
+
     # Update session state with selected models
     st.session_state.advanced_models = selected_models
-    
+
     # If no models are selected, show warning
     if not selected_models:
         st.warning("Please select at least one forecasting model.")
-    
+
     # Forecast control section
     st.write("#### 2. Run Forecast")
-    
+
     # Create a placeholder for the progress bar
     progress_placeholder = st.empty()
-    
+
     # Run button for forecast
     if st.button(
         "Run Multi-Model Forecast", 
@@ -882,7 +882,7 @@ with tab_forecast:
         st.session_state.advanced_forecast_progress = 0
         st.session_state.run_advanced_forecast = True
         st.rerun()  # Rerun to update UI
-    
+
     # Show status message if forecast in progress
     if st.session_state.advanced_forecast_in_progress:
         st.info("Forecast generation in progress...")
@@ -1193,10 +1193,10 @@ with tab_forecast:
                 # Create the properly formatted data structure for visualization
                 # Make a copy of the train set for historical data to avoid modifying the original
                 historical_data = forecast_result.get('train_set', pd.DataFrame()).copy()
-                
+
                 # Create a DataFrame with dates converted to strings to avoid timestamp math issues
                 last_date = historical_data['date'].max() if not historical_data.empty else None
-                
+
                 # Create forecast dataframe with dates converted to strings to avoid timestamp math
                 forecast_data = pd.DataFrame({
                     # Convert index timestamps to datetime
@@ -1205,13 +1205,13 @@ with tab_forecast:
                     'lower_bound': forecast_result['lower_bound'].values,
                     'upper_bound': forecast_result['upper_bound'].values
                 })
-                
+
                 visualization_data = {
                     'sku': forecast_result.get('sku', selected_forecast_sku),
                     'historical_data': historical_data,
                     'forecast_data': forecast_data
                 }
-                
+
                 # Get the plot from visualization utility
                 forecast_fig = plot_forecast(visualization_data, show_anomalies=True, confidence_interval=0.90)
                 if forecast_fig:
@@ -1364,7 +1364,7 @@ with tab_forecast:
                 def tuning_step_callback(current_step, total_steps, message, level="info"):
                     progress = min(float(current_step) / total_steps, 1.0)
                     tuning_progress.progress(progress)
-                    
+
                     # Also add to the tuning log messages
                     timestamp = datetime.now().strftime("%H:%M:%S")
                     st.session_state.tuning_log_messages.append({
@@ -1601,32 +1601,32 @@ if st.session_state.run_advanced_forecast:
 
             # Rerun to update the UI
             st.rerun()
-            
+
 # Tab 4: Hyperparameter Tuning
 with tab_hyperparameter:
     st.subheader("Model Hyperparameter Tuning")
-    
+
     # Introduction to hyperparameter tuning
     st.markdown("""
     Hyperparameter tuning finds the optimal configuration for each forecasting model to maximize accuracy.
     This process improves forecast quality by adapting models to your specific data patterns.
-    
+
     ### Benefits of Hyperparameter Tuning:
     - **Improved Accuracy**: Find optimal parameters for your unique data patterns
     - **Model Customization**: Adapt models to specific SKU characteristics
     - **Reduced Error**: Minimize forecast error through optimized models
     - **Better Decision Making**: Make decisions based on more accurate predictions
     """)
-    
+
     # Tuning configuration section
     st.write("#### 1. Tuning Configuration")
-    
+
     tuning_col1, tuning_col2 = st.columns(2)
-    
+
     with tuning_col1:
         # Model selection for tuning
         st.write("Select models to tune:")
-        
+
         tuning_models = []
         model_options = {
             "auto_arima": "Auto ARIMA",
@@ -1635,22 +1635,22 @@ with tab_hyperparameter:
             "theta": "Theta", 
             "lstm": "LSTM"
         }
-        
+
         for model_key, model_name in model_options.items():
             if st.checkbox(model_name, value=model_key in st.session_state.advanced_models, key=f"tune_{model_key}"):
                 tuning_models.append(model_key)
-        
+
         # If no models selected, show warning
         if not tuning_models:
             st.warning("Please select at least one model to tune.")
-    
+
     with tuning_col2:
         # Tuning scope selection
         st.write("Tuning Scope:")
-        
+
         # Select which SKUs to tune for
         tune_all_clusters = st.checkbox("Tune for all clusters", value=True)
-        
+
         # Select specific number of iterations
         tuning_iterations = st.slider(
             "Number of iterations",
@@ -1660,17 +1660,17 @@ with tab_hyperparameter:
             step=10,
             help="More iterations can produce better results but take longer to compute"
         )
-        
+
         # Cache results checkbox
         cache_results = st.checkbox(
             "Cache tuning results", 
             value=True,
             help="Store optimized parameters for future use"
         )
-    
+
     # Run tuning button  
     st.write("#### 2. Run Tuning Process")
-    
+
     # Create button to start tuning
     if not st.session_state.parameter_tuning_in_progress:
         if st.button(
@@ -1686,22 +1686,22 @@ with tab_hyperparameter:
             st.rerun()
     else:
         st.info("Hyperparameter tuning in progress...")
-    
+
     # Show tuning progress when in progress
     if st.session_state.parameter_tuning_in_progress:
         # Create a two-column layout for the progress display
         tuning_progress_cols = st.columns([3, 1])
-        
+
         with tuning_progress_cols[0]:
             # Header for progress display with animation effect
             st.markdown('<h3 style="color:#0066cc;"><span class="highlight">🔄 Hyperparameter Tuning in Progress</span></h3>', unsafe_allow_html=True)
-            
+
             # Progress bar with custom styling
             tuning_progress = st.progress(st.session_state.tuning_progress)
-            
+
             # Status text placeholder
             tuning_status = st.empty()
-            
+
             # Add a progress details section
             tuning_progress_details = st.empty()
             tuning_progress_percentage = int(st.session_state.tuning_progress * 100)
@@ -1710,17 +1710,17 @@ with tab_hyperparameter:
             **Progress:** {tuning_progress_percentage}%  
             **Models being tuned:** {', '.join(model_names)}
             """)
-        
+
         with tuning_progress_cols[1]:
             # Add a spinning icon or other visual indicator
             st.markdown('<div class="loader"></div>', unsafe_allow_html=True)
-        
+
         # Create a detailed log area
         tuning_log_area = st.expander("View Tuning Log", expanded=True)
         with tuning_log_area:
             # Format log messages with appropriate styling
             tuning_log_html = '<div style="height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.8em; background-color: #f0f0f0; padding: 10px; border-radius: 5px;">'
-            
+
             for log in st.session_state.tuning_log_messages[-100:]:  # Show last 100 messages
                 if log["level"] == "info":
                     color = "black"
@@ -1732,20 +1732,20 @@ with tab_hyperparameter:
                     color = "green"
                 else:
                     color = "blue"
-                
+
                 tuning_log_html += f'<div style="margin-bottom: 3px;"><span style="color: gray;">[{log["timestamp"]}]</span> <span style="color: {color};">{log["message"]}</span></div>'
-            
+
             tuning_log_html += '</div>'
-            
+
             # Display the log
             st.markdown(tuning_log_html, unsafe_allow_html=True)
-        
+
         # Create callback for tuning progress that uses separate logs from forecasting
         def tuning_progress_callback(sku, model_type, message, level="info"):
             # Update progress value from session state
             current_progress = st.session_state.get('tuning_progress', 0)
             tuning_progress.progress(current_progress)
-            
+
             # Add message to the tuning log
             timestamp = datetime.now().strftime("%H:%M:%S")
             st.session_state.tuning_log_messages.append({
@@ -1753,7 +1753,7 @@ with tab_hyperparameter:
                 "message": f"[{sku}] [{model_type}] {message}",
                 "level": level
             })
-            
+
             # Update status message
             if level == "error":
                 tuning_status.error(f"[{sku}] [{model_type}] {message}")
@@ -1763,10 +1763,10 @@ with tab_hyperparameter:
                 tuning_status.success(f"[{sku}] [{model_type}] {message}")
             else:
                 tuning_status.info(f"[{sku}] [{model_type}] {message}")
-            
+
             # Return to enable chaining
             return current_progress
-        
+
         # Run tuning process
         try:
             # Get selected SKUs for tuning
@@ -1777,41 +1777,41 @@ with tab_hyperparameter:
                 if st.session_state.advanced_clusters is not None:
                     cluster_groups = st.session_state.advanced_clusters.groupby('cluster_name')
                     tuning_skus = [group.iloc[0]['sku'] for _, group in cluster_groups]
-            
+
             # Start tuning
             tuning_status.info(f"Starting hyperparameter tuning for {len(tuning_skus)} representative SKUs...")
-            
+
             # Prepare sales data
             if st.session_state.sales_data is not None:
                 # For each selected SKU, run parameter optimization
                 total_tuning_steps = len(tuning_skus) * len(st.session_state.tuning_models)
                 current_step = 0
-                
+
                 # Prepare results storage
                 if 'tuning_results' not in st.session_state:
                     st.session_state.tuning_results = {}
-                
+
                 # Process each SKU
                 for idx, sku in enumerate(tuning_skus):
                     sku_data = st.session_state.sales_data[st.session_state.sales_data['sku'] == sku].copy()
-                    
+
                     if len(sku_data) < 12:  # Need at least 12 data points for meaningful tuning
                         tuning_status.warning(f"Skipping {sku}: Not enough data points for tuning")
                         continue
-                    
+
                     # Process each model type
                     for model_type in st.session_state.tuning_models:
                         current_step += 1
                         st.session_state.tuning_progress = current_step / total_tuning_steps
-                        
+
                         # Update status
                         tuning_status.info(f"Tuning parameters for {sku} using {model_type.upper()} model...")
-                        
+
                         try:
                             # Here we would call the actual tuning function
                             # For now, we'll simulate the process
                             # This is where you would call your parameter optimizer
-                            
+
                             # from utils.parameter_optimizer import optimize_parameters
                             # optimal_params = optimize_parameters(
                             #     sku_data, 
@@ -1819,17 +1819,17 @@ with tab_hyperparameter:
                             #     iterations=tuning_iterations,
                             #     callback=lambda msg, lvl='info': tuning_progress_callback(sku, model_type, msg, lvl)
                             # )
-                            
+
                             # Simulate tuning process
                             import time
                             import random
-                            
+
                             # Simulate parameter optimization taking time
                             for i in range(5):
                                 time.sleep(0.2)  # Short delay for simulation
                                 progress_msg = f"Iteration {i+1}/5: Testing parameter configuration"
                                 tuning_progress_callback(sku, model_type, progress_msg)
-                            
+
                             # Create dummy optimal parameters based on model type
                             if model_type == "auto_arima":
                                 optimal_params = {"p": random.randint(1, 3), "d": 1, "q": random.randint(0, 2)}
@@ -1857,31 +1857,31 @@ with tab_hyperparameter:
                                 }
                             else:
                                 optimal_params = {}
-                            
+
                             # Store results
                             if sku not in st.session_state.tuning_results:
                                 st.session_state.tuning_results[sku] = {}
-                            
+
                             st.session_state.tuning_results[sku][model_type] = optimal_params
-                            
+
                             # Report success
                             success_msg = f"Successfully tuned {model_type.upper()} parameters: {format_parameters(optimal_params, model_type)}"
                             tuning_progress_callback(sku, model_type, success_msg, "success")
-                            
+
                         except Exception as e:
                             error_msg = f"Error tuning {model_type} for {sku}: {str(e)}"
                             tuning_progress_callback(sku, model_type, error_msg, "error")
-                
+
                 # Finalize progress
                 st.session_state.tuning_progress = 1.0
                 tuning_status.success(f"Hyperparameter tuning completed for {len(tuning_skus)} SKUs!")
-                
+
                 # Display tuning results
                 st.subheader("Tuning Results")
-                
+
                 # Create tabs for each model type
                 model_tabs = st.tabs([model_options[model] for model in st.session_state.tuning_models])
-                
+
                 # Populate each tab with the tuning results
                 for i, model_type in enumerate(st.session_state.tuning_models):
                     with model_tabs[i]:
@@ -1890,13 +1890,13 @@ with tab_hyperparameter:
                         for sku in st.session_state.tuning_results:
                             if model_type in st.session_state.tuning_results[sku]:
                                 params = st.session_state.tuning_results[sku][model_type]
-                                
+
                                 # Convert parameters to a more readable format
                                 formatted_params = format_parameters(params, model_type)
-                                
+
                                 # Add to results data
                                 results_data.append({"SKU": sku, "Parameters": formatted_params})
-                        
+
                         if results_data:
                             # Convert to DataFrame for display
                             import pandas as pd
@@ -1904,16 +1904,16 @@ with tab_hyperparameter:
                             st.dataframe(results_df, use_container_width=True)
                         else:
                             st.info(f"No tuning results available for {model_options[model_type]}")
-                
+
             else:
                 tuning_status.error("No sales data loaded. Please upload sales data first.")
-        
+
         except Exception as e:
             tuning_status.error(f"Error during hyperparameter tuning: {str(e)}")
-        
+
         finally:
             # Set flag to indicate tuning is complete
             st.session_state.parameter_tuning_in_progress = False
-            
+
             # Update progress to complete
             tuning_progress.progress(1.0)
