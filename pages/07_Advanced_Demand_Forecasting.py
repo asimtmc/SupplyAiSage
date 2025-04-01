@@ -173,14 +173,7 @@ with st.sidebar:
     use_param_cache = st.toggle(
         "Use Parameter Cache",
         value=st.session_state.advanced_use_param_cache,
-        help="Use previously optimized parameters from database for faster and more accurate forecasts"
-    )
-    st.session_state.advanced_use_param_cache = use_param_cache
-
-    # Use Parameter Cache
-    use_param_cache = st.toggle(
-        "Use Parameter Cache",
-        value=st.session_state.advanced_use_param_cache,
+        key="sidebar_use_param_cache",
         help="Use previously optimized parameters from database for faster and more accurate forecasts"
     )
     st.session_state.advanced_use_param_cache = use_param_cache
@@ -204,6 +197,7 @@ with st.sidebar:
     apply_sense_check = st.toggle(
         "Human-Like Sense Check",
         value=st.session_state.advanced_apply_sense_check,
+        key="sidebar_apply_sense_check",
         help="Apply business logic and pattern recognition to ensure realistic forecasts"
     )
     st.session_state.advanced_apply_sense_check = apply_sense_check
@@ -1117,7 +1111,7 @@ with tab_forecast:
                     models_to_evaluate=selected_models,
                     selected_skus=selected_skus,
                     progress_callback=enhanced_progress_callback,
-                    hyperparameter_tuning=st.session_state.advanced_hyperparameter_tuning,
+                    hyperparameter_tuning=False,  # Disabled - moved to dedicated tab
                     apply_sense_check=st.session_state.advanced_apply_sense_check,
                     use_param_cache=st.session_state.advanced_use_param_cache,
                     schedule_tuning=False  # We'll use the dedicated button for parameter tuning
