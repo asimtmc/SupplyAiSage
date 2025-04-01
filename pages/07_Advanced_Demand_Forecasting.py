@@ -177,6 +177,30 @@ with st.sidebar:
         help="Use previously optimized parameters from database for faster and more accurate forecasts"
     )
     st.session_state.advanced_use_param_cache = use_param_cache
+    
+    # Enhanced confidence interval options
+    confidence_level = st.slider(
+        "Confidence Interval Level (%)",
+        min_value=50,
+        max_value=95,
+        value=80,
+        step=5,
+        help="Set the confidence level for prediction intervals (higher = wider intervals)"
+    )
+    st.session_state.confidence_level = confidence_level
+    
+    # Seasonal period customization
+    if st.checkbox("Customize Seasonal Period", value=False, 
+                  help="Specify custom seasonality periods (only applies to models that support seasonality)"):
+        seasonal_period = st.number_input(
+            "Seasonal Period (months)",
+            min_value=2,
+            max_value=24,
+            value=12,
+            step=1,
+            help="Number of months in one seasonal cycle"
+        )
+        st.session_state.seasonal_period = seasonal_period
 
     # Add a separate button for hyperparameter tuning
     st.divider()
@@ -1190,6 +1214,15 @@ with tab_forecast:
                 # Show forecast plot
                 st.subheader("Forecast Visualization")
 
+                # Create visualization controls
+                viz_col1, viz_col2 = st.columns([1, 1])
+                with viz_col1:
+                    show_anomalies = st.checkbox("Show Anomalies", value=True, 
+                                              help="Highlight anomalies in historical data")
+                with viz_col2:
+                    show_trend = st.checkbox("Show Trend Line", value=True,
+                                          help="Display trend component in visualization")
+
                 # Create the properly formatted data structure for visualization
                 # Make a copy of the train set for historical data to avoid modifying the original
                 historical_data = forecast_result.get('train_set', pd.DataFrame()).copy()
@@ -1212,10 +1245,70 @@ with tab_forecast:
                     'forecast_data': forecast_data
                 }
 
-                # Get the plot from visualization utility
-                forecast_fig = plot_forecast(visualization_data, show_anomalies=True, confidence_interval=0.90)
+                # Get confidence level from session state
+                confidence_interval = st.session_state.get('confidence_level', 80) / 100
+                
+                # Get the plot from visualization utility with customized options
+                forecast_fig = plot_forecast(
+                    visualization_data, 
+                    show_anomalies=show_anomalies, 
+                    show_trend=show_trend,
+                    confidence_interval=confidence_interval
+                )
                 if forecast_fig:
                     st.plotly_chart(forecast_fig, use_container_width=True)
+                    
+                # Add forecast insights section
+                st.subheader("Forecast Insights")
+                insights_col1, insights_col2 = st.columns(2)
+                
+                with insights_col1:
+                    avg_historical = historical_data['quantity'].mean() if not historical_data.empty else 0
+                    avg_forecast = forecast_data['forecast'].mean()
+                    growth = ((avg_forecast / avg_historical) - 1) * 100 if avg_historical > 0 else 0
+                    
+                    if growth > 10:
+                        growth_icon = "📈"
+                        growth_color = "green"
+                    elif growth < -10:
+                        growth_icon = "📉"
+                        growth_color = "red"
+                    else:
+                        growth_icon = "➡️"
+                        growth_color = "orange"
+                        
+                    st.markdown(f"<h3 style='color:{growth_color}'>{growth_icon} Growth Trend: {growth:.1f}%</h3>", 
+                               unsafe_allow_html=True)
+                    
+                    max_forecast = forecast_data['forecast'].max()
+                    min_forecast = forecast_data['forecast'].min()
+                    variability = (max_forecast - min_forecast) / avg_forecast * 100 if avg_forecast > 0 else 0
+                    
+                    st.metric("Forecast Variability", f"{variability:.1f}%")
+                    
+                with insights_col2:
+                    # Calculate prediction interval width as a percentage
+                    interval_width = (forecast_data['upper_bound'] - forecast_data['lower_bound']).mean()
+                    interval_pct = interval_width / forecast_data['forecast'].mean() * 100 if forecast_data['forecast'].mean() > 0 else 0
+                    
+                    st.metric("Forecast Uncertainty", f"{interval_pct:.1f}%", 
+                             help="Average width of prediction intervals as percentage of forecast")
+                    
+                    # Model quality indicator based on metrics
+                    if 'metrics' in forecast_result:
+                        mape = forecast_result['metrics'].get('mape', 0)
+                        if mape < 10:
+                            quality = "High"
+                            quality_color = "green"
+                        elif mape < 20:
+                            quality = "Medium"
+                            quality_color = "orange"
+                        else:
+                            quality = "Low"
+                            quality_color = "red"
+                        
+                        st.markdown(f"<h3 style='color:{quality_color}'>Forecast Quality: {quality}</h3>", 
+                                  unsafe_allow_html=True)
 
                 # Show forecast data table
                 st.subheader("Forecast Data")
@@ -1606,7 +1699,7 @@ if st.session_state.run_advanced_forecast:
 with tab_hyperparameter:
     st.subheader("Model Hyperparameter Tuning")
 
-    # Introduction to hyperparameter tuning
+    # Introduction to hyperparameter tuning with enhanced explanation
     st.markdown("""
     Hyperparameter tuning finds the optimal configuration for each forecasting model to maximize accuracy.
     This process improves forecast quality by adapting models to your specific data patterns.
@@ -1617,6 +1710,100 @@ with tab_hyperparameter:
     - **Reduced Error**: Minimize forecast error through optimized models
     - **Better Decision Making**: Make decisions based on more accurate predictions
     """)
+    
+    # Add visual explanation of hyperparameter tuning process
+    with st.expander("How Hyperparameter Tuning Works", expanded=True):
+        hp_col1, hp_col2 = st.columns([1, 2])
+        
+        with hp_col1:
+            st.markdown("""
+            ### Tuning Process
+            1. **Parameter Exploration**: Tests multiple parameter combinations
+            2. **Cross-Validation**: Evaluates each combination on historical data
+            3. **Optimization**: Selects parameters that minimize forecast error
+            4. **Model Building**: Creates optimized model with best parameters
+            5. **Parameter Storage**: Saves parameters for future use
+            """)
+        
+        with hp_col2:
+            st.markdown("""
+            ### Parameters Being Optimized
+            
+            **ARIMA/SARIMA**
+            - p, d, q: Controls trend modeling
+            - P, D, Q, s: Controls seasonal pattern modeling
+            
+            **Prophet**
+            - changepoint_prior_scale: Controls trend flexibility
+            - seasonality_prior_scale: Controls seasonal pattern strength
+            - seasonality_mode: Additive vs multiplicative seasonality
+            
+            **ETS (Exponential Smoothing)**
+            - smoothing_level: Weight given to recent observations
+            - smoothing_trend: How quickly trend component adapts
+            - damping_parameter: Controls long-term trend growth
+            """)
+    
+    # Add visualization of parameter impact
+    st.markdown("### Parameter Impact Visualization")
+    
+    # Create tabs for different parameter impact visualizations
+    param_impact_tabs = st.tabs(["ARIMA Parameters", "Prophet Parameters", "ETS Parameters"])
+    
+    with param_impact_tabs[0]:
+        st.markdown("""
+        #### ARIMA Parameter Effects
+        
+        Adjusting ARIMA parameters changes how the model captures patterns:
+        
+        - **Higher p (AR terms)**: More emphasis on previous observations' patterns
+        - **Higher d (Differencing)**: Better handling of stronger trends
+        - **Higher q (MA terms)**: More responsive to recent shocks/changes
+        
+        The tuning process finds the optimal balance for your specific data.
+        """)
+        
+        # Add placeholder for ARIMA parameter visualization
+        st.image("https://via.placeholder.com/800x300?text=ARIMA+Parameter+Impact+Visualization", 
+               use_column_width=True,
+               caption="Interactive parameter impact visualization coming soon")
+    
+    with param_impact_tabs[1]:
+        st.markdown("""
+        #### Prophet Parameter Effects
+        
+        Prophet's key parameters control:
+        
+        - **changepoint_prior_scale**: Higher values allow more flexible trends (may overfit)
+        - **seasonality_prior_scale**: Higher values allow stronger seasonal patterns
+        - **seasonality_mode**: 'additive' works best for stable patterns, 'multiplicative' for growing patterns
+        
+        The optimal values depend on your specific sales patterns.
+        """)
+        
+        # Add placeholder for Prophet parameter visualization
+        st.image("https://via.placeholder.com/800x300?text=Prophet+Parameter+Impact+Visualization", 
+               use_column_width=True,
+               caption="Interactive parameter impact visualization coming soon")
+    
+    with param_impact_tabs[2]:
+        st.markdown("""
+        #### ETS Parameter Effects
+        
+        ETS parameters influence:
+        
+        - **smoothing_level (α)**: Higher values give more weight to recent observations
+        - **smoothing_trend (β)**: Higher values make trend component more responsive
+        - **smoothing_seasonal (γ)**: Higher values make seasonal component more responsive
+        - **damping_parameter (φ)**: Lower values dampen future trend projections
+        
+        Tuning finds the right balance to predict your sales patterns.
+        """)
+        
+        # Add placeholder for ETS parameter visualization
+        st.image("https://via.placeholder.com/800x300?text=ETS+Parameter+Impact+Visualization", 
+               use_column_width=True,
+               caption="Interactive parameter impact visualization coming soon")
 
     # Tuning configuration section
     st.write("#### 1. Tuning Configuration")
