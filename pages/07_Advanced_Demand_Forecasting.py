@@ -169,13 +169,13 @@ with st.sidebar:
     # Advanced Options Section
     st.subheader("Advanced Options")
 
-    # Hyperparameter Tuning
-    hyperparameter_tuning = st.toggle(
-        "Hyperparameter Tuning",
-        value=st.session_state.advanced_hyperparameter_tuning,
-        help="Automatically tune model parameters for best performance (slower but more accurate)"
+    # Use Parameter Cache (moved up since hyperparameter tuning is now in dedicated tab)
+    use_param_cache = st.toggle(
+        "Use Parameter Cache",
+        value=st.session_state.advanced_use_param_cache,
+        help="Use previously optimized parameters from database for faster and more accurate forecasts"
     )
-    st.session_state.advanced_hyperparameter_tuning = hyperparameter_tuning
+    st.session_state.advanced_use_param_cache = use_param_cache
 
     # Use Parameter Cache
     use_param_cache = st.toggle(
@@ -187,9 +187,18 @@ with st.sidebar:
     
     # Add a separate button for hyperparameter tuning
     st.divider()
-    if st.button("Go to Hyperparameter Tuning", key="goto_hyperparam_tuning"):
-        st.session_state.active_tab = "Hyperparameter Tuning"
-        st.rerun()
+    if not st.session_state.get('parameter_tuning_in_progress', False):
+        if st.button("Run Hyperparameter Tuning", key="sidebar_run_hyperparameter_tuning"):
+            st.session_state.parameter_tuning_in_progress = True
+            st.session_state.active_tab = "Hyperparameter Tuning"
+            st.session_state.tuning_log_messages = []  # Reset tuning log messages
+            st.session_state.tuning_progress = 0  # Reset tuning progress
+            st.rerun()
+    else:
+        st.info("Hyperparameter tuning in progress...")
+        if st.button("View Tuning Status", key="goto_hyperparam_tuning"):
+            st.session_state.active_tab = "Hyperparameter Tuning"
+            st.rerun()
 
     # Apply Sense Check
     apply_sense_check = st.toggle(
