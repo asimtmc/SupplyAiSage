@@ -778,9 +778,12 @@ if st.session_state.new_run_forecast and 'new_forecasts' in st.session_state and
             confidence_interval = 0.8  # Default value
 
             # Use plot_forecast from visualization.py with prepared data
-            # Get visualization_data
+            # The function requires both sales_data and forecast_data parameters
             forecast_fig = plot_forecast(
-                visualization_data,
+                sales_data=st.session_state.sales_data,
+                forecast_data=forecast_data,
+                sku=selected_sku,
+                selected_models=selected_models_for_viz,
                 show_anomalies=show_anomalies,
                 confidence_interval=confidence_interval
             )
