@@ -1103,6 +1103,13 @@ def plot_model_comparison(model_comparison, selected_model=None, models_to_show=
             if not pd.isna(metrics[m].get('mape', float('inf'))) else metrics[m].get('rmse', float('inf'))
         )
 
+    # Get sku name if available
+    sku = "Unknown SKU"
+    for model_name, model_data in model_comparison.items():
+        if isinstance(model_data, dict) and 'sku' in model_data:
+            sku = model_data['sku']
+            break
+
     # Create data for bar chart - filter by models_to_show if provided
     if models_to_show and isinstance(models_to_show, list) and len(models_to_show) > 0:
         # Filter models by those in models_to_show
@@ -1110,6 +1117,10 @@ def plot_model_comparison(model_comparison, selected_model=None, models_to_show=
     else:
         # Use all available models
         models = sorted(list(metrics.keys()))  # Sort alphabetically for consistent ordering
+        
+    # If no models left after filtering, use all available models
+    if not models:
+        models = sorted(list(metrics.keys()))
         
     rmse_values = [metrics[m].get('rmse', 0) for m in models]
     mape_values = [metrics[m].get('mape', 0) if not pd.isna(metrics[m].get('mape', 0)) else 0 for m in models]

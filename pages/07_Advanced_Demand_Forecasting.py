@@ -84,6 +84,8 @@ if 'parameter_tuning_in_progress' not in st.session_state:
     st.session_state.parameter_tuning_in_progress = False
 if 'log_messages' not in st.session_state:
     st.session_state.log_messages = []
+if 'show_model_comparison' not in st.session_state:
+    st.session_state.show_model_comparison = False
 # No longer need active_tab since we can't set tab index directly
 # Secondary sales analysis session state variables
 if 'secondary_sales_results' not in st.session_state:
@@ -1236,17 +1238,27 @@ with tab_forecast:
                                 # Use all available models
                                 selected_models_for_viz = available_models
                             else:
+                                # Format model names to uppercase for display
+                                display_models = [model.upper() for model in available_models]
+                                
+                                # Get default model
+                                default_model = forecast_result.get('selected_model', available_models[0])
+                                default_idx = available_models.index(default_model) if default_model in available_models else 0
+                                
                                 # Let user select specific models
-                                selected_models_for_viz = st.multiselect(
+                                selected_display_models = st.multiselect(
                                     "Select Models to Compare",
-                                    options=available_models,
-                                    default=[forecast_result.get('selected_model', available_models[0])],
+                                    options=display_models,
+                                    default=[display_models[default_idx]],
                                     help="Choose which model forecasts to display"
                                 )
+                                
+                                # Convert back to original model names
+                                selected_models_for_viz = [available_models[display_models.index(model)] 
+                                                         for model in selected_display_models]
                             
                             # Store selected models for visualization
-                            if selected_models_for_viz:
-                                forecast_result['selected_models_for_viz'] = selected_models_for_viz
+                            forecast_result['selected_models_for_viz'] = selected_models_for_viz
 
                 # Create the properly formatted data structure for visualization
                 # Make a copy of the train set for historical data to avoid modifying the original
@@ -1407,7 +1419,7 @@ with tab_forecast:
                     if isinstance(model_comparison, dict):
                         model_data = []
                         for model_name, metrics in model_comparison.items():
-                            model_metrics = {'model': model_name}
+                            model_metrics = {'model': model_name.upper()}  # Display in uppercase
                             if isinstance(metrics, dict):
                                 model_metrics.update(metrics)
                             model_data.append(model_metrics)
@@ -1417,7 +1429,7 @@ with tab_forecast:
 
                             # Function to highlight best model
                             def highlight_best_model(row):
-                                if row['model'] == forecast_result['selected_model']:
+                                if row['model'].lower() == forecast_result['selected_model'].lower():
                                     return ['background-color: rgba(144, 238, 144, 0.3)'] * len(row)
                                 return [''] * len(row)
 
@@ -1429,13 +1441,20 @@ with tab_forecast:
 
                             # Show visual comparison of models
                             selected_models_for_plot = forecast_result.get('selected_models_for_viz', [forecast_result['selected_model']])
-                            comparison_fig = plot_model_comparison(
-                                model_comparison, 
-                                forecast_result['selected_model'],
-                                selected_models_for_plot
-                            )
-                            if comparison_fig:
-                                st.plotly_chart(comparison_fig, use_container_width=True)
+                            
+                            # Create button to visualize all selected models
+                            if st.button("Visualize All Selected Models", key=f"viz_models_{selected_forecast_sku}"):
+                                st.session_state['show_model_comparison'] = True
+                            
+                            # Show model comparison if button was clicked
+                            if st.session_state.get('show_model_comparison', False):
+                                comparison_fig = plot_model_comparison(
+                                    model_comparison, 
+                                    forecast_result['selected_model'],
+                                    selected_models_for_plot
+                                )
+                                if comparison_fig:
+                                    st.plotly_chart(comparison_fig, use_container_width=True)
     else:
         # Show instructions for running a forecast
         st.info("Configure forecast settings in the sidebar and click 'Run Advanced Forecast' to generate demand forecasts.")
