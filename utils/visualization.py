@@ -332,14 +332,17 @@ def plot_forecast(forecast_result, sales_data=None, forecast_data=None, sku=None
         # Add each selected model
         models_added = False
         for model in selected_models:
-            if model.lower() in all_models:
-                model_forecast = all_models[model.lower()]
+            # Try both lowercase and as-is versions of the model name
+            model_key = model.lower() if model.lower() in all_models else model
+            
+            if model_key in all_models:
+                model_forecast = all_models[model_key]
                 if model_forecast is None or len(model_forecast) == 0:
                     continue
                     
                 models_added = True
                 # Choose a color for this model
-                color = model_colors.get(model.lower(), 'red')
+                color = model_colors.get(model_key, 'red')
 
                 fig.add_trace(
                     go.Scatter(

@@ -600,6 +600,14 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
             # Display forecast chart with selected models (FULL WIDTH)
             forecast_fig = plot_forecast(st.session_state.sales_data, forecast_data, selected_sku, selected_models_for_viz)
             st.plotly_chart(forecast_fig, use_container_width=True)
+            
+            # Debug information to help troubleshoot
+            with st.expander("Debug Information", expanded=False):
+                st.write("Selected Models:", selected_models_for_viz)
+                st.write("Available Models:", available_models if 'available_models' in locals() else "Not available")
+                st.write("Model Evaluation:", "Available" if 'model_evaluation' in forecast_data else "Not available")
+                if 'model_evaluation' in forecast_data and 'all_models_forecasts' in forecast_data['model_evaluation']:
+                    st.write("Models with forecasts:", list(forecast_data['model_evaluation']['all_models_forecasts'].keys()))
 
             # Show training/test split information if available
             if 'train_set' in forecast_data and 'test_set' in forecast_data:
