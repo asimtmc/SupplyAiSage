@@ -1450,7 +1450,7 @@ else:
 
                 with col2:
                     st.write("Quarterly Summary")
-                    st.dataframe(quarterly_summary, use_container_width=True)True)
+                    st.dataframe(quarterly_summary, use_container_width=True)
 
     # Show a preview of the overall sales data
     st.subheader("Sales Data Preview")
