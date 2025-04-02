@@ -303,27 +303,82 @@ with st.sidebar:
                     phase_indicator = st.empty()
 
                 try:
+                    # Create a log area for detailed process tracking
+                    log_area = st.expander("View Processing Log", expanded=True)
+                    with log_area:
+                        # Create a log container
+                        log_container = st.empty()
+                        log_messages = []
+                        
+                        # Function to add log messages
+                        def add_log_message(message, level="info"):
+                            timestamp = datetime.now().strftime("%H:%M:%S")
+                            log_messages.append({"timestamp": timestamp, "message": message, "level": level})
+                            
+                            # Format log messages with appropriate styling
+                            log_html = '<div style="height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.8em; background-color: #f0f0f0; padding: 10px; border-radius: 5px;">'
+                            
+                            for log in log_messages[-100:]:  # Show last 100 messages
+                                if log["level"] == "info":
+                                    color = "black"
+                                elif log["level"] == "warning":
+                                    color = "orange"
+                                elif log["level"] == "error":
+                                    color = "red"
+                                elif log["level"] == "success":
+                                    color = "green"
+                                else:
+                                    color = "blue"
+                                
+                                log_html += f'<div style="margin-bottom: 3px;"><span style="color: gray;">[{log["timestamp"]}]</span> <span style="color: {color};">{log["message"]}</span></div>'
+                            
+                            log_html += '</div>'
+                            
+                            # Update the log display
+                            log_container.markdown(log_html, unsafe_allow_html=True)
+                    
+                    # Enhanced progress callback function that updates logs
+                    def enhanced_forecast_callback(current_index, current_sku, total_skus, message=None, level="info"):
+                        # Update progress information in session state
+                        progress = min(float(current_index) / total_skus, 1.0)
+                        st.session_state.new_forecast_progress = progress
+                        st.session_state.new_forecast_current_sku = current_sku
+                        
+                        # Add log message if provided
+                        if message:
+                            add_log_message(f"[SKU: {current_sku}] {message}", level)
+                        else:
+                            # Default message
+                            add_log_message(f"Processing SKU: {current_sku} ({current_index+1}/{total_skus})", "info")
+                    
                     # Phase 1: Extract time series features for clustering
+                    add_log_message("Starting Phase 1: Time Series Feature Extraction", "info")
                     with spinner_placeholder:
                         with st.spinner("Extracting features..."):
                             phase_indicator.markdown("**Phase 1/3**")
                             status_text.markdown("### Step 1: Time Series Feature Extraction")
                             progress_details.info("Analyzing sales patterns and extracting key time series features for every SKU...")
+                            add_log_message("Extracting time series features from historical sales data...", "info")
                             features_df = extract_features(st.session_state.sales_data)
+                            add_log_message(f"Feature extraction complete. Processed {len(features_df)} SKUs.", "success")
                             progress_bar.progress(10)
                             time.sleep(0.5)  # Add a small pause for visual effect
 
                     # Phase 2: Cluster SKUs
+                    add_log_message("Starting Phase 2: SKU Clustering", "info")
                     with spinner_placeholder:
                         with st.spinner("Clustering SKUs..."):
                             phase_indicator.markdown("**Phase 2/3**")
                             status_text.markdown("### Step 2: SKU Clustering")
                             progress_details.info("Grouping similar SKUs based on their sales patterns to optimize forecast model selection...")
+                            add_log_message(f"Clustering SKUs into {num_clusters} groups based on sales patterns...", "info")
                             st.session_state.new_clusters = cluster_skus(features_df, n_clusters=num_clusters)
+                            add_log_message("Clustering complete. SKUs have been grouped by similar patterns.", "success")
                             progress_bar.progress(20)
                             time.sleep(0.5)  # Add a small pause for visual effect
 
                     # Phase 3: Generate forecasts
+                    add_log_message("Starting Phase 3: Forecast Generation", "info")
                     phase_indicator.markdown("**Phase 3/3**")
                     status_text.markdown("### Step 3: Forecast Generation")
 
@@ -332,9 +387,17 @@ with st.sidebar:
                     if forecast_scope == "Selected SKUs Only" and selected_skus_to_forecast:
                         skus_to_forecast = selected_skus_to_forecast
                         progress_details.info(f"Generating forecasts for {len(skus_to_forecast)} selected SKUs using {len(models_to_evaluate)} different forecasting models...")
+                        add_log_message(f"Preparing to generate forecasts for {len(skus_to_forecast)} selected SKUs", "info")
                     else:
                         total_skus = len(features_df)
                         progress_details.info(f"Generating forecasts for all {total_skus} SKUs using {len(models_to_evaluate)} different forecasting models...")
+                        add_log_message(f"Preparing to generate forecasts for all {total_skus} SKUs", "info")
+                    
+                    # Log models being used
+                    add_log_message(f"Models to evaluate: {', '.join(models_to_evaluate)}", "info")
+                    add_log_message(f"Forecast periods: {st.session_state.new_forecast_periods}", "info")
+                    add_log_message(f"Human-like sense check: {'Enabled' if st.session_state.new_apply_sense_check else 'Disabled'}", "info")
+                    add_log_message("Beginning forecast model training and evaluation...", "info")
 
                     # Generate forecasts with model evaluation and progress tracking
                     with spinner_placeholder:
@@ -347,7 +410,7 @@ with st.sidebar:
                                 auto_select=True,
                                 models_to_evaluate=models_to_evaluate,
                                 selected_skus=skus_to_forecast,
-                                progress_callback=forecast_progress_callback,
+                                progress_callback=enhanced_forecast_callback,
                                 hyperparameter_tuning=False,
                                 apply_sense_check=st.session_state.new_apply_sense_check,
                                 use_param_cache=True
@@ -355,6 +418,7 @@ with st.sidebar:
 
                     # Update progress based on callback data with improved visuals
                     # Create an animated progress update
+                    add_log_message("Finalizing forecast calculations...", "info")
                     last_progress = 0
                     while st.session_state.new_forecast_progress < 1 and st.session_state.new_forecast_current_sku:
                         current_progress = 20 + int(st.session_state.new_forecast_progress * 80)
@@ -377,7 +441,10 @@ with st.sidebar:
                     phase_indicator.markdown("**Finished!**")
                     status_text.markdown("### ✨ Forecast Generation Completed Successfully!")
                     progress_details.success("All forecasts have been generated and are ready to explore!")
-
+                    
+                    # Add final log messages
+                    add_log_message("Forecast generation complete!", "success")
+                    
                     # If forecasts were generated, set default selected SKU
                     if st.session_state.new_forecasts:
                         sku_list = sorted(list(st.session_state.new_forecasts.keys()))
@@ -393,19 +460,25 @@ with st.sidebar:
                             'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                         }
                         st.session_state.new_models_loaded = True
+                        add_log_message(f"Cached forecast results with key: {cache_key}", "info")
 
                     num_skus = len(st.session_state.new_forecasts)
                     if num_skus > 0:
+                        add_log_message(f"Successfully generated forecasts for {num_skus} SKUs!", "success")
                         st.success(f"Successfully generated forecasts for {num_skus} SKUs!")
                     else:
+                        add_log_message("No forecasts were generated. Please check your data and selected SKUs.", "error")
                         st.error("No forecasts were generated. Please check your data and selected SKUs.")
 
                 except Exception as e:
-                    st.error(f"Error during forecast generation: {str(e)}")
+                    error_message = f"Error during forecast generation: {str(e)}"
+                    add_log_message(error_message, "error")
+                    st.error(error_message)
 
                 finally:
                     # Reset progress tracking
                     st.session_state.new_forecast_in_progress = False
+                    add_log_message("Forecast process finished.", "info")
                     time.sleep(1)  # Keep the completed progress visible briefly
 
             # Clear the progress display after completion
