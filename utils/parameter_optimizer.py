@@ -19,6 +19,32 @@ logger = logging.getLogger('parameter_optimizer')
 # Global dictionary to track optimization tasks
 _active_optimization_tasks = {}
 
+# Maximum number of concurrent optimization tasks
+MAX_CONCURRENT_TASKS = 2
+
+# Background task management
+def get_active_tasks_count():
+    """Returns the number of currently active optimization tasks"""
+    return len(_active_optimization_tasks)
+
+def cleanup_stale_tasks():
+    """Remove stale tasks that have been running for too long"""
+    current_time = datetime.now()
+    stale_keys = []
+    
+    for task_key, task_info in _active_optimization_tasks.items():
+        # If task has been running for more than 10 minutes, consider it stale
+        time_diff = current_time - task_info['start_time'] 
+        if time_diff.total_seconds() > 600:  # 10 minutes
+            stale_keys.append(task_key)
+            
+    # Remove stale tasks
+    for key in stale_keys:
+        logger.warning(f"Removing stale optimization task: {key}")
+        del _active_optimization_tasks[key]
+        
+    return len(stale_keys)
+
 def calculate_metrics(y_true, y_pred):
     """Calculate forecast error metrics"""
     metrics = {}
@@ -545,9 +571,9 @@ def run_optimization_task(sku, model_type, data, cross_validation=True, n_trials
         if task_key in _active_optimization_tasks:
             del _active_optimization_tasks[task_key]
 
-def optimize_parameters_async(sku, model_type, data, cross_validation=True, n_trials=None, progress_callback=None):
+def optimize_parameters_async(sku, model_type, data, cross_validation=True, n_trials=None, progress_callback=None, priority=False):
     """
-    Start parameter optimization in a background thread
+    Start parameter optimization in a background thread with concurrency control
     
     Parameters:
     -----------
@@ -563,6 +589,8 @@ def optimize_parameters_async(sku, model_type, data, cross_validation=True, n_tr
         Number of parameter combinations to try
     progress_callback : function, optional
         Callback function for progress reporting
+    priority : bool, optional
+        Whether this task has priority and should run regardless of concurrency limits
         
     Returns:
     --------
@@ -577,6 +605,17 @@ def optimize_parameters_async(sku, model_type, data, cross_validation=True, n_tr
             progress_callback(sku, model_type, "Optimization already in progress", level='warning')
         return False
     
+    # Clean up any stale tasks
+    cleanup_stale_tasks()
+    
+    # Check concurrency limits if not a priority task
+    if not priority and get_active_tasks_count() >= MAX_CONCURRENT_TASKS:
+        if progress_callback:
+            progress_callback(sku, model_type, 
+                             f"Optimization skipped - maximum concurrent tasks ({MAX_CONCURRENT_TASKS}) reached", 
+                             level='warning')
+        return False
+    
     # Create thread for optimization
     thread = threading.Thread(
         target=run_optimization_task,
@@ -588,14 +627,17 @@ def optimize_parameters_async(sku, model_type, data, cross_validation=True, n_tr
     _active_optimization_tasks[task_key] = {
         'thread': thread,
         'start_time': datetime.now(),
-        'status': 'running'
+        'status': 'running',
+        'priority': priority
     }
     
     # Start the thread
     thread.start()
     
     if progress_callback:
-        progress_callback(sku, model_type, "Optimization started in background", level='info')
+        progress_callback(sku, model_type, 
+                         f"Optimization started in background (Active tasks: {get_active_tasks_count()}/{MAX_CONCURRENT_TASKS})", 
+                         level='info')
     
     return True
 

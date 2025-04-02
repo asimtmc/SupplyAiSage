@@ -576,8 +576,31 @@ if st.session_state.new_run_forecast and 'new_forecasts' in st.session_state and
     if selected_cluster_filter != 'All':
         filtered_df = filtered_df[filtered_df['Cluster'] == selected_cluster_filter]
 
-    # Display the filtered table
-    st.dataframe(filtered_df, use_container_width=True)
+    # Display the filtered table with pagination to improve performance
+    total_rows = len(filtered_df)
+    rows_per_page = 20  # Limit rows shown per page
+    
+    # Add pagination controls
+    if total_rows > rows_per_page:
+        page_col1, page_col2 = st.columns([1, 3])
+        with page_col1:
+            current_page = st.selectbox(
+                "Page",
+                options=list(range(1, (total_rows // rows_per_page) + (1 if total_rows % rows_per_page > 0 else 0) + 1)),
+                key="forecast_table_page"
+            )
+        with page_col2:
+            st.info(f"Showing page {current_page} of {filtered_df.shape[0]} total rows")
+        
+        # Calculate start and end indices for current page
+        start_idx = (current_page - 1) * rows_per_page
+        end_idx = min(start_idx + rows_per_page, total_rows)
+        
+        # Display only the current page of data
+        st.dataframe(filtered_df.iloc[start_idx:end_idx], use_container_width=True)
+    else:
+        # If we have fewer rows than a page, just display all
+        st.dataframe(filtered_df, use_container_width=True)
 
     # Forecast explorer
     st.header("Forecast Explorer")
@@ -832,13 +855,42 @@ if st.session_state.new_run_forecast and 'new_forecasts' in st.session_state and
                     # Format the date column to be more readable
                     forecast_table['Date'] = forecast_table['Date'].dt.strftime('%Y-%m-%d')
 
-                    # Display the enhanced table with styling
+                    # Display the enhanced table with styling and pagination
                     st.subheader("Forecast Data Table")
+                    
+                    # Limit the number of rows shown for performance
+                    max_rows_to_display = 12
+                    
+                    if len(forecast_table) > max_rows_to_display:
+                        # Add pagination for forecast table
+                        forecast_page_col1, forecast_page_col2 = st.columns([1, 3])
+                        
+                        with forecast_page_col1:
+                            forecast_page = st.selectbox(
+                                "Period",
+                                options=list(range(1, (len(forecast_table) // max_rows_to_display) + (1 if len(forecast_table) % max_rows_to_display > 0 else 0) + 1)),
+                                key="forecast_details_page"
+                            )
+                        
+                        with forecast_page_col2:
+                            st.info(f"Showing period {forecast_page} of forecast data")
+                        
+                        # Calculate start and end indices for the current page
+                        start_idx = (forecast_page - 1) * max_rows_to_display
+                        end_idx = min(start_idx + max_rows_to_display, len(forecast_table))
+                        
+                        # Display only the current page of data
+                        display_table = forecast_table.iloc[start_idx:end_idx]
+                    else:
+                        # If we have fewer rows than the maximum, just display all
+                        display_table = forecast_table
+                    
+                    # Apply styling to the table (but only on the displayed subset for better performance)
                     st.dataframe(
-                        forecast_table.style.highlight_max(subset=['Forecast'], color='#d6eaf8')
-                                         .highlight_min(subset=['Forecast'], color='#fadbd8'),
+                        display_table.style.highlight_max(subset=['Forecast'], color='#d6eaf8')
+                                      .highlight_min(subset=['Forecast'], color='#fadbd8'),
                         use_container_width=True,
-                        height=min(35 * (len(forecast_table) + 1), 400)  # Dynamically size table height with scrolling
+                        height=min(35 * (len(display_table) + 1), 400)  # Dynamically size table height with scrolling
                     )
 
         with forecast_tabs[1]:
@@ -1171,9 +1223,37 @@ if st.session_state.new_run_forecast and 'new_forecasts' in st.session_state and
                 with st.expander("Understanding the Table", expanded=False):
                     st.markdown(forecast_explanation)
 
+                # Add pagination for better performance with large datasets
+                table_rows_per_page = 15  # Limit rows per page
+                total_table_rows = len(all_sku_df)
+                
+                if total_table_rows > table_rows_per_page:
+                    # Create pagination controls
+                    table_page_col1, table_page_col2 = st.columns([1, 3])
+                    
+                    with table_page_col1:
+                        table_page = st.selectbox(
+                            "Page",
+                            options=list(range(1, (total_table_rows // table_rows_per_page) + (1 if total_table_rows % table_rows_per_page > 0 else 0) + 1)),
+                            key="comprehensive_table_page"
+                        )
+                    
+                    with table_page_col2:
+                        st.info(f"Showing page {table_page} of {(total_table_rows // table_rows_per_page) + (1 if total_table_rows % table_rows_per_page > 0 else 0)} (total rows: {total_table_rows})")
+                    
+                    # Calculate start and end indices for the current page
+                    start_idx = (table_page - 1) * table_rows_per_page
+                    end_idx = min(start_idx + table_rows_per_page, total_table_rows)
+                    
+                    # Get current page data
+                    page_df = all_sku_df.iloc[start_idx:end_idx].copy()
+                else:
+                    # If fewer rows than page size, show all
+                    page_df = all_sku_df
+                
                 # Use styling to highlight data column types with frozen columns till model name
                 st.dataframe(
-                    all_sku_df.style.apply(highlight_data_columns, axis=None),
+                    page_df.style.apply(highlight_data_columns, axis=None),
                     use_container_width=True,
                     height=600,  # Increased height for better visibility
                     column_config={

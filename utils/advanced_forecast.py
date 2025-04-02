@@ -1304,7 +1304,7 @@ def auto_select_best_model(data,
                            use_cache=True,
                            sku=None,
                            use_param_cache=True,
-                           schedule_tuning=True):
+                           schedule_tuning=False):  # Default to False to reduce background tasks
     """
     Automatically select the best forecasting model based on data characteristics
     and test performance, with optional caching for faster results.
@@ -2469,6 +2469,7 @@ def human_sense_check(forecast_values,
                       sense_check_rules=None):
     """
     Perform a "human-like" sense check on forecast values based on historical patterns
+    Optimized for performance with early returns and reduced calculations
 
     Parameters:
     -----------
@@ -2493,6 +2494,10 @@ def human_sense_check(forecast_values,
     issues_detected = []
     adjustments_made = []
 
+    # Early exit if forecasts look reasonable
+    if len(forecast) == 0 or len(history) == 0:
+        return forecast, [], []
+
     # Default rules if none provided
     if sense_check_rules is None:
         sense_check_rules = {
@@ -2501,114 +2506,85 @@ def human_sense_check(forecast_values,
             'min_value': 0,  # Forecasts shouldn't be negative
             'volatility_factor': 2.0,  # Maximum 2x historical volatility
             'seasonality_check':
-            True  # Check if seasonal patterns are preserved
+            len(history) >= 24 and len(forecast) >= 12  # Only check seasonality for longer series
         }
 
-    # Calculate historical statistics
+    # Pre-calculate historical statistics (only once)
     hist_max = np.max(history)
     hist_min = np.max([0.1, np.min(history)])  # Avoid issues with zeros
     hist_mean = np.mean(history)
-    hist_std = np.std(history)
-
-    # Calculate historical volatility (coefficient of variation)
-    hist_cv = hist_std / hist_mean if hist_mean > 0 else 0
-
-    # Check 1: Extreme growth or decline
+    
+    # Check 1: Extreme growth or decline and negative values (combine checks for efficiency)
     max_allowed = hist_max * sense_check_rules['max_growth_rate']
-    min_allowed = hist_min * sense_check_rules['max_decline_rate']
-
-    # Apply min/max constraints
-    too_high = forecast > max_allowed
-    too_low = forecast < min_allowed
-
+    min_allowed = max(hist_min * sense_check_rules['max_decline_rate'], sense_check_rules['min_value'])
+    
+    # Find values that need adjusting
+    too_high = adjusted_forecast > max_allowed
+    too_low = adjusted_forecast < min_allowed
+    
+    # Apply constraints if needed
     if np.any(too_high):
-        issues_detected.append(
-            f"Forecast exceeds maximum growth threshold ({sense_check_rules['max_growth_rate']}x historical max)"
-        )
+        issues_detected.append(f"Forecast exceeds maximum growth threshold ({sense_check_rules['max_growth_rate']}x historical max)")
         adjusted_forecast[too_high] = max_allowed
-        adjustments_made.append(
-            f"Capped forecasts to {sense_check_rules['max_growth_rate']}x historical maximum"
-        )
-
+        adjustments_made.append(f"Capped forecasts to {sense_check_rules['max_growth_rate']}x historical maximum")
+    
     if np.any(too_low):
-        issues_detected.append(
-            f"Forecast below minimum decline threshold ({sense_check_rules['max_decline_rate']}x historical min)"
-        )
+        if np.any(adjusted_forecast < sense_check_rules['min_value']):
+            issues_detected.append("Negative forecast values detected")
+            adjustments_made.append(f"Adjusted negative values to minimum threshold")
+        else:
+            issues_detected.append(f"Forecast below minimum decline threshold ({sense_check_rules['max_decline_rate']}x historical min)")
+            adjustments_made.append(f"Raised forecasts to minimum threshold")
+        
         adjusted_forecast[too_low] = min_allowed
-        adjustments_made.append(
-            f"Raised forecasts to {sense_check_rules['max_decline_rate']}x historical minimum"
-        )
 
-    # Check 2: Negative values
-    if np.any(adjusted_forecast < sense_check_rules['min_value']):
-        issues_detected.append("Negative forecast values detected")
-        adjusted_forecast = np.maximum(adjusted_forecast,
-                                       sense_check_rules['min_value'])
-        adjustments_made.append(
-            f"Adjusted negative values to {sense_check_rules['min_value']}")
+    # Check 2: Excessive volatility (only if we've made other adjustments or the volatility is severe)
+    forecast_mean = np.mean(adjusted_forecast)
+    if forecast_mean > 0:
+        forecast_std = np.std(adjusted_forecast)
+        forecast_cv = forecast_std / forecast_mean
+        hist_cv = np.std(history) / hist_mean if hist_mean > 0 else 0
+        max_allowed_cv = hist_cv * sense_check_rules['volatility_factor']
+        
+        # Only smooth if volatility is significantly higher
+        if forecast_cv > max_allowed_cv * 1.5 and len(adjusted_forecast) > 3:
+            issues_detected.append(f"Forecast volatility ({forecast_cv:.2f}) exceeds historical pattern ({hist_cv:.2f})")
+            
+            # Simple smoothing with minimal calculations
+            window_size = min(3, len(adjusted_forecast) // 2)
+            if window_size > 1:
+                smoothed = np.convolve(adjusted_forecast, np.ones(window_size)/window_size, mode='same')
+                level_factor = np.sum(adjusted_forecast) / np.sum(smoothed)
+                adjusted_forecast = smoothed * level_factor
+                adjustments_made.append("Smoothed forecast to match historical volatility patterns")
 
-    # Check 3: Excessive volatility
-    forecast_cv = np.std(adjusted_forecast) / np.mean(
-        adjusted_forecast) if np.mean(adjusted_forecast) > 0 else 0
-    max_allowed_cv = hist_cv * sense_check_rules['volatility_factor']
-
-    if forecast_cv > max_allowed_cv and len(adjusted_forecast) > 3:
-        issues_detected.append(
-            f"Forecast volatility ({forecast_cv:.2f}) exceeds historical pattern ({hist_cv:.2f})"
-        )
-
-        # Smooth the forecast to reduce volatility
-        smoothed = pd.Series(adjusted_forecast).rolling(
-            window=3, center=True).mean().fillna(method='bfill').fillna(
-                method='ffill').values
-
-        # Preserve the overall level by adjusting the smoothed forecast
-        level_factor = np.sum(adjusted_forecast) / np.sum(smoothed)
-        adjusted_forecast = smoothed * level_factor
-
-        adjustments_made.append(
-            "Smoothed forecast to match historical volatility patterns")
-
-    # Check 4: Seasonality preservation (if applicable and we have enough history)
-    if sense_check_rules['seasonality_check'] and len(history) >= 24 and len(
-            adjusted_forecast) >= 12:
-        # Extract month-of-year seasonality from history
-        try:
-            # Simple approach: calculate average for each month position
-            monthly_factors = []
-            for i in range(12):
-                # Get values at positions i, i+12, i+24, etc.
-                month_values = history[i::12]
-                if len(month_values) > 0:
-                    # Calculate this month's average relative to overall average
-                    monthly_factors.append(np.mean(month_values) / hist_mean)
-                else:
-                    monthly_factors.append(1.0)
-
-            # Check if forecast follows the seasonal pattern
-            for i in range(len(adjusted_forecast)):
-                month_pos = i % 12
-                expected_factor = monthly_factors[month_pos]
-
-                # If forecast doesn't follow seasonal pattern, adjust it
-                current_factor = adjusted_forecast[i] / np.mean(
-                    adjusted_forecast)
-
-                # If the seasonal factor difference is significant
-                if abs(current_factor -
-                       expected_factor) > 0.3 and expected_factor > 0:
-                    adjusted_forecast[i] = np.mean(
-                        adjusted_forecast) * expected_factor
-
-            # Only report adjustment if significant changes were made
-            if not np.allclose(adjusted_forecast, forecast, rtol=0.1):
-                issues_detected.append(
-                    "Forecast doesn't respect historical seasonal patterns")
-                adjustments_made.append(
-                    "Adjusted forecast to preserve seasonal patterns")
-        except:
-            # Skip seasonality check if it fails
-            pass
+    # Check 3: Seasonality preservation (only for longer series and only if specifically enabled)
+    if sense_check_rules.get('seasonality_check', False) and len(history) >= 24 and len(adjusted_forecast) >= 12:
+        # Skip seasonality adjustment if we're already making other significant adjustments
+        if len(adjustments_made) <= 1:
+            try:
+                # Simplified seasonality calculation
+                n_seasons = len(history) // 12
+                if n_seasons >= 2:
+                    # Create a matrix of months (rows) and years (columns)
+                    seasonal_matrix = np.zeros((12, n_seasons))
+                    for i in range(n_seasons):
+                        seasonal_matrix[:, i] = history[i*12:(i+1)*12]
+                    
+                    # Calculate seasonal factors (average for each month position)
+                    monthly_factors = np.mean(seasonal_matrix, axis=1) / hist_mean
+                    
+                    # Apply seasonal factors only if they deviate significantly
+                    if np.std(monthly_factors) > 0.1:
+                        forecast_mean = np.mean(adjusted_forecast)
+                        for i in range(len(adjusted_forecast)):
+                            month_pos = i % 12
+                            adjusted_forecast[i] = forecast_mean * monthly_factors[month_pos]
+                        
+                        adjustments_made.append("Adjusted forecast to preserve seasonal patterns")
+            except:
+                # Skip seasonality check if it fails
+                pass
 
     return adjusted_forecast, issues_detected, adjustments_made
 
@@ -2623,7 +2599,7 @@ def advanced_generate_forecasts(sales_data,
                                 hyperparameter_tuning=True,
                                 apply_sense_check=True,
                                 use_param_cache=True,
-                                schedule_tuning=True):
+                                schedule_tuning=False):  # Set to False to limit background tasks
     """
     Generate advanced forecasts for SKUs, leveraging improved preprocessing, model selection,
     and post-processing.
