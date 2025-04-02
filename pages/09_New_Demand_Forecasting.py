@@ -240,10 +240,13 @@ with st.sidebar:
         level : str, optional
             Message level ('info', 'warning', 'error', 'success')
         """
-        # Update progress information in session state
-        progress = min(float(current_index) / total_skus, 1.0)
+        # Update progress information in session state - ensure progress is between 0 and 1
+        progress = min(max(float(current_index) / max(total_skus, 1), 0.0), 1.0)
         st.session_state.new_forecast_progress = progress
         st.session_state.new_forecast_current_sku = current_sku
+
+        # Print to console for debugging
+        print(f"Progress update: {progress:.2f} - SKU: {current_sku} - Message: {message}")
 
         # Track current model if mentioned in message
         if message and "model" in message.lower():
@@ -252,7 +255,7 @@ with st.sidebar:
                     st.session_state.new_current_model = model_name.upper()
                     break
 
-        # Store SKU and model status for main section display
+        # Initialize process status tracking if not already present
         if not hasattr(st.session_state, 'new_process_status'):
             st.session_state.new_process_status = {}
 
@@ -265,19 +268,28 @@ with st.sidebar:
             if message:
                 st.session_state.new_process_status[current_sku]["last_message"] = message
 
+                # Update status based on special keywords in the message
+                if "finalizing" in message.lower() or "finalising" in message.lower():
+                    st.session_state.new_process_status[current_sku]["status"] = "Finalizing"
+                    # Force progress update to show activity
+                    if progress > 0.9:
+                        st.session_state.new_forecast_progress = min(progress + 0.01, 0.99)
+
                 # Extract model information if present
                 for model_name in ["auto_arima", "prophet", "ets", "theta", "lstm", "tcn", "ensemble", "moving_average", "sarima"]:
                     if model_name.lower() in message.lower():
                         if "training" in message.lower() or "evaluating" in message.lower():
                             st.session_state.new_process_status[current_sku]["models"][model_name.upper()] = "In Progress"
                         elif "selected" in message.lower() and model_name.lower() in message.lower():
-                            st.session_state.new_process_status[current_sku]["models"][model_name.upper()] = "Selected"
+                            st.session_state.new_process_status[current_sku]["models"][model_name.upper()] = "Selected" 
                         elif "complete" in message.lower() and model_name.lower() in message.lower():
                             st.session_state.new_process_status[current_sku]["models"][model_name.upper()] = "Complete"
 
                 # Check for completion
                 if "complete" in message.lower() or "finished" in message.lower():
                     st.session_state.new_process_status[current_sku]["status"] = "Complete"
+                    # Force progress to 100% when complete
+                    st.session_state.new_forecast_progress = 1.0
 
     # Run forecast button
     forecast_button_text = "Run Forecast Analysis"
