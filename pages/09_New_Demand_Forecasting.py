@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -33,7 +32,7 @@ st.set_page_config(
 # Initialize cache for forecast results
 if 'new_forecast_cache' not in st.session_state:
     st.session_state.new_forecast_cache = {}
-    
+
 # Flag to track if models are loaded (lazy loading)
 if 'new_models_loaded' not in st.session_state:
     st.session_state.new_models_loaded = False
@@ -191,7 +190,7 @@ with st.sidebar:
 
     if st.checkbox("Theta Method", value=True):
         models_to_evaluate.append("theta")
-        
+
     if st.checkbox("Ensemble Model", value=True, help="Combines multiple forecasting models for improved accuracy"):
         models_to_evaluate.append("ensemble")
 
@@ -225,10 +224,60 @@ with st.sidebar:
 
     # Progress tracking callback function
     def forecast_progress_callback(current_index, current_sku, total_skus, message=None, level="info"):
+        """
+        Enhanced callback function to update progress during forecasting and track model status
+
+        Parameters:
+        -----------
+        current_index : int
+            Current SKU index being processed
+        current_sku : str
+            SKU identifier currently being processed
+        total_skus : int
+            Total number of SKUs to process
+        message : str, optional
+            Specific message about current process
+        level : str, optional
+            Message level ('info', 'warning', 'error', 'success')
+        """
         # Update progress information in session state
         progress = min(float(current_index) / total_skus, 1.0)
         st.session_state.new_forecast_progress = progress
         st.session_state.new_forecast_current_sku = current_sku
+
+        # Track current model if mentioned in message
+        if message and "model" in message.lower():
+            for model_name in ["auto_arima", "prophet", "ets", "theta", "lstm", "tcn", "ensemble", "moving_average", "sarima"]:
+                if model_name.lower() in message.lower():
+                    st.session_state.new_current_model = model_name.upper()
+                    break
+
+        # Store SKU and model status for main section display
+        if not hasattr(st.session_state, 'new_process_status'):
+            st.session_state.new_process_status = {}
+
+        # Update status tracking dictionary
+        if current_sku:
+            if current_sku not in st.session_state.new_process_status:
+                st.session_state.new_process_status[current_sku] = {"status": "Processing", "models": {}, "last_message": ""}
+
+            # Update with message info
+            if message:
+                st.session_state.new_process_status[current_sku]["last_message"] = message
+
+                # Extract model information if present
+                for model_name in ["auto_arima", "prophet", "ets", "theta", "lstm", "tcn", "ensemble", "moving_average", "sarima"]:
+                    if model_name.lower() in message.lower():
+                        if "training" in message.lower() or "evaluating" in message.lower():
+                            st.session_state.new_process_status[current_sku]["models"][model_name.upper()] = "In Progress"
+                        elif "selected" in message.lower() and model_name.lower() in message.lower():
+                            st.session_state.new_process_status[current_sku]["models"][model_name.upper()] = "Selected"
+                        elif "complete" in message.lower() and model_name.lower() in message.lower():
+                            st.session_state.new_process_status[current_sku]["models"][model_name.upper()] = "Complete"
+
+                # Check for completion
+                if "complete" in message.lower() or "finished" in message.lower():
+                    st.session_state.new_process_status[current_sku]["status"] = "Complete"
 
     # Run forecast button
     forecast_button_text = "Run Forecast Analysis"
@@ -247,13 +296,13 @@ with st.sidebar:
     if should_show_button:
         # Generate a cache key based on selected parameters
         cache_key = f"{forecast_scope}_{len(selected_skus_to_forecast)}_{forecast_periods}_{num_clusters}_{'-'.join(models_to_evaluate)}"
-        
+
         # Check if we have cached results for these parameters
         cached_results_available = cache_key in st.session_state.new_forecast_cache
-        
+
         # Show different button text if cached results are available
         button_text = f"{forecast_button_text} (Cached)" if cached_results_available else forecast_button_text
-        
+
         run_forecast_clicked = st.button(
             button_text, 
             key="new_run_forecast_button",
@@ -268,16 +317,16 @@ with st.sidebar:
                 st.session_state.new_clusters = st.session_state.new_forecast_cache[cache_key]['clusters']
                 st.session_state.new_run_forecast = True
                 st.session_state.new_models_loaded = True
-                
+
                 # Show success message
                 st.success(f"Loaded cached forecasts for {len(st.session_state.new_forecasts)} SKUs!")
-                
+
             else:
                 # Set forecast in progress flag
                 st.session_state.new_forecast_in_progress = True
                 st.session_state.new_forecast_progress = 0
                 st.session_state.new_run_forecast = True
-                
+
                 # Create an enhanced progress display
                 with progress_placeholder.container():
                     # Create a two-column layout for the progress display
@@ -309,15 +358,15 @@ with st.sidebar:
                         # Create a log container
                         log_container = st.empty()
                         log_messages = []
-                        
+
                         # Function to add log messages
                         def add_log_message(message, level="info"):
                             timestamp = datetime.now().strftime("%H:%M:%S")
                             log_messages.append({"timestamp": timestamp, "message": message, "level": level})
-                            
+
                             # Format log messages with appropriate styling
                             log_html = '<div style="height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.8em; background-color: #f0f0f0; padding: 10px; border-radius: 5px;">'
-                            
+
                             for log in log_messages[-100:]:  # Show last 100 messages
                                 if log["level"] == "info":
                                     color = "black"
@@ -329,28 +378,28 @@ with st.sidebar:
                                     color = "green"
                                 else:
                                     color = "blue"
-                                
+
                                 log_html += f'<div style="margin-bottom: 3px;"><span style="color: gray;">[{log["timestamp"]}]</span> <span style="color: {color};">{log["message"]}</span></div>'
-                            
+
                             log_html += '</div>'
-                            
+
                             # Update the log display
                             log_container.markdown(log_html, unsafe_allow_html=True)
-                    
+
                     # Enhanced progress callback function that updates logs
                     def enhanced_forecast_callback(current_index, current_sku, total_skus, message=None, level="info"):
                         # Update progress information in session state
                         progress = min(float(current_index) / total_skus, 1.0)
                         st.session_state.new_forecast_progress = progress
                         st.session_state.new_forecast_current_sku = current_sku
-                        
+
                         # Add log message if provided
                         if message:
                             add_log_message(f"[SKU: {current_sku}] {message}", level)
                         else:
                             # Default message
                             add_log_message(f"Processing SKU: {current_sku} ({current_index+1}/{total_skus})", "info")
-                    
+
                     # Phase 1: Extract time series features for clustering
                     add_log_message("Starting Phase 1: Time Series Feature Extraction", "info")
                     with spinner_placeholder:
@@ -392,7 +441,7 @@ with st.sidebar:
                         total_skus = len(features_df)
                         progress_details.info(f"Generating forecasts for all {total_skus} SKUs using {len(models_to_evaluate)} different forecasting models...")
                         add_log_message(f"Preparing to generate forecasts for all {total_skus} SKUs", "info")
-                    
+
                     # Log models being used
                     add_log_message(f"Models to evaluate: {', '.join(models_to_evaluate)}", "info")
                     add_log_message(f"Forecast periods: {st.session_state.new_forecast_periods}", "info")
@@ -410,7 +459,7 @@ with st.sidebar:
                                 auto_select=True,
                                 models_to_evaluate=models_to_evaluate,
                                 selected_skus=skus_to_forecast,
-                                progress_callback=enhanced_forecast_callback,
+                                progress_callback=forecast_progress_callback,
                                 hyperparameter_tuning=False,
                                 apply_sense_check=st.session_state.new_apply_sense_check,
                                 use_param_cache=True
@@ -441,17 +490,17 @@ with st.sidebar:
                     phase_indicator.markdown("**Finished!**")
                     status_text.markdown("### ✨ Forecast Generation Completed Successfully!")
                     progress_details.success("All forecasts have been generated and are ready to explore!")
-                    
+
                     # Add final log messages
                     add_log_message("Forecast generation complete!", "success")
-                    
+
                     # If forecasts were generated, set default selected SKU
                     if st.session_state.new_forecasts:
                         sku_list = sorted(list(st.session_state.new_forecasts.keys()))
                         st.session_state.new_sku_options = sku_list
                         if sku_list and not st.session_state.new_selected_sku in sku_list:
                             st.session_state.new_selected_sku = sku_list[0]
-                            
+
                         # Cache the forecast results for future use
                         cache_key = f"{forecast_scope}_{len(selected_skus_to_forecast)}_{forecast_periods}_{num_clusters}_{'-'.join(models_to_evaluate)}"
                         st.session_state.new_forecast_cache[cache_key] = {
@@ -528,7 +577,7 @@ if st.session_state.new_run_forecast and 'new_forecasts' in st.session_state and
     for sku, forecast_data in st.session_state.new_forecasts.items():
         # Get the model name according to advanced_forecast format
         selected_model = forecast_data.get('selected_model', forecast_data.get('model', 'Unknown'))
-        
+
         model_info = {
             'SKU': sku,
             'Selected Model': selected_model.upper(),
@@ -618,7 +667,7 @@ if st.session_state.new_run_forecast and 'new_forecasts' in st.session_state and
             # Check for model_comparison in the forecast data
             if 'model_comparison' in forecast_data:
                 available_models = list(forecast_data['model_comparison'].keys())
-            
+
             # Create checkboxes for display options
             st.subheader("Display Options")
 
@@ -715,7 +764,7 @@ if st.session_state.new_run_forecast and 'new_forecasts' in st.session_state and
 
             # Get confidence level from session state or default to 80%
             confidence_interval = 0.8  # Default value
-            
+
             # Use plot_forecast from visualization.py with prepared data
             # Get visualization_data
             forecast_fig = plot_forecast(
@@ -723,9 +772,9 @@ if st.session_state.new_run_forecast and 'new_forecasts' in st.session_state and
                 show_anomalies=show_anomalies,
                 confidence_interval=confidence_interval
             )
-            
+
             st.plotly_chart(forecast_fig, use_container_width=True)
-            
+
             # Add a note about model selection
             if selected_models_for_viz:
                 st.info(f"Displaying forecasts for models: {', '.join([m.upper() for m in selected_models_for_viz])}")
@@ -745,23 +794,23 @@ if st.session_state.new_run_forecast and 'new_forecasts' in st.session_state and
                 if selected_sku and selected_sku in st.session_state.new_forecasts:
                     # Basic metrics at the top
                     col1, col2, col3 = st.columns(3)
-                    
+
                     with col1:
                         st.markdown(f"**SKU:** {selected_sku}")
-                    
+
                     with col2:
                         st.markdown(f"**Cluster:** {forecast_data.get('cluster_name', 'Unknown')}")
-                    
+
                     with col3:
                         model_name = forecast_data.get('selected_model', forecast_data.get('model', 'Unknown')).upper()
                         st.markdown(f"**Model Used:** {model_name}")
-                    
+
                     # Show accuracy metric if available
                     if 'metrics' in forecast_data and 'mape' in forecast_data['metrics']:
                         mape = forecast_data['metrics']['mape']
                         if not np.isnan(mape):
                             st.metric("Forecast Accuracy", f"{(100-mape):.1f}%", help="Based on test data evaluation")
-                    
+
                     # Forecast confidence
                     confidence_color = "green" if model_name.lower() != 'moving_average' else "orange"
                     confidence_text = "High" if model_name.lower() != 'moving_average' else "Medium"
@@ -810,7 +859,7 @@ if st.session_state.new_run_forecast and 'new_forecasts' in st.session_state and
                                         else:
                                             # If not found, use NaN
                                             forecast_val = np.nan
-                                                
+
                                         # Handle NaN values before conversion to int
                                         if pd.isna(forecast_val) or np.isnan(forecast_val):
                                             forecast_values.append(0)
@@ -853,7 +902,7 @@ if st.session_state.new_run_forecast and 'new_forecasts' in st.session_state and
                     forecast_data.get('selected_model', ''),
                     selected_models_for_viz
                 )
-                
+
                 if model_comparison_fig:
                     st.plotly_chart(model_comparison_fig, use_container_width=True)
                 else:
@@ -892,7 +941,7 @@ if st.session_state.new_run_forecast and 'new_forecasts' in st.session_state and
 
                 # Create table of model evaluation metrics
                 metrics_data = []
-                
+
                 # Handle different structures of metrics data
                 if 'model_comparison' in forecast_data:
                     for model_name, model_forecast in forecast_data['model_comparison'].items():
@@ -902,7 +951,7 @@ if st.session_state.new_run_forecast and 'new_forecasts' in st.session_state and
                         else:
                             # If metrics not directly available, use the main metrics
                             model_metrics = forecast_data['metrics']
-                            
+
                         metrics_data.append({
                             'Model': model_name.upper(),
                             'RMSE': round(model_metrics.get('rmse', 0), 2),
@@ -1096,7 +1145,7 @@ if st.session_state.new_run_forecast and 'new_forecasts' in st.session_state and
                                     forecast_value = model_forecast_series.loc[date]
                                 else:
                                     forecast_value = np.nan
-                                    
+
                                 try:
                                     # Check if value is NaN before conversion
                                     if not pd.isna(forecast_value) and not np.isnan(forecast_value):
@@ -1389,7 +1438,7 @@ else:
 
                 with col2:
                     st.write("Quarterly Summary")
-                    st.dataframe(quarterly_summary, use_container_width=True)
+                    st.dataframe(quarterly_summary, use_container_width=True)True)
 
     # Show a preview of the overall sales data
     st.subheader("Sales Data Preview")
