@@ -1034,7 +1034,7 @@ def plot_inventory_health(sales_data, forecast_data):
 
     return fig
 
-def plot_model_comparison(model_comparison, selected_model=None):
+def plot_model_comparison(model_comparison, selected_model=None, models_to_show=None):
     """
     Create a plotly figure comparing different forecasting models for a specific SKU
     with detailed error metrics visualization - using a clustered bar chart with a line for MAPE
@@ -1045,6 +1045,8 @@ def plot_model_comparison(model_comparison, selected_model=None):
         Dictionary containing model evaluation data with metrics for each model
     selected_model : str, optional
         The name of the selected (best) model to highlight
+    models_to_show : list, optional
+        List of model names to include in the visualization
 
     Returns:
     --------
@@ -1101,8 +1103,14 @@ def plot_model_comparison(model_comparison, selected_model=None):
             if not pd.isna(metrics[m].get('mape', float('inf'))) else metrics[m].get('rmse', float('inf'))
         )
 
-    # Create data for bar chart
-    models = sorted(list(metrics.keys()))  # Sort alphabetically for consistent ordering
+    # Create data for bar chart - filter by models_to_show if provided
+    if models_to_show and isinstance(models_to_show, list) and len(models_to_show) > 0:
+        # Filter models by those in models_to_show
+        models = [m for m in models_to_show if m in metrics.keys()]
+    else:
+        # Use all available models
+        models = sorted(list(metrics.keys()))  # Sort alphabetically for consistent ordering
+        
     rmse_values = [metrics[m].get('rmse', 0) for m in models]
     mape_values = [metrics[m].get('mape', 0) if not pd.isna(metrics[m].get('mape', 0)) else 0 for m in models]
     mae_values = [metrics[m].get('mae', 0) for m in models]
@@ -1144,7 +1152,7 @@ def plot_model_comparison(model_comparison, selected_model=None):
 
     # Highlight the best model if it exists
     for i, model in enumerate(models):
-        if model == best_model:
+        if model == selected_model:
             # Only add annotation if there are RMSE values
             if rmse_values and max(rmse_values) > 0:
                 y_pos = max(rmse_values) * 1.1

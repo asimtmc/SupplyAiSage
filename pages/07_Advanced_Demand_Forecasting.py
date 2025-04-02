@@ -1225,16 +1225,28 @@ with tab_forecast:
                     available_models = list(forecast_result['model_comparison'].keys())
                     if available_models:
                         with viz_col2:
-                            selected_models = st.multiselect(
-                                "Select Models to Compare",
-                                options=available_models,
-                                default=[forecast_result.get('selected_model', available_models[0])],
-                                help="Choose which model forecasts to display"
+                            # Option to show all models
+                            show_all_models = st.checkbox(
+                                "Show All Models", 
+                                value=False,
+                                help="Show forecasts from all available models"
                             )
                             
+                            if show_all_models:
+                                # Use all available models
+                                selected_models_for_viz = available_models
+                            else:
+                                # Let user select specific models
+                                selected_models_for_viz = st.multiselect(
+                                    "Select Models to Compare",
+                                    options=available_models,
+                                    default=[forecast_result.get('selected_model', available_models[0])],
+                                    help="Choose which model forecasts to display"
+                                )
+                            
                             # Store selected models for visualization
-                            if selected_models:
-                                forecast_result['selected_models_for_viz'] = selected_models
+                            if selected_models_for_viz:
+                                forecast_result['selected_models_for_viz'] = selected_models_for_viz
 
                 # Create the properly formatted data structure for visualization
                 # Make a copy of the train set for historical data to avoid modifying the original
@@ -1416,7 +1428,12 @@ with tab_forecast:
                             st.dataframe(styled_df, use_container_width=True)
 
                             # Show visual comparison of models
-                            comparison_fig = plot_model_comparison(model_comparison, forecast_result['selected_model'])
+                            selected_models_for_plot = forecast_result.get('selected_models_for_viz', [forecast_result['selected_model']])
+                            comparison_fig = plot_model_comparison(
+                                model_comparison, 
+                                forecast_result['selected_model'],
+                                selected_models_for_plot
+                            )
                             if comparison_fig:
                                 st.plotly_chart(comparison_fig, use_container_width=True)
     else:
