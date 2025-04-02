@@ -7,27 +7,21 @@ from datetime import datetime, timedelta
 import numpy as np
 import streamlit as st
 
-@st.cache_data(ttl=1800, show_spinner=False)  # 30 minute cache for visualizations
-def plot_forecast(forecast_result, sales_data=None, forecast_data=None, sku=None, selected_models=None, show_anomalies=False, confidence_interval=0.95):
+@st.cache_data(ttl=1800, show_spinner=False, max_entries=100)  # 30 minute cache for visualizations
+def plot_forecast(sales_data, forecast_data, sku=None, selected_models=None, show_anomalies=False, confidence_interval=0.95):
     """
     Create interactive forecast visualization with caching for better performance
     
-    This function supports two calling patterns:
-    1. plot_forecast(forecast_result) - single parameter from the Advanced Demand Forecasting page
-    2. plot_forecast(sales_data, forecast_data, sku, selected_models) - original calling pattern
-    
     Parameters:
     -----------
-    forecast_result : dict
-        Forecast result dictionary containing historical data and forecast data
-    sales_data : pandas.DataFrame, optional
-        Historical sales data (used in original calling pattern)
-    forecast_data : dict, optional
-        Forecast information (used in original calling pattern)
-    sku : str, optional
-        SKU identifier (used in original calling pattern)
-    selected_models : list, optional
-        List of models to display (used in original calling pattern)
+    sales_data : pandas.DataFrame
+        Historical sales data
+    forecast_data : dict
+        Forecast information including model data
+    sku : str
+        SKU identifier
+    selected_models : list
+        List of models to display on the chart
     show_anomalies : bool, optional
         Whether to highlight anomalies in the data
     confidence_interval : float, optional
@@ -36,249 +30,9 @@ def plot_forecast(forecast_result, sales_data=None, forecast_data=None, sku=None
     # Create a default figure
     fig = go.Figure()
     
-    # Handle the case where forecast_result is passed as a single parameter
-    if sales_data is None and forecast_data is None and sku is None:
-        # Check if forecast_result is None or not a dictionary
-        if forecast_result is None or not isinstance(forecast_result, dict):
-            fig.update_layout(
-                title="No forecast data available",
-                annotations=[{
-                    'text': "Please run a forecast first to see results",
-                    'showarrow': False,
-                    'font': {'size': 16},
-                    'xref': 'paper',
-                    'yref': 'paper',
-                    'x': 0.5,
-                    'y': 0.5
-                }]
-            )
-            return fig
-            
-        # Extract data from forecast_result
-        # Get historical data
-        sku_data = pd.DataFrame()
-        if 'historical_data' in forecast_result and isinstance(forecast_result['historical_data'], pd.DataFrame):
-            sku_data = forecast_result['historical_data'].copy()
-        elif 'data' in forecast_result and isinstance(forecast_result['data'], pd.DataFrame):
-            sku_data = forecast_result['data'].copy()
-        elif 'history' in forecast_result and isinstance(forecast_result['history'], pd.DataFrame):
-            sku_data = forecast_result['history'].copy()
-            
-        # Get the SKU from the forecast_result if available
-        if 'sku' in forecast_result:
-            sku = forecast_result['sku']
-        else:
-            sku = "Unknown SKU"
-        
-        # Add historical data if available
-        if not sku_data.empty and 'date' in sku_data.columns and 'quantity' in sku_data.columns:
-            sku_data = sku_data.sort_values('date')
-            fig.add_trace(
-                go.Scatter(
-                    x=sku_data['date'],
-                    y=sku_data['quantity'],
-                    mode='lines+markers',
-                    name='Historical Sales',
-                    line=dict(color='blue'),
-                    marker=dict(size=8, symbol='circle'),
-                    hovertemplate='%{x|%b %Y}: %{y:,.0f} units'
-                )
-            )
-            
-            # Add anomalies if requested
-            if show_anomalies and 'anomalies' in forecast_result:
-                anomalies = forecast_result['anomalies']
-                if isinstance(anomalies, pd.DataFrame) and not anomalies.empty:
-                    fig.add_trace(
-                        go.Scatter(
-                            x=anomalies['date'],
-                            y=anomalies['quantity'],
-                            mode='markers',
-                            name='Anomalies',
-                            marker=dict(
-                                size=12, 
-                                symbol='x',
-                                color='red',
-                                line=dict(width=2, color='black')
-                            ),
-                            hovertemplate='Anomaly: %{x|%b %Y}: %{y:,.0f} units'
-                        )
-                    )
-        
-        # Add forecast
-        forecast_df = pd.DataFrame()
-        
-        # Check all possible forecast data keys
-        if 'forecast_data' in forecast_result and isinstance(forecast_result['forecast_data'], pd.DataFrame) and not forecast_result['forecast_data'].empty:
-            forecast_df = forecast_result['forecast_data'].copy()
-        elif 'forecast' in forecast_result and isinstance(forecast_result['forecast'], pd.DataFrame) and not forecast_result['forecast'].empty:
-            forecast_df = forecast_result['forecast'].copy()
-            
-        # If we have forecast data, add it to the plot
-        if not forecast_df.empty:
-            # Check column formats and normalize if needed
-            if 'ds' in forecast_df.columns and 'date' not in forecast_df.columns:
-                forecast_df['date'] = forecast_df['ds']
-            elif 'date' in forecast_df.columns and 'ds' not in forecast_df.columns:
-                forecast_df['ds'] = forecast_df['date']
-                
-            # Get the forecast values based on column naming convention
-            if 'yhat' in forecast_df.columns:
-                # Prophet-style output with yhat column
-                x_col = 'ds'
-                y_col = 'yhat'
-                lower_col = 'yhat_lower'
-                upper_col = 'yhat_upper'
-            elif 'forecast' in forecast_df.columns:
-                # ARIMA/SARIMA style with forecast column
-                x_col = 'date' if 'date' in forecast_df.columns else 'ds'
-                y_col = 'forecast'
-                lower_col = 'lower_bound' if 'lower_bound' in forecast_df.columns else None
-                upper_col = 'upper_bound' if 'upper_bound' in forecast_df.columns else None
-            elif 'predicted' in forecast_df.columns:
-                # Generic ML model style with predicted column
-                x_col = 'date' if 'date' in forecast_df.columns else 'ds'
-                y_col = 'predicted'
-                lower_col = 'lower_bound' if 'lower_bound' in forecast_df.columns else None
-                upper_col = 'upper_bound' if 'upper_bound' in forecast_df.columns else None
-            elif 'mean' in forecast_df.columns:
-                # statsmodels style with mean column
-                x_col = 'date' if 'date' in forecast_df.columns else 'ds'
-                y_col = 'mean'
-                lower_col = 'mean_ci_lower' if 'mean_ci_lower' in forecast_df.columns else None
-                upper_col = 'mean_ci_upper' if 'mean_ci_upper' in forecast_df.columns else None
-            else:
-                # Default case - use first datetime column as x and first numeric column as y
-                datetime_cols = [col for col in forecast_df.columns if pd.api.types.is_datetime64_any_dtype(forecast_df[col])]
-                numeric_cols = [col for col in forecast_df.columns if pd.api.types.is_numeric_dtype(forecast_df[col])]
-                
-                if datetime_cols and numeric_cols:
-                    x_col = datetime_cols[0]
-                    y_col = numeric_cols[0]
-                    lower_col = None
-                    upper_col = None
-                else:
-                    # Unable to determine columns
-                    fig.update_layout(
-                        title="Unknown forecast data format",
-                        annotations=[{
-                            'text': "Forecast data format not recognized",
-                            'showarrow': False,
-                            'font': {'size': 16},
-                            'xref': 'paper',
-                            'yref': 'paper',
-                            'x': 0.5,
-                            'y': 0.5
-                        }]
-                    )
-                    return fig
-                
-            # Add the forecast trace
-            if x_col in forecast_df.columns and y_col in forecast_df.columns:
-                fig.add_trace(
-                    go.Scatter(
-                        x=forecast_df[x_col],
-                        y=forecast_df[y_col],
-                        mode='lines+markers',
-                        name='Forecast',
-                        line=dict(color='red', dash='solid'),
-                        marker=dict(size=8, symbol='circle'),
-                        hovertemplate='%{x|%b %Y}: %{y:,.0f} units'
-                    )
-                )
-                
-                # Add confidence intervals if available
-                if lower_col and upper_col and lower_col in forecast_df.columns and upper_col in forecast_df.columns:
-                    fig.add_trace(
-                        go.Scatter(
-                            x=forecast_df[x_col].tolist() + forecast_df[x_col].tolist()[::-1],
-                            y=forecast_df[upper_col].tolist() + forecast_df[lower_col].tolist()[::-1],
-                            fill='toself',
-                            fillcolor='rgba(255, 0, 0, 0.2)',
-                            line=dict(color='rgba(255, 255, 255, 0)'),
-                            hoverinfo='skip',
-                            name='Confidence Interval',
-                            showlegend=True
-                        )
-                    )
-            
-            # Update layout
-            max_date = sku_data['date'].max() if not sku_data.empty and 'date' in sku_data.columns else None
-            
-            fig.update_layout(
-                title=f"<b>Sales Forecast for {sku}</b>",
-                xaxis_title="Date",
-                yaxis_title="Units Sold",
-                template="plotly_white",
-                height=500,
-                legend=dict(
-                    orientation="h",
-                    yanchor="bottom",
-                    y=1.02,
-                    xanchor="right",
-                    x=1
-                )
-            )
-            
-            # Add vertical line separating history and forecast if possible
-            if max_date is not None:
-                # Convert to string representation to avoid timestamp math issues
-                fig.add_shape(
-                    type="line",
-                    x0=max_date,
-                    y0=0,
-                    x1=max_date,
-                    y1=1,
-                    yref="paper",
-                    line=dict(
-                        color="gray",
-                        width=2,
-                        dash="dash",
-                    )
-                )
-                
-                # Add annotation for the forecast start
-                fig.add_annotation(
-                    x=max_date,
-                    y=1,
-                    yref="paper",
-                    text="Forecast Start",
-                    showarrow=False,
-                    xanchor="right",
-                    yanchor="top"
-                )
-        else:
-            # If no forecast data but we have historical data
-            if not sku_data.empty:
-                fig.update_layout(
-                    title=f"<b>Historical Sales for {sku}</b>",
-                    xaxis_title="Date",
-                    yaxis_title="Units Sold",
-                    template="plotly_white",
-                    height=500
-                )
-            else:
-                # Truly empty data case
-                fig.update_layout(
-                    title=f"No data available for {sku}",
-                    annotations=[{
-                        'text': "No data available for this SKU",
-                        'showarrow': False,
-                        'font': {'size': 16},
-                        'xref': 'paper',
-                        'yref': 'paper',
-                        'x': 0.5,
-                        'y': 0.5
-                    }]
-                )
-        
-        return fig
-    
-    # Original implementation for the old calling pattern
     # Filter sales data for this SKU and ensure valid filtering
     if not isinstance(sku, str) or sku not in sales_data['sku'].unique():
         # If sku is invalid, return empty figure with error message
-        fig = go.Figure()
         fig.add_annotation(
             text="No valid SKU selected or data unavailable",
             showarrow=False,
@@ -289,9 +43,6 @@ def plot_forecast(forecast_result, sales_data=None, forecast_data=None, sku=None
         
     sku_data = sales_data[sales_data['sku'] == sku].copy()
     sku_data = sku_data.sort_values('date')
-
-    # Create figure
-    fig = go.Figure()
 
     # Add historical data
     fig.add_trace(
@@ -306,13 +57,15 @@ def plot_forecast(forecast_result, sales_data=None, forecast_data=None, sku=None
         )
     )
 
-    # Define model colors
+    # Define model colors - expanded for all available models
     model_colors = {
         'arima': 'green',
         'sarima': 'purple',
         'prophet': 'orange',
         'lstm': 'brown',
         'holtwinters': 'teal',
+        'decomposition': 'magenta',
+        'ensemble': 'red',
         'moving_average': 'gray'
     }
 
@@ -325,80 +78,71 @@ def plot_forecast(forecast_result, sales_data=None, forecast_data=None, sku=None
         )
         return fig
     
-    # Add forecasts for all selected models (no primary model, all are equal)
-    if selected_models and forecast_data and isinstance(forecast_data, dict) and 'model_evaluation' in forecast_data and 'all_models_forecasts' in forecast_data['model_evaluation']:
-        all_models = forecast_data['model_evaluation']['all_models_forecasts']
-
-        # Add each selected model
-        models_added = False
-        for model in selected_models:
-            # Try both lowercase and as-is versions of the model name
-            model_key = model.lower() if model.lower() in all_models else model
-            
-            if model_key in all_models:
-                model_forecast = all_models[model_key]
-                if model_forecast is None or len(model_forecast) == 0:
-                    continue
-                    
-                models_added = True
-                # Choose a color for this model
-                color = model_colors.get(model_key, 'red')
-
-                fig.add_trace(
-                    go.Scatter(
-                        x=model_forecast.index,
-                        y=model_forecast.values,
-                        mode='lines+markers',
-                        name=f"{model.upper()} Forecast",
-                        line=dict(color=color, dash='solid'),
-                        marker=dict(size=8, symbol='circle'),
-                        hovertemplate='%{x|%b %Y}: %{y:,.0f} units'
-                    )
-                )
+    # Add forecasts for all selected models
+    models_added = False
+    
+    # First check if we have model_evaluation data with multiple model forecasts
+    if (selected_models and forecast_data and 
+        isinstance(forecast_data, dict) and 
+        'model_evaluation' in forecast_data and 
+        'all_models_forecasts' in forecast_data['model_evaluation']):
         
-        # If no models were added, show a message
-        if not models_added:
-            fig.add_annotation(
-                text="No forecast models available for selected options",
-                showarrow=False,
-                font=dict(size=16),
-                xref="paper",
-                yref="paper",
-                x=0.5,
-                y=0.5
-            )
-            
-    elif forecast_data and isinstance(forecast_data, dict) and 'forecast' in forecast_data:
-        # Fallback to using the model's forecast if no other models are available
+        all_models_data = forecast_data['model_evaluation']['all_models_forecasts']
+        
+        # If we have selected models, use them
+        if selected_models:
+            for model in selected_models:
+                model_key = model.lower()  # Always use lowercase for model keys
+                
+                # Check if this model exists in the data
+                if model_key in all_models_data:
+                    model_forecast = all_models_data[model_key]
+                    
+                    # Skip if no forecast data available for this model
+                    if model_forecast is None or len(model_forecast) == 0:
+                        continue
+                    
+                    # Add this model's forecast to the chart
+                    models_added = True
+                    color = model_colors.get(model_key, 'red')  # Default to red if color not defined
+                    
+                    fig.add_trace(
+                        go.Scatter(
+                            x=model_forecast.index,
+                            y=model_forecast.values,
+                            mode='lines+markers',
+                            name=f"{model_key.upper()} Forecast",
+                            line=dict(color=color, dash='solid'),
+                            marker=dict(size=8, symbol='circle'),
+                            hovertemplate='%{x|%b %Y}: %{y:,.0f} units'
+                        )
+                    )
+    
+    # If no models from the selection were added, fallback to the best model
+    if not models_added and isinstance(forecast_data, dict) and 'forecast' in forecast_data:
         forecast_values = forecast_data['forecast']
         if forecast_values is not None and len(forecast_values) > 0:
             model_name = forecast_data.get('model', 'Default').upper()
+            model_key = model_name.lower()
+            color = model_colors.get(model_key, 'red')
+            
             fig.add_trace(
                 go.Scatter(
                     x=forecast_values.index,
                     y=forecast_values.values,
                     mode='lines+markers',
-                    name=f"Forecast ({model_name})",
-                    line=dict(color='red', dash='solid'),
+                    name=f"{model_name} Forecast",
+                    line=dict(color=color, dash='solid'),
                     marker=dict(size=8, symbol='circle'),
                     hovertemplate='%{x|%b %Y}: %{y:,.0f} units'
                 )
             )
-        else:
-            # No forecast values available
-            fig.add_annotation(
-                text="Forecast data available but no values to display",
-                showarrow=False,
-                font=dict(size=16),
-                xref="paper",
-                yref="paper",
-                x=0.5,
-                y=0.5
-            )
-    else:
-        # No forecast data available
+            models_added = True
+    
+    # If still no models were added, show a message
+    if not models_added:
         fig.add_annotation(
-            text="No forecast data available",
+            text="No forecast models available for selected options",
             showarrow=False,
             font=dict(size=16),
             xref="paper",
@@ -441,19 +185,18 @@ def plot_forecast(forecast_result, sales_data=None, forecast_data=None, sku=None
             if 'model_evaluation' in forecast_data:
                 # Get test data
                 test_set = None
-                if 'test_set' in forecast_data['model_evaluation']:
-                    test_set = forecast_data['model_evaluation']['test_set']
-                elif forecast_data.get('test_set') is not None:
-                    test_set = forecast_data.get('test_set')
-    
+                if 'test_set' in forecast_data:
+                    test_set = forecast_data['test_set']
+                
                 # Get test predictions for the selected models
                 if selected_models and 'all_models_test_pred' in forecast_data['model_evaluation']:
                     for model in selected_models:
-                        if model.lower() in forecast_data['model_evaluation']['all_models_test_pred']:
-                            test_predictions = forecast_data['model_evaluation']['all_models_test_pred'][model.lower()]
+                        model_key = model.lower()
+                        if model_key in forecast_data['model_evaluation']['all_models_test_pred']:
+                            test_predictions = forecast_data['model_evaluation']['all_models_test_pred'][model_key]
     
-                            # Choose a color for this model that matches the forecast
-                            color = model_colors.get(model.lower(), 'orange')
+                            # Choose a color for this model that matches the forecast color
+                            color = model_colors.get(model_key, 'orange')
     
                             # Make sure test_predictions is valid data
                             if test_predictions is None or not isinstance(test_predictions, pd.Series) or test_predictions.empty:
@@ -464,7 +207,7 @@ def plot_forecast(forecast_result, sales_data=None, forecast_data=None, sku=None
                                     x=test_predictions.index,
                                     y=test_predictions.values,
                                     mode='lines+markers',
-                                    name=f"{model.upper()} Test Predictions",
+                                    name=f"{model_key.upper()} Test Predictions",
                                     line=dict(color=color, dash='dot'),
                                     marker=dict(size=6, symbol='circle'),
                                     hovertemplate='%{x|%b %Y}: %{y:,.0f} units'
@@ -476,13 +219,17 @@ def plot_forecast(forecast_result, sales_data=None, forecast_data=None, sku=None
     
                     # Make sure test_predictions is valid before plotting
                     if test_predictions is not None and isinstance(test_predictions, pd.Series) and not test_predictions.empty:
+                        # Use the color of the best model
+                        best_model = forecast_data.get('model', 'default').lower()
+                        color = model_colors.get(best_model, 'orange')
+                        
                         fig.add_trace(
                             go.Scatter(
                                 x=test_predictions.index,
                                 y=test_predictions.values,
                                 mode='lines+markers',
-                                name='Test Predictions',
-                                line=dict(color='orange', dash='dot'),
+                                name=f"{best_model.upper()} Test Predictions",
+                                line=dict(color=color, dash='dot'),
                                 marker=dict(size=6, symbol='circle'),
                                 hovertemplate='%{x|%b %Y}: %{y:,.0f} units'
                             )
@@ -504,9 +251,9 @@ def plot_forecast(forecast_result, sales_data=None, forecast_data=None, sku=None
         # If anything goes wrong during test predictions plotting, just continue without them
         pass
 
-    # Create a better layout - need to handle case when forecast data might be missing
+    # Setup figure layout
     try:
-        # Only attempt to get forecast date range if forecast data exists and has valid index
+        # Determine date range for the chart
         if isinstance(forecast_data, dict) and 'forecast' in forecast_data and forecast_data['forecast'] is not None and len(forecast_data['forecast']) > 0:
             forecast_end = forecast_data['forecast'].index.max()
             months = pd.date_range(start=sku_data['date'].min(), end=forecast_end, freq='MS')
@@ -516,6 +263,7 @@ def plot_forecast(forecast_result, sales_data=None, forecast_data=None, sku=None
             months = pd.date_range(start=sku_data['date'].min(), end=sku_data['date'].max(), freq='MS')
             has_forecast = False
             
+        # Create a comprehensive layout
         fig.update_layout(
             title=f"<b>{'Sales Forecast' if has_forecast else 'Historical Sales'} for {sku}</b>",
             xaxis=dict(
@@ -544,16 +292,13 @@ def plot_forecast(forecast_result, sales_data=None, forecast_data=None, sku=None
             template="plotly_white"
         )
         
-        # Only add forecast-related visual elements if we have forecast data
+        # Add forecast divider line if we have forecast data
         if has_forecast:
-            # Add a vertical line separating historical and forecast periods
-            # Use a direct shape instead of add_vline to avoid type issues
-            # Convert to string format to avoid type issues
+            # Get the last historical date
             max_date = sku_data['date'].max()
-            if isinstance(max_date, pd.Timestamp):
-                max_date = max_date.strftime('%Y-%m-%d')
-
-            forecast_start_line = dict(
+            
+            # Add a vertical line separating historical and forecast periods
+            fig.add_shape(
                 type="line",
                 xref="x",
                 yref="paper",
@@ -563,16 +308,15 @@ def plot_forecast(forecast_result, sales_data=None, forecast_data=None, sku=None
                 y1=1,
                 line=dict(
                     color="gray",
+                    width=2,
                     dash="dash",
                 )
             )
-
-            # Add annotation for the line
-            # Use the same string-formatted date to ensure consistency
-            forecast_annotation = dict(
+            
+            # Add annotation for the forecast start
+            fig.add_annotation(
                 x=max_date,
                 y=1,
-                xref="x",
                 yref="paper",
                 text="Forecast Start",
                 showarrow=False,
@@ -581,32 +325,22 @@ def plot_forecast(forecast_result, sales_data=None, forecast_data=None, sku=None
                 bgcolor="rgba(255, 255, 255, 0.8)",
                 font=dict(size=12)
             )
-
-            # Update layout to include the shape and annotation
-            if 'shapes' in fig.layout:
-                fig.layout.shapes = list(fig.layout.shapes) + [forecast_start_line]
-            else:
-                fig.layout.shapes = [forecast_start_line]
-
-            if 'annotations' in fig.layout:
-                fig.layout.annotations = list(fig.layout.annotations) + [forecast_annotation]
-            else:
-                fig.layout.annotations = [forecast_annotation]
-
-            # Indicate forecast area with light shading
-            forecast_shade = dict(
+            
+            # Add light shading to the forecast area
+            fig.add_shape(
                 type="rect",
-                xref="x", yref="paper",
-                x0=sku_data['date'].max(), y0=0,
-                x1=forecast_end, y1=1,
+                xref="x",
+                yref="paper",
+                x0=max_date,
+                y0=0,
+                x1=forecast_end,
+                y1=1,
                 fillcolor="rgba(200, 200, 200, 0.1)",
                 layer="below",
                 line_width=0,
             )
-
-            fig.update_layout(shapes=[forecast_shade])
     except Exception as e:
-        # If there's any error in layout creation, use a simple default layout
+        # If layout creation fails, use a simple default layout
         fig.update_layout(
             title=f"<b>Sales Data for {sku}</b>",
             height=400

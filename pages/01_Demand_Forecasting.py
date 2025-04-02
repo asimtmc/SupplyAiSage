@@ -543,21 +543,24 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                 with col_options2:
                     # Custom model selection (only show if not showing all models)
                     if not show_all_models:
-                        # Get model options capitalized - include ALL available models
+                        # Get model options capitalized
                         model_options = [model.upper() for model in available_models]
 
                         # Ensure best model is included in the options
                         default_model = forecast_data['model'].upper()
-                        if default_model not in model_options:
+                        if default_model not in model_options and default_model.lower() in available_models:
                             model_options.append(default_model)
 
-                        # Get the selected models from sidebar (also in uppercase)
-                        selected_sidebar_models = [m.upper() for m in st.session_state.selected_models 
-                                                 if m.lower() in available_models]
+                        # Get the selected models from sidebar
+                        selected_sidebar_models = []
+                        for m in st.session_state.selected_models:
+                            model_upper = m.upper()
+                            if model_upper in model_options or m.lower() in available_models:
+                                selected_sidebar_models.append(model_upper if model_upper in model_options else m.upper())
 
                         # If none of the sidebar selected models are available, default to the best model
                         if not selected_sidebar_models:
-                            selected_sidebar_models = [default_model]
+                            selected_sidebar_models = [default_model] if default_model in model_options else []
 
                         # Create multiselect for custom model selection
                         custom_models = st.multiselect(
@@ -566,7 +569,7 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                             default=selected_sidebar_models,
                             help="Select one or more models to display on chart"
                         )
-                        # Convert back to lowercase
+                        # Convert back to lowercase for consistency
                         custom_models_lower = [model.lower() for model in custom_models]
                     else:
                         custom_models_lower = []
@@ -592,14 +595,15 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                     selected_models_for_viz = [available_models[0]]
 
                 # Set test prediction flag based on checkbox
-                if show_test_predictions:
-                    forecast_data['show_test_predictions'] = True
-                else:
-                    forecast_data['show_test_predictions'] = False
+                forecast_data['show_test_predictions'] = show_test_predictions
 
             # Display forecast chart with selected models (FULL WIDTH)
             forecast_fig = plot_forecast(st.session_state.sales_data, forecast_data, selected_sku, selected_models_for_viz)
             st.plotly_chart(forecast_fig, use_container_width=True)
+            
+            # Add a note about model selection
+            if selected_models_for_viz:
+                st.info(f"Displaying forecasts for models: {', '.join([m.upper() for m in selected_models_for_viz])}")
             
             # Debug information to help troubleshoot
             with st.expander("Debug Information", expanded=False):
