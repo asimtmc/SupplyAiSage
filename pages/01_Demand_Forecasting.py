@@ -742,7 +742,7 @@ if st.session_state.run_forecast and 'forecasts' in st.session_state and st.sess
                 # Visual comparison of models
                 st.subheader("Model Performance Comparison")
 
-                # Use plot_model_comparison
+                # Use plot_model_comparison with correct parameters
                 model_comparison_fig = plot_model_comparison(selected_sku, forecast_data)
                 st.plotly_chart(model_comparison_fig, use_container_width=True)
 

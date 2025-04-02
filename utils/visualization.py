@@ -771,17 +771,17 @@ def plot_inventory_health(sales_data, forecast_data):
 
     return fig
 
-def plot_model_comparison(model_comparison, selected_model=None, models_to_show=None):
+def plot_model_comparison(selected_sku=None, forecast_data=None, models_to_show=None):
     """
     Create a plotly figure comparing different forecasting models for a specific SKU
     with detailed error metrics visualization - using a clustered bar chart with a line for MAPE
 
     Parameters:
     -----------
-    model_comparison : dict
+    selected_sku : str, optional
+        The SKU identifier to display in the chart title
+    forecast_data : dict
         Dictionary containing model evaluation data with metrics for each model
-    selected_model : str, optional
-        The name of the selected (best) model to highlight
     models_to_show : list, optional
         List of model names to include in the visualization
 
@@ -793,8 +793,8 @@ def plot_model_comparison(model_comparison, selected_model=None, models_to_show=
     # Create default figure
     fig = go.Figure()
     
-    # Check if model_comparison is valid
-    if not isinstance(model_comparison, dict) or not model_comparison:
+    # Check if forecast_data is valid and has model_evaluation
+    if not isinstance(forecast_data, dict) or 'model_evaluation' not in forecast_data or not forecast_data['model_evaluation']:
         fig.update_layout(
             title="No model comparison data available",
             annotations=[{
@@ -809,18 +809,44 @@ def plot_model_comparison(model_comparison, selected_model=None, models_to_show=
         )
         return fig
 
+    # Get model metrics from model_evaluation
+    model_comparison = {}
+    if 'metrics' in forecast_data['model_evaluation']:
+        model_comparison = forecast_data['model_evaluation']['metrics']
+    
+    # Check if we have valid model metrics
+    if not model_comparison:
+        fig.update_layout(
+            title="No model metrics available",
+            annotations=[{
+                'text': "No model metrics data available for comparison",
+                'showarrow': False,
+                'font': {'size': 16},
+                'xref': 'paper',
+                'yref': 'paper',
+                'x': 0.5,
+                'y': 0.5
+            }]
+        )
+        return fig
+
+    # Get the selected (best) model
+    selected_model = forecast_data.get('model_evaluation', {}).get('best_model', None)
+    if not selected_model and 'model' in forecast_data:
+        selected_model = forecast_data['model']
+    
     # Get metrics for each model
     metrics = {}
-    for model_name, model_data in model_comparison.items():
-        if isinstance(model_data, dict):
-            metrics[model_name] = model_data
+    for model_name, model_metrics in model_comparison.items():
+        if isinstance(model_metrics, dict):
+            metrics[model_name] = model_metrics
     
     # If no valid metrics found
     if not metrics:
         fig.update_layout(
-            title="Invalid model comparison data",
+            title="Invalid model metrics data",
             annotations=[{
-                'text': "Model comparison data is not in the expected format",
+                'text': "Model metrics data is not in the expected format",
                 'showarrow': False,
                 'font': {'size': 16},
                 'xref': 'paper',
@@ -840,12 +866,8 @@ def plot_model_comparison(model_comparison, selected_model=None, models_to_show=
             if not pd.isna(metrics[m].get('mape', float('inf'))) else metrics[m].get('rmse', float('inf'))
         )
 
-    # Get sku name if available
-    sku = "Unknown SKU"
-    for model_name, model_data in model_comparison.items():
-        if isinstance(model_data, dict) and 'sku' in model_data:
-            sku = model_data['sku']
-            break
+    # Get SKU name for title
+    sku_name = selected_sku if selected_sku else "Unknown SKU"
 
     # Create data for bar chart - filter by models_to_show if provided
     if models_to_show and isinstance(models_to_show, list) and len(models_to_show) > 0:
@@ -928,7 +950,7 @@ def plot_model_comparison(model_comparison, selected_model=None, models_to_show=
     # Update layout with dual y-axis
     fig.update_layout(
         title={
-            'text': f"Model Comparison for SKU: {sku}",
+            'text': f"Model Comparison for SKU: {sku_name}",
             'y':0.95,
             'x':0.5,
             'xanchor': 'center',
