@@ -1500,6 +1500,21 @@ with tab_hyperparameter:
                 # Show forecast plot
                 st.subheader("Forecast Visualization")
 
+                # Add model selection if comparison data is available
+                if 'model_comparison' in forecast_result and isinstance(forecast_result['model_comparison'], dict):
+                    available_models = list(forecast_result['model_comparison'].keys())
+                    if available_models:
+                        selected_models = st.multiselect(
+                            "Select Models to Compare",
+                            options=available_models,
+                            default=[forecast_result.get('selected_model', available_models[0])],
+                            help="Choose which model forecasts to display"
+                        )
+                        
+                        # Store selected models for visualization
+                        if selected_models:
+                            forecast_result['selected_models_for_viz'] = selected_models
+
                 # Create the properly formatted data structure for visualization
                 # Make a copy of the train set for historical data to avoid modifying the original
                 historical_data = forecast_result.get('train_set', pd.DataFrame()).copy()

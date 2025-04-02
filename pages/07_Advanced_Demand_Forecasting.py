@@ -1219,9 +1219,22 @@ with tab_forecast:
                 with viz_col1:
                     show_anomalies = st.checkbox("Show Anomalies", value=True, 
                                               help="Highlight anomalies in historical data")
-                with viz_col2:
-                    show_trend = st.checkbox("Show Trend Line", value=True,
-                                          help="Display trend component in visualization")
+                
+                # Add model selection feature
+                if 'model_comparison' in forecast_result and isinstance(forecast_result['model_comparison'], dict):
+                    available_models = list(forecast_result['model_comparison'].keys())
+                    if available_models:
+                        with viz_col2:
+                            selected_models = st.multiselect(
+                                "Select Models to Compare",
+                                options=available_models,
+                                default=[forecast_result.get('selected_model', available_models[0])],
+                                help="Choose which model forecasts to display"
+                            )
+                            
+                            # Store selected models for visualization
+                            if selected_models:
+                                forecast_result['selected_models_for_viz'] = selected_models
 
                 # Create the properly formatted data structure for visualization
                 # Make a copy of the train set for historical data to avoid modifying the original
@@ -1252,7 +1265,6 @@ with tab_forecast:
                 forecast_fig = plot_forecast(
                     visualization_data, 
                     show_anomalies=show_anomalies, 
-                    show_trend=show_trend,
                     confidence_interval=confidence_interval
                 )
                 if forecast_fig:
