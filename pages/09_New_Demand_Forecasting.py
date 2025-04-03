@@ -228,13 +228,32 @@ with st.sidebar:
         progress = min(float(current_index) / total_skus, 1.0)
         st.session_state.new_forecast_progress = progress
         st.session_state.new_forecast_current_sku = current_sku
-        
-        # Extract current model from message if available
-        if message and "model" in message.lower():
-            model_parts = message.split("model")
-            if len(model_parts) > 1:
-                model_name = model_parts[1].strip().split()[0].strip(":")
-                st.session_state.new_current_model = model_name
+
+        # Extract current model from message if available with improved detection
+        if message:
+            # Try multiple patterns to extract model information
+            if "model" in message.lower():
+                # Pattern 1: "...model X..."
+                model_parts = message.lower().split("model")
+                if len(model_parts) > 1:
+                    model_text = model_parts[1].strip()
+                    model_words = model_text.split()
+                    if model_words:
+                        model_name = model_words[0].strip(": ").upper()
+                        st.session_state.new_current_model = model_name
+
+            # Additional patterns for model detection
+            model_keywords = ["auto_arima", "prophet", "sarima", "ets", "lstm", "ensemble", "moving_average", "theta"]
+            for keyword in model_keywords:
+                if keyword in message.lower():
+                    st.session_state.new_current_model = keyword.upper()
+                    break
+
+            # Check if we're in the evaluation phase
+            if "evaluating" in message.lower() or "training" in message.lower():
+                evaluation_phase = True
+                if not hasattr(st.session_state, 'new_current_model') or not st.session_state.new_current_model:
+                    st.session_state.new_current_model = "EVALUATING"
 
     # Run forecast button
     forecast_button_text = "Run Forecast Analysis"
@@ -356,20 +375,20 @@ with st.sidebar:
                             if len(model_parts) > 1:
                                 model_name = model_parts[1].strip().split()[0].strip(":")
                                 st.session_state.new_current_model = model_name
-                        
+
                         # Add to both local log and main process log
                         timestamp = datetime.now().strftime("%H:%M:%S")
-                        
+
                         # Create formatted log message
                         log_msg = f"[SKU: {current_sku}] {message}" if message else f"Processing SKU: {current_sku} ({current_index+1}/{total_skus})"
-                        
+
                         # Add to local log
                         add_log_message(log_msg, level)
-                        
+
                         # Add to main process log
                         if 'new_log_messages' not in st.session_state:
                             st.session_state.new_log_messages = []
-                        
+
                         st.session_state.new_log_messages.append({
                             "timestamp": timestamp,
                             "message": log_msg,
@@ -444,19 +463,19 @@ with st.sidebar:
                     # Update progress based on callback data with improved visuals
                     # Create an animated progress update with model-wise tracking
                     add_log_message("Finalizing forecast calculations...", "info")
-                    
+
                     # Create a place to show detailed model progress
                     model_progress_container = st.empty()
                     model_details = {}
-                    
+
                     # Progress tracking variables
                     last_progress = 0
                     last_log_time = time.time()
-                    
+
                     # Main progress loop with timeout protection
                     start_time = time.time()
                     max_wait_time = 300  # Maximum 5 minutes wait to prevent infinite loop
-                    
+
                     while st.session_state.new_forecast_progress < 1 and st.session_state.new_forecast_current_sku and (time.time() - start_time < max_wait_time):
                         current_progress = 20 + int(st.session_state.new_forecast_progress * 80)
                         if current_progress > last_progress:
@@ -466,13 +485,13 @@ with st.sidebar:
                         # Get current model and SKU info
                         current_sku = st.session_state.new_forecast_current_sku
                         current_model = getattr(st.session_state, 'new_current_model', 'Unknown')
-                        
+
                         # Update model tracking if we have new information
                         if current_sku and current_model != 'Unknown':
                             if current_sku not in model_details:
                                 model_details[current_sku] = set()
                             model_details[current_sku].add(current_model)
-                        
+
                         # Show detailed model progress every second
                         if time.time() - last_log_time > 1:
                             # Create a formatted display of model progress
@@ -480,16 +499,16 @@ with st.sidebar:
                             for sku, models in model_details.items():
                                 model_list = ", ".join(models)
                                 model_progress_text += f"**{sku}**: {model_list}\n\n"
-                            
+
                             # Update the model progress display
                             if model_progress_text:
                                 model_progress_container.markdown(f"### Model Progress by SKU:\n{model_progress_text}")
-                            
+
                             last_log_time = time.time()
-                            
+
                             # Log to console for debugging
                             print(f"Progress: {current_progress}%, Current SKU: {current_sku}, Current Model: {current_model}")
-                            
+
                         with spinner_placeholder:
                             with st.spinner(f"Processing {current_sku}..."):
                                 # Update progress display with more dynamic information
@@ -498,7 +517,7 @@ with st.sidebar:
                                 progress_details.info(f"Completed: **{progress_percentage}%** | Current SKU: **{current_sku}** | Current Model: **{current_model}**")
                                 phase_indicator.markdown(f"**Processing {progress_percentage}% complete**")
                                 time.sleep(0.1)
-                    
+
                     # Check if loop exited due to timeout
                     if time.time() - start_time >= max_wait_time:
                         add_log_message("Forecast calculation taking longer than expected. Finalizing available results.", "warning")
@@ -674,23 +693,23 @@ if st.session_state.new_run_forecast and 'new_forecasts' in st.session_state and
 
     # Add a main process log console at the bottom of the page
     st.header("Forecast Process Log")
-    
+
     # Create a container for the main process log
     process_log_container = st.container()
-    
+
     with process_log_container:
         if 'new_log_messages' not in st.session_state:
             st.session_state.new_log_messages = []
-        
+
         # Display the log messages
         if st.session_state.new_log_messages:
             log_html = '<div style="height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.8em; background-color: #f0f0f0; padding: 10px; border-radius: 5px;">'
-            
+
             for log in st.session_state.new_log_messages[-100:]:  # Show last 100 messages
                 timestamp = log.get("timestamp", "")
                 message = log.get("message", "")
                 level = log.get("level", "info")
-                
+
                 if level == "info":
                     color = "black"
                 elif level == "warning":
@@ -701,15 +720,15 @@ if st.session_state.new_run_forecast and 'new_forecasts' in st.session_state and
                     color = "green"
                 else:
                     color = "blue"
-                
+
                 log_html += f'<div style="margin-bottom: 3px;"><span style="color: gray;">[{timestamp}]</span> <span style="color: {color};">{message}</span></div>'
-            
+
             log_html += '</div>'
-            
+
             st.markdown(log_html, unsafe_allow_html=True)
         else:
             st.info("No process logs available yet. Run a forecast to see detailed logs.")
-    
+
     # Forecast explorer
     st.header("Forecast Explorer")
 
@@ -1397,7 +1416,6 @@ if st.session_state.new_run_forecast and 'new_forecasts' in st.session_state and
                 excel_buffer = io.BytesIO()
                 with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
                     all_sku_df.to_excel(writer, sheet_name='Forecast Data', index=False)
-
                     # Get the xlsxwriter workbook and worksheet objects
                     workbook = writer.book
                     worksheet = writer.sheets['Forecast Data']
