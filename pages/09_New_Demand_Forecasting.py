@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -33,7 +32,7 @@ st.set_page_config(
 # Initialize cache for forecast results
 if 'new_forecast_cache' not in st.session_state:
     st.session_state.new_forecast_cache = {}
-    
+
 # Flag to track if models are loaded (lazy loading)
 if 'new_models_loaded' not in st.session_state:
     st.session_state.new_models_loaded = False
@@ -191,7 +190,7 @@ with st.sidebar:
 
     if st.checkbox("Theta Method", value=True):
         models_to_evaluate.append("theta")
-        
+
     if st.checkbox("Ensemble Model", value=True, help="Combines multiple forecasting models for improved accuracy"):
         models_to_evaluate.append("ensemble")
 
@@ -247,13 +246,13 @@ with st.sidebar:
     if should_show_button:
         # Generate a cache key based on selected parameters
         cache_key = f"{forecast_scope}_{len(selected_skus_to_forecast)}_{forecast_periods}_{num_clusters}_{'-'.join(models_to_evaluate)}"
-        
+
         # Check if we have cached results for these parameters
         cached_results_available = cache_key in st.session_state.new_forecast_cache
-        
+
         # Show different button text if cached results are available
         button_text = f"{forecast_button_text} (Cached)" if cached_results_available else forecast_button_text
-        
+
         run_forecast_clicked = st.button(
             button_text, 
             key="new_run_forecast_button",
@@ -268,16 +267,16 @@ with st.sidebar:
                 st.session_state.new_clusters = st.session_state.new_forecast_cache[cache_key]['clusters']
                 st.session_state.new_run_forecast = True
                 st.session_state.new_models_loaded = True
-                
+
                 # Show success message
                 st.success(f"Loaded cached forecasts for {len(st.session_state.new_forecasts)} SKUs!")
-                
+
             else:
                 # Set forecast in progress flag
                 st.session_state.new_forecast_in_progress = True
                 st.session_state.new_forecast_progress = 0
                 st.session_state.new_run_forecast = True
-                
+
                 # Create an enhanced progress display
                 with progress_placeholder.container():
                     # Create a two-column layout for the progress display
@@ -309,15 +308,15 @@ with st.sidebar:
                         # Create a log container
                         log_container = st.empty()
                         log_messages = []
-                        
+
                         # Function to add log messages
                         def add_log_message(message, level="info"):
                             timestamp = datetime.now().strftime("%H:%M:%S")
                             log_messages.append({"timestamp": timestamp, "message": message, "level": level})
-                            
+
                             # Format log messages with appropriate styling
                             log_html = '<div style="height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.8em; background-color: #f0f0f0; padding: 10px; border-radius: 5px;">'
-                            
+
                             for log in log_messages[-100:]:  # Show last 100 messages
                                 if log["level"] == "info":
                                     color = "black"
@@ -329,28 +328,28 @@ with st.sidebar:
                                     color = "green"
                                 else:
                                     color = "blue"
-                                
+
                                 log_html += f'<div style="margin-bottom: 3px;"><span style="color: gray;">[{log["timestamp"]}]</span> <span style="color: {color};">{log["message"]}</span></div>'
-                            
+
                             log_html += '</div>'
-                            
+
                             # Update the log display
                             log_container.markdown(log_html, unsafe_allow_html=True)
-                    
+
                     # Enhanced progress callback function that updates logs
                     def enhanced_forecast_callback(current_index, current_sku, total_skus, message=None, level="info"):
                         # Update progress information in session state
                         progress = min(float(current_index) / total_skus, 1.0)
                         st.session_state.new_forecast_progress = progress
                         st.session_state.new_forecast_current_sku = current_sku
-                        
+
                         # Add log message if provided
                         if message:
                             add_log_message(f"[SKU: {current_sku}] {message}", level)
                         else:
                             # Default message
                             add_log_message(f"Processing SKU: {current_sku} ({current_index+1}/{total_skus})", "info")
-                    
+
                     # Phase 1: Extract time series features for clustering
                     add_log_message("Starting Phase 1: Time Series Feature Extraction", "info")
                     with spinner_placeholder:
@@ -392,7 +391,7 @@ with st.sidebar:
                         total_skus = len(features_df)
                         progress_details.info(f"Generating forecasts for all {total_skus} SKUs using {len(models_to_evaluate)} different forecasting models...")
                         add_log_message(f"Preparing to generate forecasts for all {total_skus} SKUs", "info")
-                    
+
                     # Log models being used
                     add_log_message(f"Models to evaluate: {', '.join(models_to_evaluate)}", "info")
                     add_log_message(f"Forecast periods: {st.session_state.new_forecast_periods}", "info")
@@ -441,17 +440,17 @@ with st.sidebar:
                     phase_indicator.markdown("**Finished!**")
                     status_text.markdown("### ✨ Forecast Generation Completed Successfully!")
                     progress_details.success("All forecasts have been generated and are ready to explore!")
-                    
+
                     # Add final log messages
                     add_log_message("Forecast generation complete!", "success")
-                    
+
                     # If forecasts were generated, set default selected SKU
                     if st.session_state.new_forecasts:
                         sku_list = sorted(list(st.session_state.new_forecasts.keys()))
                         st.session_state.new_sku_options = sku_list
                         if sku_list and not st.session_state.new_selected_sku in sku_list:
                             st.session_state.new_selected_sku = sku_list[0]
-                            
+
                         # Cache the forecast results for future use
                         cache_key = f"{forecast_scope}_{len(selected_skus_to_forecast)}_{forecast_periods}_{num_clusters}_{'-'.join(models_to_evaluate)}"
                         st.session_state.new_forecast_cache[cache_key] = {
@@ -528,7 +527,7 @@ if st.session_state.new_run_forecast and 'new_forecasts' in st.session_state and
     for sku, forecast_data in st.session_state.new_forecasts.items():
         # Get the model name according to advanced_forecast format
         selected_model = forecast_data.get('selected_model', forecast_data.get('model', 'Unknown'))
-        
+
         model_info = {
             'SKU': sku,
             'Selected Model': selected_model.upper(),
@@ -579,7 +578,7 @@ if st.session_state.new_run_forecast and 'new_forecasts' in st.session_state and
     # Display the filtered table with pagination to improve performance
     total_rows = len(filtered_df)
     rows_per_page = 20  # Limit rows shown per page
-    
+
     # Add pagination controls
     if total_rows > rows_per_page:
         page_col1, page_col2 = st.columns([1, 3])
@@ -591,11 +590,11 @@ if st.session_state.new_run_forecast and 'new_forecasts' in st.session_state and
             )
         with page_col2:
             st.info(f"Showing page {current_page} of {filtered_df.shape[0]} total rows")
-        
+
         # Calculate start and end indices for current page
         start_idx = (current_page - 1) * rows_per_page
         end_idx = min(start_idx + rows_per_page, total_rows)
-        
+
         # Display only the current page of data
         st.dataframe(filtered_df.iloc[start_idx:end_idx], use_container_width=True)
     else:
@@ -641,7 +640,7 @@ if st.session_state.new_run_forecast and 'new_forecasts' in st.session_state and
             # Check for model_comparison in the forecast data
             if 'model_comparison' in forecast_data:
                 available_models = list(forecast_data['model_comparison'].keys())
-            
+
             # Create checkboxes for display options
             st.subheader("Display Options")
 
@@ -708,7 +707,7 @@ if st.session_state.new_run_forecast and 'new_forecasts' in st.session_state and
                         selected_models_for_viz.append(model_lower)
             elif custom_models_lower:
                 # Use custom selection from multiselect
-                selected_models_for_viz = custom_models_lower
+                selected_models_forviz = custom_models_lower
             else:
                 # Default to the primary model if nothing is explicitly selected
                 selected_models_for_viz = [forecast_data.get('selected_model', '')]
@@ -738,17 +737,20 @@ if st.session_state.new_run_forecast and 'new_forecasts' in st.session_state and
 
             # Get confidence level from session state or default to 80%
             confidence_interval = 0.8  # Default value
-            
+
             # Use plot_forecast from visualization.py with prepared data
-            # Get visualization_data
+            # The function requires both sales_data and forecast_data parameters
             forecast_fig = plot_forecast(
-                visualization_data,
+                sales_data=st.session_state.sales_data,
+                forecast_data=forecast_data,
+                sku=selected_sku,
+                selected_models=selected_models_for_viz,
                 show_anomalies=show_anomalies,
                 confidence_interval=confidence_interval
             )
-            
+
             st.plotly_chart(forecast_fig, use_container_width=True)
-            
+
             # Add a note about model selection
             if selected_models_for_viz:
                 st.info(f"Displaying forecasts for models: {', '.join([m.upper() for m in selected_models_for_viz])}")
@@ -768,23 +770,23 @@ if st.session_state.new_run_forecast and 'new_forecasts' in st.session_state and
                 if selected_sku and selected_sku in st.session_state.new_forecasts:
                     # Basic metrics at the top
                     col1, col2, col3 = st.columns(3)
-                    
+
                     with col1:
                         st.markdown(f"**SKU:** {selected_sku}")
-                    
+
                     with col2:
                         st.markdown(f"**Cluster:** {forecast_data.get('cluster_name', 'Unknown')}")
-                    
+
                     with col3:
                         model_name = forecast_data.get('selected_model', forecast_data.get('model', 'Unknown')).upper()
                         st.markdown(f"**Model Used:** {model_name}")
-                    
+
                     # Show accuracy metric if available
                     if 'metrics' in forecast_data and 'mape' in forecast_data['metrics']:
                         mape = forecast_data['metrics']['mape']
                         if not np.isnan(mape):
                             st.metric("Forecast Accuracy", f"{(100-mape):.1f}%", help="Based on test data evaluation")
-                    
+
                     # Forecast confidence
                     confidence_color = "green" if model_name.lower() != 'moving_average' else "orange"
                     confidence_text = "High" if model_name.lower() != 'moving_average' else "Medium"
@@ -833,7 +835,7 @@ if st.session_state.new_run_forecast and 'new_forecasts' in st.session_state and
                                         else:
                                             # If not found, use NaN
                                             forecast_val = np.nan
-                                                
+
                                         # Handle NaN values before conversion to int
                                         if pd.isna(forecast_val) or np.isnan(forecast_val):
                                             forecast_values.append(0)
@@ -857,34 +859,34 @@ if st.session_state.new_run_forecast and 'new_forecasts' in st.session_state and
 
                     # Display the enhanced table with styling and pagination
                     st.subheader("Forecast Data Table")
-                    
+
                     # Limit the number of rows shown for performance
                     max_rows_to_display = 12
-                    
+
                     if len(forecast_table) > max_rows_to_display:
                         # Add pagination for forecast table
                         forecast_page_col1, forecast_page_col2 = st.columns([1, 3])
-                        
+
                         with forecast_page_col1:
                             forecast_page = st.selectbox(
                                 "Period",
                                 options=list(range(1, (len(forecast_table) // max_rows_to_display) + (1 if len(forecast_table) % max_rows_to_display > 0 else 0) + 1)),
                                 key="forecast_details_page"
                             )
-                        
+
                         with forecast_page_col2:
                             st.info(f"Showing period {forecast_page} of forecast data")
-                        
+
                         # Calculate start and end indices for the current page
                         start_idx = (forecast_page - 1) * max_rows_to_display
                         end_idx = min(start_idx + max_rows_to_display, len(forecast_table))
-                        
+
                         # Display only the current page of data
                         display_table = forecast_table.iloc[start_idx:end_idx]
                     else:
                         # If we have fewer rows than the maximum, just display all
                         display_table = forecast_table
-                    
+
                     # Apply styling to the table (but only on the displayed subset for better performance)
                     st.dataframe(
                         display_table.style.highlight_max(subset=['Forecast'], color='#d6eaf8')
@@ -905,7 +907,7 @@ if st.session_state.new_run_forecast and 'new_forecasts' in st.session_state and
                     forecast_data.get('selected_model', ''),
                     selected_models_for_viz
                 )
-                
+
                 if model_comparison_fig:
                     st.plotly_chart(model_comparison_fig, use_container_width=True)
                 else:
@@ -944,7 +946,7 @@ if st.session_state.new_run_forecast and 'new_forecasts' in st.session_state and
 
                 # Create table of model evaluation metrics
                 metrics_data = []
-                
+
                 # Handle different structures of metrics data
                 if 'model_comparison' in forecast_data:
                     for model_name, model_forecast in forecast_data['model_comparison'].items():
@@ -954,7 +956,7 @@ if st.session_state.new_run_forecast and 'new_forecasts' in st.session_state and
                         else:
                             # If metrics not directly available, use the main metrics
                             model_metrics = forecast_data['metrics']
-                            
+
                         metrics_data.append({
                             'Model': model_name.upper(),
                             'RMSE': round(model_metrics.get('rmse', 0), 2),
@@ -1148,7 +1150,7 @@ if st.session_state.new_run_forecast and 'new_forecasts' in st.session_state and
                                     forecast_value = model_forecast_series.loc[date]
                                 else:
                                     forecast_value = np.nan
-                                    
+
                                 try:
                                     # Check if value is NaN before conversion
                                     if not pd.isna(forecast_value) and not np.isnan(forecast_value):
@@ -1226,31 +1228,31 @@ if st.session_state.new_run_forecast and 'new_forecasts' in st.session_state and
                 # Add pagination for better performance with large datasets
                 table_rows_per_page = 15  # Limit rows per page
                 total_table_rows = len(all_sku_df)
-                
+
                 if total_table_rows > table_rows_per_page:
                     # Create pagination controls
                     table_page_col1, table_page_col2 = st.columns([1, 3])
-                    
+
                     with table_page_col1:
                         table_page = st.selectbox(
                             "Page",
                             options=list(range(1, (total_table_rows // table_rows_per_page) + (1 if total_table_rows % table_rows_per_page > 0 else 0) + 1)),
                             key="comprehensive_table_page"
                         )
-                    
+
                     with table_page_col2:
                         st.info(f"Showing page {table_page} of {(total_table_rows // table_rows_per_page) + (1 if total_table_rows % table_rows_per_page > 0 else 0)} (total rows: {total_table_rows})")
-                    
+
                     # Calculate start and end indices for the current page
                     start_idx = (table_page - 1) * table_rows_per_page
                     end_idx = min(start_idx + table_rows_per_page, total_table_rows)
-                    
+
                     # Get current page data
                     page_df = all_sku_df.iloc[start_idx:end_idx].copy()
                 else:
                     # If fewer rows than page size, show all
                     page_df = all_sku_df
-                
+
                 # Use styling to highlight data column types with frozen columns till model name
                 st.dataframe(
                     page_df.style.apply(highlight_data_columns, axis=None),
