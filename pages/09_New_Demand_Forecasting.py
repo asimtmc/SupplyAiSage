@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -172,7 +173,7 @@ with st.sidebar:
     st.write("Select forecasting models to evaluate:")
     models_to_evaluate = []
 
-    # Advanced models from Advanced Demand Forecasting
+    # Advanced models from Advanced Forecasting 
     if st.checkbox("Auto ARIMA", value=True):
         models_to_evaluate.append("auto_arima")
 
@@ -191,6 +192,12 @@ with st.sidebar:
     if st.checkbox("Theta Method", value=True):
         models_to_evaluate.append("theta")
 
+    if st.checkbox("Holt-Winters", value=True):
+        models_to_evaluate.append("holtwinters")
+        
+    if st.checkbox("Decomposition", value=True, help="Uses time series decomposition to separate trend, seasonal, and residual components"):
+        models_to_evaluate.append("decomposition")
+        
     if st.checkbox("Ensemble Model", value=True, help="Combines multiple forecasting models for improved accuracy"):
         models_to_evaluate.append("ensemble")
 
@@ -243,7 +250,7 @@ with st.sidebar:
                         st.session_state.new_current_model = model_name
 
             # Additional patterns for model detection
-            model_keywords = ["auto_arima", "prophet", "sarima", "ets", "lstm", "ensemble", "moving_average", "theta"]
+            model_keywords = ["auto_arima", "prophet", "sarima", "ets", "lstm", "ensemble", "moving_average", "theta", "holtwinters", "decomposition"]
             for keyword in model_keywords:
                 if keyword in message.lower():
                     st.session_state.new_current_model = keyword.upper()
@@ -835,7 +842,7 @@ if st.session_state.new_run_forecast and 'new_forecasts' in st.session_state and
                         selected_models_for_viz.append(model_lower)
             elif custom_models_lower:
                 # Use custom selection from multiselect
-                selected_models_forviz = custom_models_lower
+                selected_models_for_viz = custom_models_lower
             else:
                 # Default to the primary model if nothing is explicitly selected
                 selected_models_for_viz = [forecast_data.get('selected_model', '')]
