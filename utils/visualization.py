@@ -11,7 +11,7 @@ import streamlit as st
 def plot_forecast(sales_data, forecast_data, sku=None, selected_models=None, show_anomalies=False, confidence_interval=0.95):
     """
     Create interactive forecast visualization with caching for better performance
-    
+
     Parameters:
     -----------
     sales_data : pandas.DataFrame
@@ -29,7 +29,7 @@ def plot_forecast(sales_data, forecast_data, sku=None, selected_models=None, sho
     """
     # Create a default figure
     fig = go.Figure()
-    
+
     # Filter sales data for this SKU and ensure valid filtering
     if not isinstance(sku, str) or sku not in sales_data['sku'].unique():
         # If sku is invalid, return empty figure with error message
@@ -40,7 +40,7 @@ def plot_forecast(sales_data, forecast_data, sku=None, selected_models=None, sho
         )
         fig.update_layout(height=400)
         return fig
-        
+
     sku_data = sales_data[sales_data['sku'] == sku].copy()
     sku_data = sku_data.sort_values('date')
 
@@ -77,35 +77,35 @@ def plot_forecast(sales_data, forecast_data, sku=None, selected_models=None, sho
             height=400
         )
         return fig
-    
+
     # Add forecasts for all selected models
     models_added = False
-    
+
     # First check if we have model_evaluation data with multiple model forecasts
     if (selected_models and forecast_data and 
         isinstance(forecast_data, dict) and 
         'model_evaluation' in forecast_data and 
         'all_models_forecasts' in forecast_data['model_evaluation']):
-        
+
         all_models_data = forecast_data['model_evaluation']['all_models_forecasts']
-        
+
         # If we have selected models, use them
         if selected_models:
             for model in selected_models:
                 model_key = model.lower()  # Always use lowercase for model keys
-                
+
                 # Check if this model exists in the data
                 if model_key in all_models_data:
                     model_forecast = all_models_data[model_key]
-                    
+
                     # Skip if no forecast data available for this model
                     if model_forecast is None or len(model_forecast) == 0:
                         continue
-                    
+
                     # Add this model's forecast to the chart
                     models_added = True
                     color = model_colors.get(model_key, 'red')  # Default to red if color not defined
-                    
+
                     fig.add_trace(
                         go.Scatter(
                             x=model_forecast.index,
@@ -117,7 +117,7 @@ def plot_forecast(sales_data, forecast_data, sku=None, selected_models=None, sho
                             hovertemplate='%{x|%b %Y}: %{y:,.0f} units'
                         )
                     )
-    
+
     # If no models from the selection were added, fallback to the best model
     if not models_added and isinstance(forecast_data, dict) and 'forecast' in forecast_data:
         forecast_values = forecast_data['forecast']
@@ -125,7 +125,7 @@ def plot_forecast(sales_data, forecast_data, sku=None, selected_models=None, sho
             model_name = forecast_data.get('model', 'Default').upper()
             model_key = model_name.lower()
             color = model_colors.get(model_key, 'red')
-            
+
             fig.add_trace(
                 go.Scatter(
                     x=forecast_values.index,
@@ -138,7 +138,7 @@ def plot_forecast(sales_data, forecast_data, sku=None, selected_models=None, sho
                 )
             )
             models_added = True
-    
+
     # If still no models were added, show a message
     if not models_added:
         fig.add_annotation(
@@ -155,13 +155,13 @@ def plot_forecast(sales_data, forecast_data, sku=None, selected_models=None, sho
     if isinstance(forecast_data, dict) and 'lower_bound' in forecast_data and 'upper_bound' in forecast_data and 'forecast' in forecast_data:
         lower_bound = forecast_data['lower_bound']
         upper_bound = forecast_data['upper_bound']
-        
+
         # Check that all required elements are available and not None
         if lower_bound is not None and upper_bound is not None and forecast_data['forecast'] is not None:
             # Use the right x values for the confidence interval
             try:
                 x_values = forecast_data['forecast'].index
-                
+
                 # Add shaded area for confidence interval
                 fig.add_trace(
                     go.Scatter(
@@ -187,21 +187,21 @@ def plot_forecast(sales_data, forecast_data, sku=None, selected_models=None, sho
                 test_set = None
                 if 'test_set' in forecast_data:
                     test_set = forecast_data['test_set']
-                
+
                 # Get test predictions for the selected models
                 if selected_models and 'all_models_test_pred' in forecast_data['model_evaluation']:
                     for model in selected_models:
                         model_key = model.lower()
                         if model_key in forecast_data['model_evaluation']['all_models_test_pred']:
                             test_predictions = forecast_data['model_evaluation']['all_models_test_pred'][model_key]
-    
+
                             # Choose a color for this model that matches the forecast color
                             color = model_colors.get(model_key, 'orange')
-    
+
                             # Make sure test_predictions is valid data
                             if test_predictions is None or not isinstance(test_predictions, pd.Series) or test_predictions.empty:
                                 continue
-    
+
                             fig.add_trace(
                                 go.Scatter(
                                     x=test_predictions.index,
@@ -216,13 +216,13 @@ def plot_forecast(sales_data, forecast_data, sku=None, selected_models=None, sho
                 elif 'test_predictions' in forecast_data['model_evaluation']:
                     # Fall back to the best model's predictions
                     test_predictions = forecast_data['model_evaluation']['test_predictions']
-    
+
                     # Make sure test_predictions is valid before plotting
                     if test_predictions is not None and isinstance(test_predictions, pd.Series) and not test_predictions.empty:
                         # Use the color of the best model
                         best_model = forecast_data.get('model', 'default').lower()
                         color = model_colors.get(best_model, 'orange')
-                        
+
                         fig.add_trace(
                             go.Scatter(
                                 x=test_predictions.index,
@@ -234,7 +234,7 @@ def plot_forecast(sales_data, forecast_data, sku=None, selected_models=None, sho
                                 hovertemplate='%{x|%b %Y}: %{y:,.0f} units'
                             )
                         )
-    
+
                 # Add test actuals if available
                 if test_set is not None and isinstance(test_set, pd.Series) and not test_set.empty:
                     fig.add_trace(
@@ -262,7 +262,7 @@ def plot_forecast(sales_data, forecast_data, sku=None, selected_models=None, sho
             # Only use historical data for date range
             months = pd.date_range(start=sku_data['date'].min(), end=sku_data['date'].max(), freq='MS')
             has_forecast = False
-            
+
         # Create a comprehensive layout
         fig.update_layout(
             title=f"<b>{'Sales Forecast' if has_forecast else 'Historical Sales'} for {sku}</b>",
@@ -291,12 +291,12 @@ def plot_forecast(sales_data, forecast_data, sku=None, selected_models=None, sho
             height=500,
             template="plotly_white"
         )
-        
+
         # Add forecast divider line if we have forecast data
         if has_forecast:
             # Get the last historical date
             max_date = sku_data['date'].max()
-            
+
             # Add a vertical line separating historical and forecast periods
             fig.add_shape(
                 type="line",
@@ -312,7 +312,7 @@ def plot_forecast(sales_data, forecast_data, sku=None, selected_models=None, sho
                     dash="dash",
                 )
             )
-            
+
             # Add annotation for the forecast start
             fig.add_annotation(
                 x=max_date,
@@ -325,7 +325,7 @@ def plot_forecast(sales_data, forecast_data, sku=None, selected_models=None, sho
                 bgcolor="rgba(255, 255, 255, 0.8)",
                 font=dict(size=12)
             )
-            
+
             # Add light shading to the forecast area
             fig.add_shape(
                 type="rect",
@@ -792,7 +792,7 @@ def plot_model_comparison(selected_sku=None, forecast_data=None, models_to_show=
     """
     # Create default figure
     fig = go.Figure()
-    
+
     # Check if forecast_data is valid and has model_evaluation
     if not isinstance(forecast_data, dict) or 'model_evaluation' not in forecast_data or not forecast_data['model_evaluation']:
         fig.update_layout(
@@ -813,7 +813,7 @@ def plot_model_comparison(selected_sku=None, forecast_data=None, models_to_show=
     model_comparison = {}
     if 'metrics' in forecast_data['model_evaluation']:
         model_comparison = forecast_data['model_evaluation']['metrics']
-    
+
     # Check if we have valid model metrics
     if not model_comparison:
         fig.update_layout(
@@ -834,13 +834,13 @@ def plot_model_comparison(selected_sku=None, forecast_data=None, models_to_show=
     selected_model = forecast_data.get('model_evaluation', {}).get('best_model', None)
     if not selected_model and 'model' in forecast_data:
         selected_model = forecast_data['model']
-    
+
     # Get metrics for each model
     metrics = {}
     for model_name, model_metrics in model_comparison.items():
         if isinstance(model_metrics, dict):
             metrics[model_name] = model_metrics
-    
+
     # If no valid metrics found
     if not metrics:
         fig.update_layout(
@@ -874,28 +874,28 @@ def plot_model_comparison(selected_sku=None, forecast_data=None, models_to_show=
         'auto_arima', 'arima', 'sarima', 'prophet', 'decomposition', 
         'holtwinters', 'ets', 'theta', 'moving_average', 'lstm', 'ensemble'
     ]
-    
+
     # Determine which models to display
     available_models = list(metrics.keys())
-    
+
     if models_to_show and isinstance(models_to_show, list) and len(models_to_show) > 0:
         # Filter models by those in models_to_show that are also available
         filtered_models = [m for m in models_to_show if m.lower() in available_models]
         models_to_use = filtered_models if filtered_models else available_models
     else:
         models_to_use = available_models
-    
+
     # Sort models based on the predefined order
     sorted_models = []
     for model in model_order:
         if model in models_to_use:
-            sorted_models.append(model)
-    
+            sortedmodels.append(model)
+
     # Add any remaining models not in the predefined order
     for model in models_to_use:
         if model not in sorted_models:
             sorted_models.append(model)
-    
+
     # Extract metrics for the sorted models
     rmse_values = [metrics[m].get('rmse', 0) for m in sorted_models]
     mape_values = [metrics[m].get('mape', 0) if not pd.isna(metrics[m].get('mape', 0)) else 0 for m in sorted_models]
@@ -1527,3 +1527,189 @@ def plot_what_if_comparison(base_scenario, what_if_scenario):
     )
 
     return fig
+
+#Data processing and visualization functions
+def highlight_data_columns(row):
+    # Define a color map for highlighting the SKU information columns
+    color_map = {
+        'sku_code': 'lightblue',
+        'sku_name': 'lightgreen',
+        'model': 'lightyellow',
+        'best_model': 'lightcoral'
+    }
+    
+    # Style the row based on the column name
+    styled_row = []
+    for col, val in row.items():
+        if col in color_map:
+            styled_row.append(f'<td style="background-color: {color_map[col]};">{val}</td>')
+        else:
+            styled_row.append(f'<td>{val}</td>')
+    return "".join(styled_row)
+
+st.set_page_config(page_title="Demand Forecasting App", page_icon=":bar_chart:", layout="wide")
+st.title("Demand Forecasting Dashboard")
+
+# --- DATA IMPORT ---
+# File uploader
+uploaded_file = st.file_uploader("Choose a CSV file", type=["csv"])
+
+if uploaded_file is not None:
+    sales_data = pd.read_csv(uploaded_file)
+    sales_data['date'] = pd.to_datetime(sales_data['date'])
+
+    # --- DATA PREPROCESSING ---
+    # Convert date column to datetime
+    if 'date' in sales_data.columns and not pd.api.types.is_datetime64_any_dtype(sales_data['date']):
+        try:
+            sales_data['date'] = pd.to_datetime(sales_data['date'])
+        except ValueError:
+            st.error("Invalid date format. Please ensure your 'date' column is in a valid format (e.g., YYYY-MM-DD).")
+            st.stop()
+
+    # Check for required columns in sales data
+    required_columns = ['sku', 'date', 'quantity']
+    if not all(col in sales_data.columns for col in required_columns):
+        st.error(f"Sales data must contain columns: {', '.join(required_columns)}")
+        st.stop()
+
+    # --- DATA EXPLORATION AND VISUALIZATION ---
+    # Select SKU for analysis
+    selected_sku = st.selectbox("Select SKU", sales_data['sku'].unique())
+
+    # Filter sales data for the selected SKU
+    selected_sku_data = sales_data[sales_data['sku'] == selected_sku]
+
+    # --- FORECASTING ---
+    # Placeholder for forecast results (replace with your forecasting logic)
+    forecast_results = {
+        selected_sku: {
+            'forecast': pd.Series([100, 110, 120, 130, 140], index=pd.date_range(start='2024-01-01', periods=5, freq='M')),
+            'lower_bound': pd.Series([90, 100, 110, 120, 130], index=pd.date_range(start='2024-01-01', periods=5, freq='M')),
+            'upper_bound': pd.Series([110, 120, 130, 140, 150], index=pd.date_range(start='2024-01-01', periods=5, freq='M')),
+            'model': 'ExampleModel'
+        }
+    }
+
+    # --- VISUALIZATIONS ---
+    # Forecast plot
+    forecast_plot = plot_forecast(sales_data, forecast_results, sku=selected_sku)
+    st.plotly_chart(forecast_plot, use_container_width=True)
+
+
+
+    # --- MODEL COMPARISON ---
+    # Placeholder for model comparison results
+    model_comparison_results = {
+        'model_evaluation': {
+            'metrics': {
+                'model1': {'rmse': 10, 'mape': 5, 'mae': 8},
+                'model2': {'rmse': 12, 'mape': 7, 'mae': 9},
+                'model3': {'rmse': 8, 'mape': 3, 'mae': 6}
+            },
+            'best_model': 'model3'
+        }
+    }
+    
+    model_comparison_plot = plot_model_comparison(selected_sku, model_comparison_results)
+    st.plotly_chart(model_comparison_plot, use_container_width=True)
+
+    # --- ERROR ANALYSIS ---
+    # Placeholder for error analysis results
+    error_analysis_results = {
+        'test_set': pd.Series([100, 110, 120, 130, 140]),
+        'test_predictions': pd.Series([98, 105, 125, 135, 138])
+    }
+    error_analysis_plot = plot_forecast_error_distribution(selected_sku, error_analysis_results)
+    st.plotly_chart(error_analysis_plot, use_container_width=True)
+
+
+    # --- FORECAST ACCURACY ---
+    # Placeholder for forecast accuracy results
+    forecast_accuracy_results = {
+        selected_sku: {'forecast': pd.Series([100, 110, 120, 130, 140], index=pd.date_range(start='2024-01-01', periods=5, freq='M'))}
+    }
+    forecast_accuracy_plot = plot_forecast_accuracy(selected_sku_data, forecast_accuracy_results)
+    st.plotly_chart(forecast_accuracy_plot, use_container_width=True)
+
+
+    # --- INVENTORY MANAGEMENT ---
+    # Placeholder for inventory data (replace with your actual data)
+    inventory_data = pd.DataFrame({
+        'sku': ['A', 'B', 'C', 'D'],
+        'avg_monthly_sales': [100, 50, 200, 150],
+        'months_of_supply': [1, 2, 0.5, 3],
+        'demand_variability': [0.2, 0.5, 0.1, 0.3],
+        'growth_rate': [5, -2, 10, 0],
+        'risk_score': [20, 60, 10, 40],
+        'importance': [1000, 500, 2000, 1500]
+    })
+    inventory_health_plot = plot_inventory_health(sales_data, forecast_results)
+    st.plotly_chart(inventory_health_plot, use_container_width=True)
+
+    inventory_risk_matrix_plot = plot_inventory_risk_matrix(inventory_data)
+    st.plotly_chart(inventory_risk_matrix_plot, use_container_width=True)
+
+    # --- WHAT-IF ANALYSIS ---
+    base_scenario = {'production_plan': pd.DataFrame({'period': ['Jan 2024', 'Feb 2024', 'Mar 2024'], 'production_quantity': [100, 120, 110]})}
+    what_if_scenario = {'production_plan': pd.DataFrame({'period': ['Jan 2024', 'Feb 2024', 'Mar 2024'], 'production_quantity': [110, 130, 120]})}
+    what_if_comparison_plot = plot_what_if_comparison(base_scenario, what_if_scenario)
+    st.plotly_chart(what_if_comparison_plot, use_container_width=True)
+
+    # --- SKU SUMMARY ---
+    # Create a sample DataFrame for SKU summary
+    all_sku_df = pd.DataFrame({
+        'sku_code': ['SKU1', 'SKU2', 'SKU3', 'SKU4'],
+        'sku_name': ['Product A', 'Product B', 'Product C', 'Product D'],
+        'model': ['ARIMA', 'Prophet', 'SARIMA', 'LSTM'],
+        'best_model': ['True', 'False', 'False', 'True'],
+        'rmse': [10, 12, 8, 6],
+        'mape': [5, 7, 3, 4],
+        'mae': [8, 9, 6, 5]
+    })
+    
+    # Use styling to highlight data column types with frozen columns till model name
+    styled_df = all_sku_df.style.apply(highlight_data_columns, axis=None)
+
+    # Add frozen panes - freeze the first 4 columns and the header row
+    styled_df = styled_df.set_sticky(axis="index", levels=[0])  # Freeze header row
+    styled_df = styled_df.set_sticky(axis="columns", levels=list(range(4)))  # Freeze first 4 columns
+
+    # Add a bit of styling for better visibility of frozen areas
+    styled_df = styled_df.set_table_styles([
+        {'selector': 'th:nth-child(-n+4)', 'props': 'position: sticky; left: 0; z-index: 3; box-shadow: 1px 0px 3px rgba(0,0,0,0.2);'},
+        {'selector': 'tr th', 'props': 'position: sticky; top: 0; z-index: 2; box-shadow: 0px 1px 3px rgba(0,0,0,0.2);'},
+        {'selector': 'tr th:nth-child(-n+4)', 'props': 'position: sticky; top: 0; left: 0; z-index: 4; box-shadow: 1px 1px 3px rgba(0,0,0,0.3);'}
+    ], overwrite=False)
+
+    st.dataframe(
+        styled_df,
+        use_container_width=True,
+        height=600,  # Increased height for better visibility
+        column_config={
+            # Configure the info columns (SKU code, SKU name, model, best model)
+            "sku_code": st.column_config.TextColumn(
+                "SKU Code",
+                width="medium",
+                help="Unique identifier for the SKU"
+            ),
+            "sku_name": st.column_config.TextColumn(
+                "SKU Name",
+                width="medium", 
+                help="Name of the SKU"
+            ),
+            "model": st.column_config.TextColumn(
+                "Model",
+                width="medium",
+                help="Forecasting model used"
+            ),
+            "best_model": st.column_config.TextColumn(
+                "Best",
+                width="small",
+                help="Check mark indicates best performing model"
+            )
+        },
+        hide_index=True
+    )
+
+elsest.write("No CSV file uploaded.")
