@@ -573,19 +573,24 @@ with tuning_col1:
                                         st.markdown(f"Options: {', '.join([str(opt) for opt in param_info['options']])}")
                                     else:
                                         # Numeric parameter with range
-                                        range_cols = st.columns(2)
-                                        with range_cols[0]:
-                                            min_val = st.number_input(
-                                                "Min",
-                                                value=float(param_info.get("min", 0)),
-                                                key=f"min_{model_key}_{param_key}"
-                                            )
-                                        with range_cols[1]:
-                                            max_val = st.number_input(
-                                                "Max",
-                                                value=float(param_info.get("max", 10)),
-                                                key=f"max_{model_key}_{param_key}"
-                                            )
+                                        # Avoiding nested columns by arranging in one row
+                                        st.markdown("<div style='display: flex; gap: 10px;'>", unsafe_allow_html=True)
+                                        
+                                        # Min value
+                                        min_val = st.number_input(
+                                            "Min",
+                                            value=float(param_info.get("min", 0)),
+                                            key=f"min_{model_key}_{param_key}"
+                                        )
+                                        
+                                        # Max value
+                                        max_val = st.number_input(
+                                            "Max",
+                                            value=float(param_info.get("max", 10)),
+                                            key=f"max_{model_key}_{param_key}"
+                                        )
+                                        
+                                        st.markdown("</div>", unsafe_allow_html=True)
                                         
                                         # Store the parameter ranges
                                         if "ranges" not in st.session_state.selected_models_with_params[model_key]:
@@ -1196,103 +1201,104 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                         for model_type in sku_models:
                             st.markdown(f"##### {model_names.get(model_type, model_type)}", unsafe_allow_html=True)
                             
-                            # Create comparison columns
-                            before_after_cols = st.columns(2)
+                            # Create comparison visualization using flexbox instead of columns
+                            st.markdown("<div style='display: flex; gap: 20px;'>", unsafe_allow_html=True)
                             
-                            with before_after_cols[0]:
-                                st.markdown("<div class='comparison-column comparison-before'>", unsafe_allow_html=True)
-                                st.markdown("**Before Tuning**")
-                                
-                                # Create a sample visualization
-                                # In a real implementation, this would show actual before/after results
-                                fig = go.Figure()
-                                
-                                # Generate synthetic data for demonstration
-                                dates = pd.date_range(start='2023-01-01', periods=24, freq='MS')
-                                actuals = np.random.normal(100, 20, 24).cumsum() + 500
-                                before_forecast = actuals + np.random.normal(0, 50, 24)
-                                
-                                # Add traces
-                                fig.add_trace(go.Scatter(
-                                    x=dates, y=actuals,
-                                    mode='lines+markers',
-                                    name='Actual',
-                                    line=dict(color='blue', width=2)
-                                ))
-                                
-                                fig.add_trace(go.Scatter(
-                                    x=dates, y=before_forecast,
-                                    mode='lines+markers',
-                                    name='Before Tuning',
-                                    line=dict(color='red', width=2, dash='dot')
-                                ))
-                                
-                                fig.update_layout(
-                                    height=300,
-                                    margin=dict(l=0, r=0, t=20, b=0),
-                                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-                                )
-                                
-                                st.plotly_chart(fig, use_container_width=True)
-                                
-                                # Add metrics
-                                st.markdown("""
-                                **Error Metrics:**
-                                - MAPE: 24.8%
-                                - RMSE: 67.3
-                                - MAE: 52.9
-                                """)
-                                
-                                st.markdown("</div>", unsafe_allow_html=True)
+                            # BEFORE SECTION
+                            st.markdown("<div style='flex: 1; border: 1px solid #ddd; border-radius: 5px; padding: 10px;'>", unsafe_allow_html=True)
+                            st.markdown("**Before Tuning**")
                             
-                            with before_after_cols[1]:
-                                st.markdown("<div class='comparison-column comparison-after'>", unsafe_allow_html=True)
-                                st.markdown("**After Tuning**")
-                                
-                                # Create an "after" visualization with better metrics
-                                fig = go.Figure()
-                                
-                                # Generate better forecasts for the "after" case
-                                after_forecast = actuals + np.random.normal(0, 20, 24)  # Smaller error
-                                
-                                # Add traces
-                                fig.add_trace(go.Scatter(
-                                    x=dates, y=actuals,
-                                    mode='lines+markers',
-                                    name='Actual',
-                                    line=dict(color='blue', width=2)
-                                ))
-                                
-                                fig.add_trace(go.Scatter(
-                                    x=dates, y=after_forecast,
-                                    mode='lines+markers',
-                                    name='After Tuning',
-                                    line=dict(color='green', width=2, dash='dot')
-                                ))
-                                
-                                fig.update_layout(
-                                    height=300,
-                                    margin=dict(l=0, r=0, t=20, b=0),
-                                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-                                )
-                                
-                                st.plotly_chart(fig, use_container_width=True)
-                                
-                                # Add improved metrics
-                                score = model_scores.get(selected_result_sku, {}).get(model_type, 10.2)
-                                st.markdown(f"""
-                                **Error Metrics:**
-                                - MAPE: {score:.1f}%
-                                - RMSE: {score * 2.5:.1f}
-                                - MAE: {score * 2:.1f}
-                                """)
-                                
-                                st.markdown("</div>", unsafe_allow_html=True)
+                            # Create a sample visualization for BEFORE
+                            # In a real implementation, this would show actual before/after results
+                            fig1 = go.Figure()
                             
-                            # Add accept/reject options
-                            accept_cols = st.columns(3)
-                            with accept_cols[1]:
-                                st.button(f"👍 Accept {model_type.upper()} Parameters", key=f"accept_{model_type}", use_container_width=True)
+                            # Generate synthetic data for demonstration
+                            dates = pd.date_range(start='2023-01-01', periods=24, freq='MS')
+                            actuals = np.random.normal(100, 20, 24).cumsum() + 500
+                            before_forecast = actuals + np.random.normal(0, 50, 24)
+                            
+                            # Add traces
+                            fig1.add_trace(go.Scatter(
+                                x=dates, y=actuals,
+                                mode='lines+markers',
+                                name='Actual',
+                                line=dict(color='blue', width=2)
+                            ))
+                            
+                            fig1.add_trace(go.Scatter(
+                                x=dates, y=before_forecast,
+                                mode='lines+markers',
+                                name='Before Tuning',
+                                line=dict(color='red', width=2, dash='dot')
+                            ))
+                            
+                            fig1.update_layout(
+                                height=300,
+                                margin=dict(l=0, r=0, t=20, b=0),
+                                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                            )
+                            
+                            st.plotly_chart(fig1, use_container_width=True)
+                            
+                            # Add metrics
+                            st.markdown("""
+                            **Error Metrics:**
+                            - MAPE: 24.8%
+                            - RMSE: 67.3
+                            - MAE: 52.9
+                            """)
+                            st.markdown("</div>", unsafe_allow_html=True)
+                            
+                            # AFTER SECTION
+                            st.markdown("<div style='flex: 1; border: 1px solid #ddd; border-radius: 5px; padding: 10px;'>", unsafe_allow_html=True)
+                            st.markdown("**After Tuning**")
+                            
+                            # Create an "after" visualization with better metrics
+                            fig2 = go.Figure()
+                            
+                            # Generate better forecasts for the "after" case
+                            after_forecast = actuals + np.random.normal(0, 20, 24)  # Smaller error
+                            
+                            # Add traces
+                            fig2.add_trace(go.Scatter(
+                                x=dates, y=actuals,
+                                mode='lines+markers',
+                                name='Actual',
+                                line=dict(color='blue', width=2)
+                            ))
+                            
+                            fig2.add_trace(go.Scatter(
+                                x=dates, y=after_forecast,
+                                mode='lines+markers',
+                                name='After Tuning',
+                                line=dict(color='green', width=2, dash='dot')
+                            ))
+                            
+                            fig2.update_layout(
+                                height=300,
+                                margin=dict(l=0, r=0, t=20, b=0),
+                                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                            )
+                            
+                            st.plotly_chart(fig2, use_container_width=True)
+                            
+                            # Add improved metrics
+                            score = model_scores.get(selected_result_sku, {}).get(model_type, 10.2)
+                            st.markdown(f"""
+                            **Error Metrics:**
+                            - MAPE: {score:.1f}%
+                            - RMSE: {score * 2.5:.1f}
+                            - MAE: {score * 2:.1f}
+                            """)
+                            st.markdown("</div>", unsafe_allow_html=True)
+                            
+                            # Close the flex container
+                            st.markdown("</div>", unsafe_allow_html=True)
+                            
+                            # Add accept button (centered using markdown)
+                            st.markdown("<div style='text-align: center; margin-top: 15px;'>", unsafe_allow_html=True)
+                            st.button(f"👍 Accept {model_type.upper()} Parameters", key=f"accept_{model_type}")
+                            st.markdown("</div>", unsafe_allow_html=True)
                                 
                     except Exception as e:
                         st.warning(f"Could not generate visualization: {str(e)}")
