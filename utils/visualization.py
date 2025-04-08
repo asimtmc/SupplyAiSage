@@ -1644,10 +1644,21 @@ def highlight_data_columns(row):
     styled_row = []
     for col, val in row.items():
         if col in color_map:
-            styled_row.append(f'<td style="background-color: {color_map[col]};">{val}</td>')
+            styled_row.append(f'<td style="background-color: {color_map[col]}; position: sticky; left: 0; z-index: 1;">{val}</td>')
         else:
             styled_row.append(f'<td>{val}</td>')
     return "".join(styled_row)
+
+def get_table_styles():
+    """
+    Returns custom CSS styles for dataframe tables with frozen columns
+    """
+    return [
+        {'selector': 'thead th:nth-child(-n+4)', 'props': 'position: sticky; left: 0; z-index: 3; background-color: white; box-shadow: 2px 0px 3px rgba(0,0,0,0.1);'},
+        {'selector': 'tbody td:nth-child(-n+4)', 'props': 'position: sticky; left: 0; z-index: 2; background-color: white; box-shadow: 2px 0px 3px rgba(0,0,0,0.1);'},
+        {'selector': 'thead th', 'props': 'position: sticky; top: 0; z-index: 1; background-color: white; box-shadow: 0px 1px 3px rgba(0,0,0,0.1);'},
+        {'selector': 'thead th:nth-child(-n+4)', 'props': 'position: sticky; top: 0; left: 0; z-index: 4; background-color: white; box-shadow: 2px 2px 3px rgba(0,0,0,0.1);'}
+    ]
 
 st.set_page_config(page_title="Demand Forecasting App", page_icon=":bar_chart:", layout="wide")
 st.title("Demand Forecasting Dashboard")
@@ -1777,12 +1788,8 @@ if uploaded_file is not None:
     styled_df = styled_df.set_sticky(axis="index", levels=[0])  # Freeze header row
     styled_df = styled_df.set_sticky(axis="columns", levels=list(range(4)))  # Freeze first 4 columns
 
-    # Add a bit of styling for better visibility of frozen areas
-    styled_df = styled_df.set_table_styles([
-        {'selector': 'th:nth-child(-n+4)', 'props': 'position: sticky; left: 0; z-index: 3; box-shadow: 1px 0px 3px rgba(0,0,0,0.2);'},
-        {'selector': 'tr th', 'props': 'position: sticky; top: 0; z-index: 2; box-shadow: 0px 1px 3px rgba(0,0,0,0.2);'},
-        {'selector': 'tr th:nth-child(-n+4)', 'props': 'position: sticky; top: 0; left: 0; z-index: 4; box-shadow: 1px 1px 3px rgba(0,0,0,0.3);'}
-    ], overwrite=False)
+    # Add enhanced styling for better visibility of frozen areas
+    styled_df = styled_df.set_table_styles(get_table_styles(), overwrite=True)
 
     st.dataframe(
         styled_df,
