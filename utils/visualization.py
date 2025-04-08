@@ -889,7 +889,7 @@ def plot_model_comparison(selected_sku=None, forecast_data=None, models_to_show=
     sorted_models = []
     for model in model_order:
         if model in models_to_use:
-            sortedmodels.append(model)
+            sorted_models.append(model)
 
     # Add any remaining models not in the predefined order
     for model in models_to_use:
