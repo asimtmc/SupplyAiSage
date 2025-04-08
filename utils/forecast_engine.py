@@ -7,6 +7,8 @@ from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from statsmodels.tsa.seasonal import seasonal_decompose
+from statsmodels.tsa.exponential_smoothing.ets import ETSModel
+from statsmodels.tsa.forecasting.theta import ThetaModel
 from prophet import Prophet
 import warnings
 import matplotlib.pyplot as plt
@@ -15,6 +17,16 @@ import io
 import base64
 import json
 import math
+
+# For auto_arima, try to import pmdarima (also known as pyramid-arima)
+auto_arima_available = False
+try:
+    from pmdarima.arima import auto_arima
+    auto_arima_available = True
+except ImportError:
+    # Define a simple fallback for auto_arima in case the import fails
+    def auto_arima(y, **kwargs):
+        return ARIMA(y, order=(1, 1, 1)).fit()
 
 # TensorFlow imports wrapped in try-except to handle compatibility issues
 tensorflow_available = False
@@ -1522,6 +1534,208 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                         continue
                 else:
                     # Skip if not enough data
+                    continue
+                    
+            elif model_type == "auto_arima":
+                # Check if we have enough data
+                if len(train_data) >= 8:  # Need at least 8 data points for auto_arima
+                    try:
+                        # Check if auto_arima is available
+                        if auto_arima_available:
+                            # Prepare data
+                            ts_data = train_data['quantity'].values
+                            
+                            # Fit auto_arima model - automatically finds the best order parameters
+                            model = auto_arima(
+                                ts_data,
+                                seasonal=True,                   # Enable seasonality
+                                m=12 if len(train_data) >= 24 else 4,  # Seasonal period
+                                stepwise=True,                   # Use stepwise approach for faster fitting
+                                suppress_warnings=True,          # Suppress warnings for cleaner output
+                                error_action="ignore"            # Ignore errors in ARIMA estimation
+                            )
+                            
+                            # Generate test forecasts
+                            forecast_obj = model.predict(n_periods=len(test_data))
+                            y_pred = forecast_obj
+                            
+                            # Store test predictions
+                            all_models_test_pred[model_type] = pd.Series(y_pred, index=test_data['date'])
+                            
+                            # Train on all data for future forecast
+                            full_data = data['quantity'].values
+                            full_model = auto_arima(
+                                full_data,
+                                seasonal=True,
+                                m=12 if len(data) >= 24 else 4,
+                                stepwise=True,
+                                suppress_warnings=True,
+                                error_action="ignore"
+                            )
+                            
+                            # Generate future forecasts
+                            future_values = full_model.predict(n_periods=forecast_periods)
+                            
+                            # Store future forecasts
+                            all_models_forecasts[model_type] = pd.Series(future_values, index=future_dates)
+                        else:
+                            # Fallback to ARIMA if auto_arima is not available
+                            print("Auto ARIMA not available, falling back to standard ARIMA")
+                            
+                            # Use standard ARIMA with fixed parameters
+                            model = ARIMA(train_data['quantity'], order=(1, 1, 1))
+                            model_fit = model.fit()
+                            
+                            # Generate test forecasts
+                            forecast_obj = model_fit.get_forecast(steps=len(test_data))
+                            y_pred = forecast_obj.predicted_mean.values
+                            
+                            # Store test predictions
+                            all_models_test_pred[model_type] = pd.Series(y_pred, index=test_data['date'])
+                            
+                            # Train on all data for future forecast
+                            full_model = ARIMA(data['quantity'], order=(1, 1, 1))
+                            full_model_fit = full_model.fit()
+                            
+                            # Generate future forecasts
+                            future_forecast = full_model_fit.get_forecast(steps=forecast_periods)
+                            future_values = future_forecast.predicted_mean.values
+                            
+                            # Store future forecasts
+                            all_models_forecasts[model_type] = pd.Series(future_values, index=future_dates)
+                            
+                    except Exception as e:
+                        print(f"Auto ARIMA model failed: {str(e)}")
+                        continue
+                else:
+                    # Skip if not enough data
+                    continue
+                    
+            elif model_type == "ets":
+                # Check if we have enough data
+                if len(train_data) >= 8:  # Need reasonable amount of data for ETS
+                    try:
+                        # Prepare data
+                        ts_data = train_data['quantity'].values
+                        
+                        # Create and fit ETS model
+                        model = ETSModel(
+                            ts_data,
+                            error="add",                     # Additive errors
+                            trend="add",                     # Additive trend
+                            seasonal="add",                  # Additive seasonal
+                            damped_trend=True,               # Damped trend to avoid over-forecasting
+                            seasonal_periods=12 if len(train_data) >= 24 else 4  # Seasonal periods
+                        )
+                        model_fit = model.fit(disp=False)
+                        
+                        # Generate test forecasts
+                        forecast_obj = model_fit.forecast(steps=len(test_data))
+                        y_pred = forecast_obj.values
+                        
+                        # Store test predictions
+                        all_models_test_pred[model_type] = pd.Series(y_pred, index=test_data['date'])
+                        
+                        # Train on all data for future forecast
+                        full_data = data['quantity'].values
+                        full_model = ETSModel(
+                            full_data,
+                            error="add",
+                            trend="add",
+                            seasonal="add",
+                            damped_trend=True,
+                            seasonal_periods=12 if len(data) >= 24 else 4
+                        )
+                        full_model_fit = full_model.fit(disp=False)
+                        
+                        # Generate future forecasts
+                        future_values = full_model_fit.forecast(steps=forecast_periods).values
+                        
+                        # Store future forecasts
+                        all_models_forecasts[model_type] = pd.Series(future_values, index=future_dates)
+                        
+                    except Exception as e:
+                        print(f"ETS model failed: {str(e)}")
+                        continue
+                else:
+                    # Skip if not enough data
+                    continue
+                    
+            elif model_type == "theta":
+                # Check if we have enough data
+                if len(train_data) >= 8:  # Need reasonable amount of data for Theta
+                    try:
+                        # Prepare data
+                        ts_data = train_data['quantity'].values
+                        
+                        # Create and fit Theta model
+                        model = ThetaModel(
+                            ts_data,
+                            deseasonalize=True,                # Deseasonalize the time series
+                            season_length=12 if len(train_data) >= 24 else 4  # Seasonal period
+                        )
+                        model_fit = model.fit()
+                        
+                        # Generate test forecasts
+                        forecast_obj = model_fit.forecast(steps=len(test_data))
+                        y_pred = forecast_obj.values
+                        
+                        # Store test predictions
+                        all_models_test_pred[model_type] = pd.Series(y_pred, index=test_data['date'])
+                        
+                        # Train on all data for future forecast
+                        full_data = data['quantity'].values
+                        full_model = ThetaModel(
+                            full_data,
+                            deseasonalize=True,
+                            season_length=12 if len(data) >= 24 else 4
+                        )
+                        full_model_fit = full_model.fit()
+                        
+                        # Generate future forecasts
+                        future_values = full_model_fit.forecast(steps=forecast_periods).values
+                        
+                        # Store future forecasts
+                        all_models_forecasts[model_type] = pd.Series(future_values, index=future_dates)
+                        
+                    except Exception as e:
+                        print(f"Theta model failed: {str(e)}")
+                        continue
+                else:
+                    # Skip if not enough data
+                    continue
+                    
+            elif model_type == "moving_average":
+                # Moving average is simple and works with minimal data
+                try:
+                    # Calculate moving average window size based on data length
+                    window = min(3, len(train_data) // 2)
+                    if window < 1:
+                        window = 1
+                    
+                    # Calculate moving average for test period
+                    # Use the last value of the rolling average from training data
+                    ma_value = train_data['quantity'].rolling(window=window).mean().iloc[-1]
+                    y_pred = np.array([ma_value] * len(test_data))
+                    
+                    # Store test predictions
+                    all_models_test_pred[model_type] = pd.Series(y_pred, index=test_data['date'])
+                    
+                    # Use all data for future forecasts
+                    full_ma_value = data['quantity'].rolling(window=window).mean().iloc[-1]
+                    
+                    # Handle NaN values
+                    if pd.isna(full_ma_value):
+                        full_ma_value = data['quantity'].mean() if len(data) > 0 else 0
+                    
+                    # Create forecasts
+                    future_values = np.array([full_ma_value] * forecast_periods)
+                    
+                    # Store future forecasts
+                    all_models_forecasts[model_type] = pd.Series(future_values, index=future_dates)
+                    
+                except Exception as e:
+                    print(f"Moving Average model failed: {str(e)}")
                     continue
 
             else:

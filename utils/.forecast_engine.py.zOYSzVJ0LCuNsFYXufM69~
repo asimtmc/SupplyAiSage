@@ -1,0 +1,449 @@
+import pandas as pd
+import numpy as np
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.metrics import mean_absolute_error, mean_squared_error
+from statsmodels.tsa.arima.model import ARIMA
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+from statsmodels.tsa.holtwinters import ExponentialSmoothing
+from statsmodels.tsa.seasonal import seasonal_decompose
+from statsmodels.tsa.exponential_smoothing.ets import ETSModel
+from statsmodels.tsa.forecasting.theta import ThetaModel
+from prophet import Prophet
+import warnings
+import matplotlib.pyplot as plt
+from datetime import datetime, timedelta
+import io
+import base64
+import json
+import math
+
+# For auto_arima, try to import pmdarima (also known as pyramid-arima)
+auto_arima_available = False
+try:
+    from pmdarima.arima import auto_arima
+    auto_arima_available = True
+except ImportError:
+    # Define a simple fallback for auto_arima in case the import fails
+    def auto_arima(y, **kwargs):
+        return ARIMA(y, order=(1, 1, 1)).fit()
+
+# TensorFlow imports wrapped in try-except to handle compatibility issues
+tensorflow_available = False
+
+# Define dummy classes to prevent import errors
+class Sequential:
+    def __init__(self, *args, **kwargs):
+        pass
+    def add(self, *args, **kwargs):
+        pass
+    def compile(self, *args, **kwargs):
+        pass
+    def fit(self, *args, **kwargs):
+        return self
+    def predict(self, *args, **kwargs):
+        return np.zeros((1, 1))
+
+class Dense:
+    def __init__(self, *args, **kwargs):
+        pass
+
+class LSTM:
+    def __init__(self, *args, **kwargs):
+        pass
+
+class Dropout:
+    def __init__(self, *args, **kwargs):
+        pass
+
+class EarlyStopping:
+    def __init__(self, *args, **kwargs):
+        pass
+
+# Attempt to import TensorFlow only if needed
+def try_import_tensorflow():
+    global tensorflow_available
+    if not tensorflow_available:
+        try:
+            import tensorflow as tf
+            from tensorflow.keras.models import Sequential as TFSequential
+            from tensorflow.keras.layers import Dense as TFDense, LSTM as TFLSTM, Dropout as TFDropout
+            from tensorflow.keras.callbacks import EarlyStopping as TFEarlyStopping
+            # Override the dummy classes with real implementations
+            global Sequential, Dense, LSTM, Dropout, EarlyStopping
+            Sequential = TFSequential
+            Dense = TFDense
+            LSTM = TFLSTM
+            Dropout = TFDropout
+            EarlyStopping = TFEarlyStopping
+            tensorflow_available = True
+            return True
+        except (ImportError, TypeError, AttributeError) as e:
+            print(f"TensorFlow import error: {e}")
+            return False
+    return tensorflow_available
+
+# Import the database functionality
+from utils.database import save_forecast_result, get_forecast_history
+
+# Suppress warnings for cleaner output
+warnings.filterwarnings('ignore')
+
+def extract_features(sales_data):
+    """
+    Extract time series features from sales data for clustering
+
+    Parameters:
+    -----------
+    sales_data : pandas.DataFrame
+        Sales data with date, sku, and quantity columns
+
+    Returns:
+    --------
+    pandas.DataFrame
+        DataFrame with extracted features per SKU
+    """
+    # Ensure data is sorted by date
+    sales_data = sales_data.sort_values(by=['sku', 'date'])
+
+    # Aggregate sales data by SKU and month to reduce noise
+    monthly_data = sales_data.set_index('date')
+    monthly_data = monthly_data.groupby(['sku', pd.Grouper(freq='M')])['quantity'].sum().reset_index()
+
+    # List to store features for each SKU
+    features_list = []
+
+    # Get unique SKUs
+    skus = monthly_data['sku'].unique()
+
+    for sku in skus:
+        # Filter data for this SKU
+        sku_data = monthly_data[monthly_data['sku'] == sku].sort_values('date')
+
+        if len(sku_data) < 4:  # Need at least a few months of data
+            continue
+
+        # Calculate basic statistics
+        mean_sales = sku_data['quantity'].mean()
+        std_sales = sku_data['quantity'].std()
+        cv = std_sales / mean_sales if mean_sales > 0 else 0
+
+        # Calculate trend
+        try:
+            sku_data['trend_index'] = np.arange(len(sku_data))
+            trend_model = np.polyfit(sku_data['trend_index'], sku_data['quantity'], 1)
+            trend_slope = trend_model[0]
+        except:
+            trend_slope = 0
+
+        # Check for seasonality using autocorrelation
+        if len(sku_data) >= 13:  # Need at least a year of data for seasonality
+            try:
+                autocorr = pd.Series(sku_data['quantity'].values).autocorr(lag=12)  # 12-month lag
+            except:
+                autocorr = 0
+        else:
+            autocorr = 0
+
+        # Calculate skewness and kurtosis
+        skewness = sku_data['quantity'].skew()
+        kurtosis = sku_data['quantity'].kurtosis()
+
+        # Calculate volatility
+        pct_change = sku_data['quantity'].pct_change().dropna()
+        volatility = pct_change.std() if len(pct_change) > 0 else 0
+
+        # Calculate zero ratio (proportion of months with zero sales)
+        zero_ratio = (sku_data['quantity'] == 0).mean()
+
+        # Store features
+        features_list.append({
+            'sku': sku,
+            'mean_sales': mean_sales,
+            'cv': cv,
+            'trend_slope': trend_slope,
+            'seasonality': autocorr,
+            'skewness': skewness,
+            'kurtosis': kurtosis,
+            'volatility': volatility,
+            'zero_ratio': zero_ratio
+        })
+
+    # Convert to DataFrame
+    features_df = pd.DataFrame(features_list)
+
+    return features_df
+
+def cluster_skus(features_df, n_clusters=5):
+    """
+    Cluster SKUs based on their time series features
+
+    Parameters:
+    -----------
+    features_df : pandas.DataFrame
+        DataFrame with extracted features per SKU
+    n_clusters : int, optional
+        Number of clusters to create (default is 5)
+
+    Returns:
+    --------
+    pandas.DataFrame
+        DataFrame with cluster assignments per SKU
+    """
+    # Select features for clustering
+    cluster_features = [
+        'mean_sales', 'cv', 'trend_slope', 'seasonality', 
+        'skewness', 'volatility', 'zero_ratio'
+    ]
+
+    # Handle missing values
+    for feature in cluster_features:
+        if feature in features_df.columns:
+            features_df[feature] = features_df[feature].fillna(features_df[feature].median())
+
+    # Subset dataframe to only include features used for clustering
+    features_subset = features_df[cluster_features]
+
+    # Standardize features
+    scaler = StandardScaler()
+    scaled_features = scaler.fit_transform(features_subset)
+
+    # Apply K-means clustering
+    kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+    cluster_labels = kmeans.fit_predict(scaled_features)
+
+    # Add cluster labels to original features
+    features_df['cluster'] = cluster_labels
+
+    # Determine cluster characteristics
+    cluster_profiles = features_df.groupby('cluster')[cluster_features].mean()
+
+    # Assign descriptive names based on characteristics
+    cluster_names = {}
+
+    for cluster in range(n_clusters):
+        profile = cluster_profiles.loc[cluster]
+
+        # Determine key characteristics of this cluster
+        if profile['seasonality'] > 0.3:
+            seasonality = "Seasonal"
+        else:
+            seasonality = "Non-seasonal"
+
+        if profile['trend_slope'] > 0.1:
+            trend = "Growing"
+        elif profile['trend_slope'] < -0.1:
+            trend = "Declining"
+        else:
+            trend = "Stable"
+
+        if profile['volatility'] > 0.3:
+            volatility = "Volatile"
+        else:
+            volatility = "Steady"
+
+        if profile['zero_ratio'] > 0.3:
+            frequency = "Intermittent"
+        else:
+            frequency = "Regular"
+
+        # Create descriptive name
+        name = f"{seasonality} {trend} {volatility} {frequency}"
+        cluster_names[cluster] = name
+
+    # Map names to cluster numbers
+    features_df['cluster_name'] = features_df['cluster'].map(cluster_names)
+
+    return features_df
+
+def select_best_model(sku_data, forecast_periods=12):
+    """
+    Select the best forecasting model for a given SKU based on its characteristics
+
+    Parameters:
+    -----------
+    sku_data : pandas.DataFrame
+        Time series data for a specific SKU with date and quantity columns
+    forecast_periods : int, optional
+        Number of periods to forecast (default is 12)
+
+    Returns:
+    --------
+    dict
+        Dictionary containing model type, parameters, and forecast results
+    """
+    # Make a copy of the data to avoid modifying the original
+    data = sku_data.copy()
+
+    # Ensure data is sorted by date
+    data = data.sort_values('date')
+
+    # Calculate features to determine model choice
+    if len(data) < 6:
+        return {"model": "moving_average", "forecast": pd.Series(), "lower_bound": pd.Series(), "upper_bound": pd.Series()}
+
+    # Check for seasonality using autocorrelation
+    seasonality = False
+    if len(data) >= 13:
+        try:
+            autocorr = pd.Series(data['quantity'].values).autocorr(lag=12)
+            if autocorr > 0.3:
+                seasonality = True
+        except:
+            pass
+
+    # Check for zeros and intermittent demand
+    zero_ratio = (data['quantity'] == 0).mean()
+    intermittent = zero_ratio > 0.3
+
+    # Calculate CV to determine if Holt-Winters is appropriate
+    cv = data['quantity'].std() / data['quantity'].mean() if data['quantity'].mean() > 0 else float('inf')
+
+    # Check for trend
+    try:
+        data['trend_index'] = np.arange(len(data))
+        trend_model = np.polyfit(data['trend_index'], data['quantity'], 1)
+        trend_slope = trend_model[0]
+        has_trend = abs(trend_slope) > 0.1 * data['quantity'].mean()
+    except:
+        has_trend = False
+
+    # Set the model parameters
+    if len(data) < 12:
+        # For very short series, use simple methods
+        model_type = "moving_average"
+        window = min(3, len(data) - 1)
+        if window < 1:
+            window = 1
+        forecast = data['quantity'].rolling(window=window).mean().iloc[-1]
+        forecast_values = [forecast] * forecast_periods
+        lower_bound = [max(0, forecast * 0.7)] * forecast_periods
+        upper_bound = [forecast * 1.3] * forecast_periods
+
+    elif intermittent:
+        # For intermittent demand, use simple methods
+        model_type = "croston"
+        # Simple implementation of Croston-like logic
+        non_zero_values = data['quantity'][data['quantity'] > 0]
+        if len(non_zero_values) > 0:
+            avg_non_zero = non_zero_values.mean()
+            non_zero_prob = len(non_zero_values) / len(data)
+            forecast = avg_non_zero * non_zero_prob
+        else:
+            forecast = data['quantity'].mean()
+
+        forecast_values = [forecast] * forecast_periods
+        lower_bound = [max(0, forecast * 0.6)] * forecast_periods
+        upper_bound = [forecast * 1.4] * forecast_periods
+
+    elif seasonality:
+        # For seasonal data, either use Holt-Winters or decomposition based on data length
+        if len(data) >= 24:
+            # For longer data, try a decomposition model
+            model_type = "decomposition"
+            try:
+                # Prepare data for decomposition
+                ts_data = data.set_index('date')['quantity']
+                
+                # Use annual seasonality for longer time series
+                period = 12
+                
+                # Decompose the time series
+                decomposition = seasonal_decompose(
+                    ts_data, 
+                    model='additive',
+                    period=period
+                )
+                
+                # Extract components
+                trend = decomposition.trend
+                seasonal = decomposition.seasonal
+                residual = decomposition.resid
+                
+                # Handle NaN values in components
+                trend = trend.fillna(method='bfill').fillna(method='ffill')
+                seasonal = seasonal.fillna(method='bfill').fillna(method='ffill')
+                residual = residual.fillna(method='bfill').fillna(method='ffill')
+                
+                # Fit ARIMA model to residuals for future prediction
+                residual_model = ARIMA(residual.dropna(), order=(1, 0, 1))
+                residual_fit = residual_model.fit()
+                
+                # Forecast residuals
+                residual_forecast = residual_fit.forecast(steps=forecast_periods)
+                
+                # Extract trend component's growth rate
+                trend_values = trend.values
+                # Use last n points to calculate trend slope
+                last_n = min(6, len(trend_values))
+                trend_end = trend_values[-last_n:]
+                trend_indices = np.arange(len(trend_end))
+                trend_fit = np.polyfit(trend_indices, trend_end, 1)
+                trend_slope = trend_fit[0]
+                
+                # Get last trend value
+                last_trend = trend.iloc[-1]
+                
+                # Get seasonal pattern
+                seasonal_pattern = seasonal.values[-period:]
+                
+                # Generate forecasts by recombining components
+                forecast_values = []
+                for i in range(forecast_periods):
+                    # Get seasonal component using modulo to repeat the pattern
+                    seasonal_idx = i % len(seasonal_pattern)
+                    seasonal_component = seasonal_pattern[seasonal_idx]
+                    
+                    # Combine trend, seasonal, and residual forecasts
+                    pred = last_trend + i * trend_slope + seasonal_component + residual_forecast[i]
+                    forecast_values.append(max(0, pred))  # Ensure non-negative values
+                
+                forecast_values = np.array(forecast_values)
+                
+                # Create confidence intervals
+                forecast_std = np.std(data['quantity'])
+                z_value = 1.28  # Approximately 80% confidence interval
+                lower_bound = forecast_values - z_value * forecast_std
+                upper_bound = forecast_values + z_value * forecast_std
+                
+            except Exception as e:
+                print(f"Decomposition model failed: {str(e)}")
+                # Fall back to Holt-Winters if decomposition fails
+                model_type = "holtwinters"
+                # Continue to Holt-Winters code below
+                
+                # Determine seasonal period based on data length
+                seasonal_periods = 12  # Monthly data, annual seasonality
+                
+                # Fit Holt-Winters model
+                model = ExponentialSmoothing(
+                    data['quantity'],
+                    trend='add',               # Additive trend
+                    seasonal='add',            # Additive seasonality
+                    seasonal_periods=seasonal_periods,
+                    damped=True                # Damped trend to avoid over-forecasting
+                )
+                results = model.fit(optimized=True, use_brute=False)
+                
+                # Generate forecasts
+                forecast_values = results.forecast(steps=forecast_periods).values
+                
+                # Create confidence intervals (80% by default)
+                forecast_std = np.std(data['quantity'])
+                z_value = 1.28  # Approximately 80% confidence interval
+                lower_bound = forecast_values - z_value * forecast_std
+                upper_bound = forecast_values + z_value * forecast_std
+                
+        else:
+            # For shorter data, use Holt-Winters
+            model_type = "holtwinters"
+            try:
+                # Determine seasonal period based on data length
+                seasonal_periods = 4   # Quarterly-like pattern for shorter data
+                
+                # Fit Holt-Winters model
+                model = ExponentialSmoothing(
+                    data['quantity'],
+                    trend='add',               # Additive trend
+                    seasonal='add',            # Additive seasonality
+                    seasonal_periods=seasonal_period
