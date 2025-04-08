@@ -1,4 +1,13 @@
+# IMPORTANT: st.set_page_config must be the first Streamlit command
 import streamlit as st
+
+# Set page config (must be the first Streamlit command)
+st.set_page_config(
+    page_title="Hyperparameter Tuning",
+    page_icon="🔧",
+    layout="wide"
+)
+
 import pandas as pd
 import numpy as np
 import plotly.express as px
@@ -15,13 +24,6 @@ import re
 import uuid
 from streamlit_extras.metric_cards import style_metric_cards
 import extra_streamlit_components as stx
-
-# Set page config
-st.set_page_config(
-    page_title="Hyperparameter Tuning",
-    page_icon="🔧",
-    layout="wide"
-)
 
 # Initialize session state variables
 if 'sales_data' not in st.session_state or st.session_state.sales_data is None:
@@ -1129,28 +1131,38 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                     # Create metric cards for this SKU's performance
                     st.markdown("<div class='metric-row'>", unsafe_allow_html=True)
                     
-                    metric_cols = st.columns(len(sku_models))
+                    # Create a flexbox layout instead of columns for metrics
+                    st.markdown("<div style='display: flex; gap: 10px; flex-wrap: wrap;'>", unsafe_allow_html=True)
                     
                     # Add metric data for each model
-                    for i, model_type in enumerate(sku_models):
-                        with metric_cols[i]:
-                            # Get score and format it
-                            score = model_scores.get(selected_result_sku, {}).get(model_type, 0)
-                            
-                            # Create a styled metric card
-                            st.markdown(f"""
-                            <div style="border: 1px solid #ddd; border-radius: 0.5rem; padding: 1rem; text-align: center; height: 100%;">
-                                <div style="font-size: 0.8rem; color: #666; margin-bottom: 0.5rem;">
-                                    {model_names.get(model_type, model_type).replace('<span', '<span style="font-size: 0.7rem;"')}
-                                </div>
-                                <div style="font-size: 1.8rem; font-weight: bold; color: #333;">
-                                    {score:.4f}
-                                </div>
-                                <div style="font-size: 0.7rem; color: #888; margin-top: 0.5rem;">
-                                    MAPE Score
-                                </div>
+                    for model_type in sku_models:
+                        # Get score and format it
+                        score = model_scores.get(selected_result_sku, {}).get(model_type, 0)
+                        
+                        # Get model name - safely handle the model_names variable
+                        model_display = model_type
+                        if 'model_names' in globals():
+                            model_display = model_names.get(model_type, model_type)
+                        elif 'model_names' in locals():
+                            model_display = model_names.get(model_type, model_type)
+                        
+                        # Create a styled metric card in the flexbox layout
+                        st.markdown(f"""
+                        <div style="border: 1px solid #ddd; border-radius: 0.5rem; padding: 1rem; text-align: center; flex: 1; min-width: 120px;">
+                            <div style="font-size: 0.8rem; color: #666; margin-bottom: 0.5rem;">
+                                {model_display}
                             </div>
-                            """, unsafe_allow_html=True)
+                            <div style="font-size: 1.8rem; font-weight: bold; color: #333;">
+                                {score:.4f}
+                            </div>
+                            <div style="font-size: 0.7rem; color: #888; margin-top: 0.5rem;">
+                                MAPE Score
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    # Close the flexbox container
+                    st.markdown("</div>", unsafe_allow_html=True)
                     
                     st.markdown("</div>", unsafe_allow_html=True)
                     
