@@ -1712,4 +1712,5 @@ if uploaded_file is not None:
         hide_index=True
     )
 
-elsest.write("No CSV file uploaded.")
+else:
+    st.write("No CSV file uploaded.")
