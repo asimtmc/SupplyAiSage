@@ -8,7 +8,7 @@ import json
 from datetime import datetime
 from utils.data_processor import process_sales_data
 from utils.parameter_optimizer import optimize_parameters_async, get_optimization_status, get_model_parameters
-from utils.database import get_model_parameters
+from utils.database import get_model_parameters, save_model_parameters
 
 # Set page config
 st.set_page_config(
@@ -288,10 +288,14 @@ if st.session_state.tuning_in_progress:
 
             for sku in st.session_state.tuning_skus:
                 # Filter data for this SKU
-                sku_data = st.session_state.sales_data[st.session_state.sales_data['sku'] == sku].copy()
+                sku_data_filtered = st.session_state.sales_data[st.session_state.sales_data['sku'] == sku].copy()
 
-                if len(sku_data) < 8:
-                    tuning_progress_callback(sku, "all", f"Insufficient data for tuning (needs at least 8 data points, found {len(sku_data)})", "warning")
+                if len(sku_data_filtered) < 8:
+                    tuning_progress_callback(
+                        sku, "all", 
+                        f"Insufficient data for tuning (needs at least 8 data points, found {len(sku_data_filtered)})", 
+                        "warning"
+                    )
                     continue
 
                 for model_type in st.session_state.tuning_models:
@@ -360,7 +364,7 @@ if st.session_state.tuning_in_progress:
                         result = optimize_parameters_async(
                             sku=sku,
                             model_type=model_type,
-                            data=sku_data,
+                            data=sku_data_filtered,
                             cross_validation=cross_validation,
                             n_trials=n_trials,
                             progress_callback=enhanced_callback,
@@ -384,11 +388,16 @@ if st.session_state.tuning_in_progress:
                         if sku not in st.session_state.tuning_results:
                             st.session_state.tuning_results[sku] = {}
 
-                        st.session_state.tuning_results[sku][model_type] = optimal_params
+                        # Check if we have valid parameters and store them
+                        if optimal_params and 'parameters' in optimal_params:
+                            st.session_state.tuning_results[sku][model_type] = optimal_params['parameters']
+                        else:
+                            # If no parameters were found, store an empty dict
+                            st.session_state.tuning_results[sku][model_type] = {}
 
                         # Report success with formatted parameters
-                        if optimal_params:
-                            success_msg = f"Successfully tuned parameters: {format_parameters(optimal_params, model_type)}"
+                        if optimal_params and 'parameters' in optimal_params:
+                            success_msg = f"Successfully tuned parameters: {format_parameters(optimal_params['parameters'], model_type)}"
                             tuning_progress_callback(sku, model_type, success_msg, "success")
                         else:
                             tuning_progress_callback(sku, model_type, "Optimization completed but no parameters returned", "warning")
@@ -424,8 +433,8 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
             tuning_results[sku] = {}
             for model_type in st.session_state.tuning_models:
                 params = get_model_parameters(sku, model_type)
-                if params:
-                    tuning_results[sku][model_type] = params
+                if params and 'parameters' in params:
+                    tuning_results[sku][model_type] = params['parameters']
 
     if tuning_results:
         # Create tabs for each model
