@@ -174,35 +174,97 @@ if st.session_state.tuning_in_progress:
         
         with log_container:
             log_placeholder = st.empty()
+            
+            # Create tabs for detailed model logs
+            model_log_tabs = st.tabs(["All Logs", "Auto ARIMA", "Prophet", "ETS", "Theta", "LSTM"])
+            
+            with model_log_tabs[0]:
+                all_logs_placeholder = st.empty()
+            
+            with model_log_tabs[1]:
+                arima_logs_placeholder = st.empty()
+                
+            with model_log_tabs[2]:
+                prophet_logs_placeholder = st.empty()
+                
+            with model_log_tabs[3]:
+                ets_logs_placeholder = st.empty()
+                
+            with model_log_tabs[4]:
+                theta_logs_placeholder = st.empty()
+                
+            with model_log_tabs[5]:
+                lstm_logs_placeholder = st.empty()
         
         # Function to update tuning logs
-        def tuning_progress_callback(sku, model, message, level="info"):
+        def tuning_progress_callback(sku, model, message, level="info", details=None):
             timestamp = datetime.now().strftime("%H:%M:%S")
             log_entry = {
                 "timestamp": timestamp,
                 "sku": sku,
                 "model": model,
                 "message": message,
-                "level": level
+                "level": level,
+                "details": details  # Store detailed logs
             }
             
             # Add to logs
+            if 'tuning_logs' not in st.session_state:
+                st.session_state.tuning_logs = []
+                
             st.session_state.tuning_logs.append(log_entry)
             
-            # Update log display
-            log_text = ""
+            # Update main log display
+            all_log_text = ""
             for entry in st.session_state.tuning_logs[-20:]:  # Show last 20 log entries
                 prefix = f"[{entry['timestamp']}] [{entry['sku']}] [{entry['model']}]"
                 if entry['level'] == "error":
-                    log_text += f"🔴 {prefix} {entry['message']}\n"
+                    all_log_text += f"🔴 {prefix} {entry['message']}\n"
                 elif entry['level'] == "warning":
-                    log_text += f"🟠 {prefix} {entry['message']}\n"
+                    all_log_text += f"🟠 {prefix} {entry['message']}\n"
                 elif entry['level'] == "success":
-                    log_text += f"🟢 {prefix} {entry['message']}\n"
+                    all_log_text += f"🟢 {prefix} {entry['message']}\n"
                 else:
-                    log_text += f"🔵 {prefix} {entry['message']}\n"
+                    all_log_text += f"🔵 {prefix} {entry['message']}\n"
             
-            log_placeholder.code(log_text)
+            all_logs_placeholder.code(all_log_text)
+            
+            # Update model-specific logs
+            model_placeholders = {
+                "auto_arima": arima_logs_placeholder,
+                "prophet": prophet_logs_placeholder,
+                "ets": ets_logs_placeholder,
+                "theta": theta_logs_placeholder,
+                "lstm": lstm_logs_placeholder
+            }
+            
+            # Update the corresponding model tab
+            if model in model_placeholders:
+                # Filter logs for this model
+                model_logs = [log for log in st.session_state.tuning_logs 
+                             if log['model'] == model or 
+                                (log['model'] == 'selection' and model in log['message'])]
+                
+                model_log_text = ""
+                for entry in model_logs[-50:]:  # Show last 50 model-specific entries
+                    prefix = f"[{entry['timestamp']}] [{entry['sku']}]"
+                    
+                    if entry['level'] == "error":
+                        model_log_text += f"🔴 {prefix} {entry['message']}\n"
+                    elif entry['level'] == "warning":
+                        model_log_text += f"🟠 {prefix} {entry['message']}\n"
+                    elif entry['level'] == "success":
+                        model_log_text += f"🟢 {prefix} {entry['message']}\n"
+                    else:
+                        model_log_text += f"🔵 {prefix} {entry['message']}\n"
+                    
+                    # Add detailed logs if available
+                    if entry['details']:
+                        model_log_text += f"    └─ Details: {entry['details']}\n"
+                
+                model_placeholders[model].code(model_log_text)
+            
+            log_placeholder.code(all_log_text)
         
         # Run the tuning process
         try:
@@ -249,6 +311,51 @@ if st.session_state.tuning_in_progress:
                         # For demo, simulate the optimization process with a placeholder function
                         tuning_progress_callback(sku, model_type, f"Testing different parameter combinations...", "info")
                         
+                        # Setup logging for detailed model information
+                        import logging
+                        import io
+                        
+                        # Create a string IO object to capture log output
+                        log_capture = io.StringIO()
+                        
+                        # Configure a handler to capture detailed logs
+                        handler = logging.StreamHandler(log_capture)
+                        handler.setLevel(logging.DEBUG)
+                        
+                        # Create formatter
+                        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+                        handler.setFormatter(formatter)
+                        
+                        # Add handlers to loggers
+                        model_logger = logging.getLogger(model_type)
+                        model_logger.setLevel(logging.DEBUG)
+                        model_logger.addHandler(handler)
+                        
+                        # For statsmodels (used by ARIMA and ETS)
+                        if model_type in ['auto_arima', 'ets']:
+                            sm_logger = logging.getLogger('statsmodels')
+                            sm_logger.setLevel(logging.INFO)
+                            sm_logger.addHandler(handler)
+                        
+                        # For prophet
+                        if model_type == 'prophet':
+                            prophet_logger = logging.getLogger('prophet')
+                            prophet_logger.setLevel(logging.INFO)
+                            prophet_logger.addHandler(handler)
+                        
+                        # Enhanced callback to include detailed logs
+                        def enhanced_callback(s, m, msg, level="info"):
+                            # Get the current captured logs
+                            log_details = log_capture.getvalue()
+                            
+                            # Reset the capture buffer if it's getting too large
+                            if len(log_details) > 5000:
+                                log_capture.truncate(0)
+                                log_capture.seek(0)
+                            
+                            # Call the original callback with the captured logs
+                            tuning_progress_callback(s, m, msg, level, details=log_details)
+                        
                         # Simulate optimization by calling the actual optimize_parameters_async function
                         # This would be replaced with real parameter optimization
                         result = optimize_parameters_async(
@@ -257,9 +364,16 @@ if st.session_state.tuning_in_progress:
                             data=sku_data,
                             cross_validation=cross_validation,
                             n_trials=n_trials,
-                            progress_callback=lambda s, m, msg, level="info": tuning_progress_callback(s, m, msg, level),
+                            progress_callback=enhanced_callback,
                             priority=True
                         )
+                        
+                        # Clean up loggers
+                        model_logger.removeHandler(handler)
+                        if model_type in ['auto_arima', 'ets']:
+                            sm_logger.removeHandler(handler)
+                        if model_type == 'prophet':
+                            prophet_logger.removeHandler(handler)
                         
                         # Sleep to simulate processing time
                         time.sleep(0.5)

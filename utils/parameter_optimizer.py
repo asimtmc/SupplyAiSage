@@ -93,9 +93,11 @@ def objective_function_arima(params, train_data, val_data):
         d = params['d']
         q = params['q']
         
-        # Train model
+        # Train model with detailed logging enabled
+        logger.info(f"Fitting ARIMA model with order=(p={p}, d={d}, q={q})")
         model = ARIMA(train_data, order=(p, d, q))
-        fitted_model = model.fit(disp=0, maxiter=50)
+        fitted_model = model.fit(disp=1, maxiter=50)  # Set disp=1 to show convergence messages
+        logger.info(f"ARIMA fitting complete. AIC: {fitted_model.aic:.2f}, BIC: {fitted_model.bic:.2f}")
         
         # Make predictions on validation set
         predictions = fitted_model.forecast(steps=len(val_data))
@@ -136,18 +138,25 @@ def objective_function_prophet(params, train_data, val_data):
         seasonality_prior_scale = params['seasonality_prior_scale']
         seasonality_mode = params['seasonality_mode']
         
-        # Create and train model
+        # Create and train model with detailed logging
+        logger.info(f"Fitting Prophet model with parameters: changepoint_prior_scale={changepoint_prior_scale}, " +
+                   f"seasonality_prior_scale={seasonality_prior_scale}, seasonality_mode={seasonality_mode}")
+                   
         model = Prophet(
             changepoint_prior_scale=changepoint_prior_scale,
             seasonality_prior_scale=seasonality_prior_scale,
-            seasonality_mode=seasonality_mode
+            seasonality_mode=seasonality_mode,
+            interval_width=0.95,  # Add this to see prediction intervals
+            mcmc_samples=0  # Using MAP estimation for speed
         )
         
         # Add yearly seasonality if enough data
         if len(train_data) >= 365:
+            logger.info("Adding yearly seasonality with period=365, fourier_order=5")
             model.add_seasonality(name='yearly', period=365, fourier_order=5)
         
         model.fit(train_data)
+        logger.info("Prophet model fitting complete")
         
         # Make predictions
         future = pd.DataFrame({'ds': val_data['ds']})
@@ -190,7 +199,10 @@ def objective_function_ets(params, train_data, val_data):
         seasonal_periods = params['seasonal_periods']
         damped_trend = params['damped_trend']
         
-        # Create and train model
+        # Create and train model with detailed logging
+        logger.info(f"Fitting ETS model with parameters: trend={trend}, seasonal={seasonal}, " +
+                   f"seasonal_periods={seasonal_periods}, damped_trend={damped_trend}")
+        
         if seasonal is not None:
             model = ExponentialSmoothing(
                 train_data,
@@ -199,14 +211,22 @@ def objective_function_ets(params, train_data, val_data):
                 seasonal_periods=seasonal_periods,
                 damped_trend=damped_trend
             )
+            logger.info(f"ETS model with seasonality (period={seasonal_periods})")
         else:
             model = ExponentialSmoothing(
                 train_data,
                 trend=trend,
                 damped_trend=damped_trend
             )
+            logger.info("ETS model without seasonality")
             
-        fitted_model = model.fit()
+        fitted_model = model.fit(optimized=True)
+        
+        # Log the model parameters
+        params = fitted_model.params
+        param_str = ", ".join([f"{key}={value:.4f}" for key, value in params.items()])
+        logger.info(f"ETS fitted parameters: {param_str}")
+        logger.info(f"ETS model fit statistics - AIC: {fitted_model.aic:.2f}, BIC: {fitted_model.bic:.2f}")
         
         # Make predictions
         predictions = fitted_model.forecast(steps=len(val_data))
