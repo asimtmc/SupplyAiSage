@@ -1765,8 +1765,8 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                         st.info(f"No tuning results available for {model_names.get(model, model.upper())}")
         else:
             st.info("No tuning results available yet. Run hyperparameter tuning first.")
-else:
-    st.info("No tuning results available yet. Run hyperparameter tuning first.")
+    else:
+        st.info("No tuning results available yet. Run hyperparameter tuning first.")
 
 # Add information about integrating with forecasting engine
 st.markdown("<h3>7. Integration with Forecasting Engine</h3>", unsafe_allow_html=True)
