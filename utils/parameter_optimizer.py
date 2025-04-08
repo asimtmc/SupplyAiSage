@@ -452,6 +452,18 @@ def run_optimization_task(sku, model_type, data, cross_validation=True, n_trials
     try:
         # Prepare data
         data = data.copy()
+        
+        # Filter data for this specific SKU if provided
+        if 'sku' in data.columns:
+            sku_data = data[data['sku'] == sku].copy()
+            if len(sku_data) > 0:
+                data = sku_data
+                if progress_callback:
+                    progress_callback(sku, model_type, f"Using {len(data)} data points specific to SKU {sku}")
+            else:
+                if progress_callback:
+                    progress_callback(sku, model_type, f"No data found for SKU {sku} in dataset", level="warning")
+        
         data.sort_values('date', inplace=True)
         
         # Set default number of trials based on model type
@@ -562,14 +574,19 @@ def run_optimization_task(sku, model_type, data, cross_validation=True, n_trials
                 val_series = val_data.set_index('date')['quantity']
                 final_result = optimize_arima_parameters(train_series, val_series, n_trials=n_trials)
         
-        # Save parameters to database
-        save_model_parameters(
+        # Save parameters to database with detailed info
+        save_success = save_model_parameters(
             sku=sku,
             model_type=model_type,
             parameters=final_result['parameters'],
             best_score=final_result['score'],
             tuning_iterations=n_trials
         )
+        
+        if save_success and progress_callback:
+            progress_callback(sku, model_type, f"Parameters successfully saved to database", level="success")
+        elif not save_success and progress_callback:
+            progress_callback(sku, model_type, f"Failed to save parameters to database", level="warning")
         
         if progress_callback:
             progress_callback(sku, model_type, f"Optimization complete, score: {final_result['score']:.4f}")

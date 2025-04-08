@@ -601,18 +601,63 @@ def get_model_parameters(sku, model_type):
         
         if cache:
             import json
-            return {
-                'parameters': json.loads(cache.parameters),
-                'last_updated': cache.last_updated,
-                'tuning_iterations': cache.tuning_iterations,
-                'best_score': cache.best_score
-            }
+            try:
+                # Try to parse parameters as JSON
+                parameters = json.loads(cache.parameters)
+                return {
+                    'parameters': parameters,
+                    'last_updated': cache.last_updated,
+                    'tuning_iterations': cache.tuning_iterations,
+                    'best_score': cache.best_score
+                }
+            except json.JSONDecodeError:
+                print(f"Error parsing JSON parameters for {sku}, {model_type}")
+                return None
         
         return None
     
     except Exception as e:
         print(f"Error retrieving model parameters: {str(e)}")
         return None
+    finally:
+        if session:
+            session.close()
+
+def get_all_model_parameters():
+    """
+    Get all model parameters in the database
+
+    Returns:
+    --------
+    dict
+        Dictionary mapping SKU and model types to their parameters
+    """
+    try:
+        session = SessionFactory()
+        all_params = session.query(ModelParameterCache).all()
+        
+        result = {}
+        for param in all_params:
+            if param.sku not in result:
+                result[param.sku] = {}
+                
+            import json
+            try:
+                parameters = json.loads(param.parameters)
+                result[param.sku][param.model_type] = {
+                    'parameters': parameters,
+                    'last_updated': param.last_updated,
+                    'tuning_iterations': param.tuning_iterations,
+                    'best_score': param.best_score
+                }
+            except json.JSONDecodeError:
+                print(f"Error parsing JSON parameters for {param.sku}, {param.model_type}")
+                
+        return result
+    
+    except Exception as e:
+        print(f"Error retrieving all model parameters: {str(e)}")
+        return {}
     finally:
         if session:
             session.close()
