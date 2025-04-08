@@ -258,8 +258,6 @@ if st.session_state.tuning_in_progress:
 
                 model_placeholders[model].code(model_log_text)
 
-            log_placeholder.code(all_log_text) #This line was causing an error as log_placeholder was not defined
-
         # Run the tuning process
         try:
             # Helper function to format parameters nicely
