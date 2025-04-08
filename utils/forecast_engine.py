@@ -1059,7 +1059,7 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
 
     # Default models to evaluate if none specified
     if models_to_evaluate is None or len(models_to_evaluate) == 0:
-        models_to_evaluate = ["arima", "sarima", "prophet", "lstm", "holtwinters", "decomposition", "ensemble"]
+        models_to_evaluate = ["arima", "sarima", "prophet", "lstm", "holtwinters", "decomposition", "ensemble", "auto_arima", "ets", "theta", "moving_average"]
 
     # Print list of models being evaluated (for debugging)
     print(f"Evaluating models: {models_to_evaluate}")
@@ -1631,7 +1631,12 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                         
                         # Generate test forecasts
                         forecast_obj = model_fit.forecast(steps=len(test_data))
-                        y_pred = forecast_obj.values
+                        
+                        # Convert to array if needed
+                        if hasattr(forecast_obj, 'values'):
+                            y_pred = forecast_obj.values
+                        else:
+                            y_pred = forecast_obj
                         
                         # Store test predictions
                         all_models_test_pred[model_type] = pd.Series(y_pred, index=test_data['date'])
@@ -1649,8 +1654,12 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                         full_model_fit = full_model.fit(disp=False)
                         
                         # Generate future forecasts
-                        future_values = full_model_fit.forecast(steps=forecast_periods).values
+                        future_values = full_model_fit.forecast(steps=forecast_periods)
                         
+                        # Convert to array if needed
+                        if hasattr(future_values, 'values'):
+                            future_values = future_values.values
+                            
                         # Store future forecasts
                         all_models_forecasts[model_type] = pd.Series(future_values, index=future_dates)
                         
@@ -1672,7 +1681,7 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                         model = ThetaModel(
                             ts_data,
                             deseasonalize=True,                # Deseasonalize the time series
-                            season_length=12 if len(train_data) >= 24 else 4  # Seasonal period
+                            period=12 if len(train_data) >= 24 else 4  # Seasonal period
                         )
                         model_fit = model.fit()
                         
@@ -1688,7 +1697,7 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                         full_model = ThetaModel(
                             full_data,
                             deseasonalize=True,
-                            season_length=12 if len(data) >= 24 else 4
+                            period=12 if len(data) >= 24 else 4
                         )
                         full_model_fit = full_model.fit()
                         
@@ -2047,6 +2056,155 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                             future_values = [avg_value] * forecast_periods
                             all_models_forecasts[model_lower] = pd.Series(future_values, index=future_dates)
 
+                    elif model_lower == "auto_arima":
+                        # Use auto_arima if statsmodels failed
+                        try:
+                            # Create auto_arima model with appropriate parameters
+                            if len(data) >= 24:
+                                seasonal = True
+                                m = 12
+                            elif len(data) >= 12:
+                                seasonal = True
+                                m = 4
+                            else:
+                                seasonal = False
+                                m = 1
+                                
+                            # Train on all data for future forecast
+                            full_data = data.set_index('date')['quantity']
+                            
+                            # Use a simple stepwise auto_arima
+                            auto_model = auto_arima(
+                                full_data, 
+                                start_p=1, start_q=1,
+                                max_p=3, max_q=3,
+                                m=m,
+                                seasonal=seasonal,
+                                d=1, D=1 if seasonal else 0,
+                                stepwise=True,
+                                suppress_warnings=True,
+                                error_action='ignore',
+                                max_order=5
+                            )
+                            
+                            # Generate future forecasts
+                            future_values = auto_model.predict(n_periods=forecast_periods)
+                            
+                            # Store future forecasts
+                            all_models_forecasts[model_lower] = pd.Series(future_values, index=future_dates)
+                        except Exception as e:
+                            print(f"Auto ARIMA fallback failed: {str(e)}")
+                            # Use moving average as fallback
+                            window = min(3, len(data) // 2) if len(data) > 0 else 1
+                            if window < 1:
+                                window = 1
+                            ma_future = np.array([data['quantity'].rolling(window=window).mean().iloc[-1] if len(data) > 0 else 0] * forecast_periods)
+                            all_models_forecasts[model_lower] = pd.Series(ma_future, index=future_dates)
+                    
+                    elif model_lower == "ets":
+                        # Try ETS model
+                        try:
+                            # Check if data is sufficient
+                            if len(data) < 12:
+                                raise ValueError("Not enough data for ETS model")
+                                
+                            # Train on all data for future forecast
+                            full_data = data['quantity'].values
+                            
+                            # Create and fit ETS model
+                            ets_model = ETSModel(
+                                full_data,
+                                error="add",
+                                trend="add",
+                                seasonal="add" if len(data) >= 24 else None,
+                                seasonal_periods=12 if len(data) >= 24 else None,
+                                damped_trend=True
+                            )
+                            
+                            ets_fit = ets_model.fit(disp=False)
+                            
+                            # Generate future forecasts
+                            future_values = ets_fit.forecast(steps=forecast_periods)
+                            
+                            # Convert to array if needed
+                            if hasattr(future_values, 'values'):
+                                future_values = future_values.values
+                                
+                            # Store future forecasts
+                            all_models_forecasts[model_lower] = pd.Series(future_values, index=future_dates)
+                        except Exception as e:
+                            print(f"ETS fallback failed: {str(e)}")
+                            # Use moving average as fallback
+                            window = min(3, len(data) // 2) if len(data) > 0 else 1
+                            if window < 1:
+                                window = 1
+                            ma_future = np.array([data['quantity'].rolling(window=window).mean().iloc[-1] if len(data) > 0 else 0] * forecast_periods)
+                            all_models_forecasts[model_lower] = pd.Series(ma_future, index=future_dates)
+                    
+                    elif model_lower == "theta":
+                        # Try Theta model
+                        try:
+                            # Check if data is sufficient
+                            if len(data) < 8:
+                                raise ValueError("Not enough data for Theta model")
+                                
+                            # Train on all data for future forecast
+                            full_data = data['quantity'].values
+                            
+                            # Create and fit Theta model
+                            theta_model = ThetaModel(
+                                full_data,
+                                deseasonalize=True,
+                                period=12 if len(data) >= 24 else 4
+                            )
+                            
+                            theta_fit = theta_model.fit()
+                            
+                            # Generate future forecasts
+                            future_values = theta_fit.forecast(steps=forecast_periods)
+                            
+                            # Convert to array if needed
+                            if hasattr(future_values, 'values'):
+                                future_values = future_values.values
+                                
+                            # Store future forecasts
+                            all_models_forecasts[model_lower] = pd.Series(future_values, index=future_dates)
+                        except Exception as e:
+                            print(f"Theta fallback failed: {str(e)}")
+                            # Use moving average as fallback
+                            window = min(3, len(data) // 2) if len(data) > 0 else 1
+                            if window < 1:
+                                window = 1
+                            ma_future = np.array([data['quantity'].rolling(window=window).mean().iloc[-1] if len(data) > 0 else 0] * forecast_periods)
+                            all_models_forecasts[model_lower] = pd.Series(ma_future, index=future_dates)
+                    
+                    elif model_lower == "moving_average":
+                        # Moving average is simple and should always work
+                        try:
+                            # Calculate moving average window size based on data length
+                            window = min(3, len(data) // 2) if len(data) > 0 else 1
+                            if window < 1:
+                                window = 1
+                            
+                            # Use all data for future forecasts
+                            full_ma_value = data['quantity'].rolling(window=window).mean().iloc[-1] if len(data) > 0 else 0
+                            
+                            # Handle NaN values
+                            if pd.isna(full_ma_value):
+                                full_ma_value = data['quantity'].mean() if len(data) > 0 else 0
+                            
+                            # Create forecasts
+                            future_values = np.array([full_ma_value] * forecast_periods)
+                            
+                            # Store future forecasts
+                            all_models_forecasts[model_lower] = pd.Series(future_values, index=future_dates)
+                        except Exception as e:
+                            print(f"Moving Average fallback failed: {str(e)}")
+                            # Use mean as ultimate fallback
+                            mean_value = data['quantity'].mean() if len(data) > 0 else 0
+                            future_values = np.array([mean_value] * forecast_periods)
+                            all_models_forecasts[model_lower] = pd.Series(future_values, index=future_dates)
+                    
                     elif model_lower == "holtwinters":
                         # Try Holt-Winters if data is sufficient
                         if len(data) >= 12:
