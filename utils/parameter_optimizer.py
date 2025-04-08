@@ -8,9 +8,10 @@ from datetime import datetime, timedelta
 import traceback
 import logging
 from sklearn.metrics import mean_absolute_error, mean_squared_error
+import uuid
 
 # Import database functions for parameter caching
-from utils.database import save_model_parameters, get_model_parameters, get_parameters_update_required
+from utils.database import save_model_parameters, get_model_parameters, get_parameters_update_required, ModelParameterCache, SessionFactory
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -850,3 +851,100 @@ def schedule_parameter_updates(sku_data_dict, model_types=None, days_threshold=7
         'days_threshold': days_threshold,
         'skus': list(sku_data_dict.keys())
     }
+
+def save_model_parameters(sku, model_type, parameters, best_score=None, tuning_iterations=1):
+    """
+    Save optimized model parameters to the cache
+
+    Parameters:
+    -----------
+    sku : str
+        SKU identifier
+    model_type : str
+        Type of forecasting model (e.g., 'arima', 'prophet', 'xgboost')
+    parameters : dict
+        Dictionary of optimized parameters
+    best_score : float, optional
+        Best score achieved during tuning (lower is better)
+    tuning_iterations : int, optional
+        Number of tuning iterations performed
+
+    Returns:
+    --------
+    bool
+        True if save successful, False otherwise
+    """
+    try:
+        session = SessionFactory()
+
+        # Skip if parameters is None
+        if parameters is None:
+            print(f"Cannot save None parameters for {sku}, {model_type}")
+            return False
+
+        # Check if entry already exists
+        existing = session.query(ModelParameterCache).filter(
+            ModelParameterCache.sku == sku,
+            ModelParameterCache.model_type == model_type
+        ).first()
+
+        # Convert parameters to JSON string
+        import json
+        if not isinstance(parameters, str):
+            parameters_json = json.dumps(parameters)
+        else:
+            parameters_json = parameters
+
+        # Log the parameters being saved
+        print(f"Saving parameters for {sku}, {model_type}: {parameters_json}")
+
+        if existing:
+            # Update existing entry
+            existing.parameters = parameters_json
+            existing.last_updated = datetime.now()
+            existing.tuning_iterations += tuning_iterations
+
+            # Only update best_score if it's better (lower) than the existing one
+            if best_score is not None:
+                if existing.best_score is None or best_score < existing.best_score:
+                    existing.best_score = best_score
+
+            print(f"Updated existing parameters entry for {sku}, {model_type}")
+        else:
+            # Create new entry
+            cache_id = str(uuid.uuid4())
+            new_cache = ModelParameterCache(
+                id=cache_id,
+                sku=sku,
+                model_type=model_type,
+                parameters=parameters_json,
+                last_updated=datetime.now(),
+                tuning_iterations=tuning_iterations,
+                best_score=best_score
+            )
+            session.add(new_cache)
+            print(f"Created new parameters entry for {sku}, {model_type}")
+
+        # Commit with retry logic
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                session.commit()
+                print(f"Successfully committed parameters for {sku}, {model_type}")
+                return True
+            except Exception as commit_error:
+                if attempt < max_retries - 1:
+                    print(f"Commit failed, retrying: {str(commit_error)}")
+                    time.sleep(0.5)  # Wait before retrying
+                    session.rollback()
+                else:
+                    raise commit_error
+
+    except Exception as e:
+        print(f"Error saving model parameters: {str(e)}")
+        if session:
+            session.rollback()
+        return False
+    finally:
+        if session:
+            session.close()
