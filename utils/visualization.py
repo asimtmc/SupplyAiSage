@@ -869,28 +869,47 @@ def plot_model_comparison(selected_sku=None, forecast_data=None, models_to_show=
     # Get SKU name for title
     sku_name = selected_sku if selected_sku else "Unknown SKU"
 
-    # Create data for bar chart - filter by models_to_show if provided
+    # Define a consistent model order based on common forecasting methodologies
+    model_order = [
+        'auto_arima', 'arima', 'sarima', 'prophet', 'decomposition', 
+        'holtwinters', 'ets', 'theta', 'moving_average', 'lstm', 'ensemble'
+    ]
+    
+    # Determine which models to display
+    available_models = list(metrics.keys())
+    
     if models_to_show and isinstance(models_to_show, list) and len(models_to_show) > 0:
-        # Filter models by those in models_to_show
-        models = [m for m in models_to_show if m in metrics.keys()]
+        # Filter models by those in models_to_show that are also available
+        filtered_models = [m for m in models_to_show if m.lower() in available_models]
+        models_to_use = filtered_models if filtered_models else available_models
     else:
-        # Use all available models
-        models = sorted(list(metrics.keys()))  # Sort alphabetically for consistent ordering
-        
-    # If no models left after filtering, use all available models
-    if not models:
-        models = sorted(list(metrics.keys()))
-        
-    rmse_values = [metrics[m].get('rmse', 0) for m in models]
-    mape_values = [metrics[m].get('mape', 0) if not pd.isna(metrics[m].get('mape', 0)) else 0 for m in models]
-    mae_values = [metrics[m].get('mae', 0) for m in models]
+        models_to_use = available_models
+    
+    # Sort models based on the predefined order
+    sorted_models = []
+    for model in model_order:
+        if model in models_to_use:
+            sorted_models.append(model)
+    
+    # Add any remaining models not in the predefined order
+    for model in models_to_use:
+        if model not in sorted_models:
+            sorted_models.append(model)
+    
+    # Extract metrics for the sorted models
+    rmse_values = [metrics[m].get('rmse', 0) for m in sorted_models]
+    mape_values = [metrics[m].get('mape', 0) if not pd.isna(metrics[m].get('mape', 0)) else 0 for m in sorted_models]
+    mae_values = [metrics[m].get('mae', 0) for m in sorted_models]
+
+    # Prettify model names for display
+    display_models = [m.upper() for m in sorted_models]
 
     # Create figure with multiple traces
     fig = go.Figure()
 
     # Add RMSE bars
     fig.add_trace(go.Bar(
-        x=models,
+        x=display_models,
         y=rmse_values,
         name='RMSE',
         marker_color='#1f77b4',
@@ -900,7 +919,7 @@ def plot_model_comparison(selected_sku=None, forecast_data=None, models_to_show=
 
     # Add MAE bars (clustered with RMSE)
     fig.add_trace(go.Bar(
-        x=models,
+        x=display_models,
         y=mae_values,
         name='MAE',
         marker_color='#2ca02c',
@@ -909,25 +928,36 @@ def plot_model_comparison(selected_sku=None, forecast_data=None, models_to_show=
     ))
 
     # Add MAPE as a line chart on secondary y-axis
+    # Use smoothed line with better color and thickness
     fig.add_trace(go.Scatter(
-        x=models,
+        x=display_models,
         y=mape_values,
         name='MAPE (%)',
         mode='lines+markers',
-        marker=dict(size=10, color='#ff7f0e'),
-        line=dict(width=3, color='#ff7f0e', shape='linear'),  # Use linear shape for straight lines
+        marker=dict(
+            size=10, 
+            color='#ff7f0e',
+            symbol='circle',
+            line=dict(width=2, color='#e65c00')
+        ),
+        line=dict(
+            width=4, 
+            color='#ff7f0e', 
+            shape='spline',  # Use spline for smoother curves
+            smoothing=0.3    # Add smoothing for a nicer curve
+        ),
         text=[f"{v:.2f}%" for v in mape_values],
         yaxis='y2'
     ))
 
     # Highlight the best model if it exists
-    for i, model in enumerate(models):
-        if model == selected_model:
+    for i, model in enumerate(sorted_models):
+        if model.lower() == selected_model.lower():
             # Only add annotation if there are RMSE values
             if rmse_values and max(rmse_values) > 0:
                 y_pos = max(rmse_values) * 1.1
                 fig.add_annotation(
-                    x=model,
+                    x=display_models[i],
                     y=y_pos,
                     text="Best Model",
                     showarrow=True,
@@ -961,7 +991,9 @@ def plot_model_comparison(selected_sku=None, forecast_data=None, models_to_show=
         xaxis=dict(
             title="Model",
             tickangle=-45,
-            categoryorder='total descending'
+            # Use the provided order instead of auto-ordering
+            categoryorder='array',
+            categoryarray=display_models
         ),
         yaxis=dict(
             title="RMSE / MAE",
