@@ -57,16 +57,20 @@ def plot_forecast(sales_data, forecast_data, sku=None, selected_models=None, sho
         )
     )
 
-    # Define model colors - expanded for all available models
+    # Define model colors using a colorblind-friendly palette
+    # Based on ColorBrewer and Okabe-Ito colorblind-safe schemes
     model_colors = {
-        'arima': 'green',
-        'sarima': 'purple',
-        'prophet': 'orange',
-        'lstm': 'brown',
-        'holtwinters': 'teal',
-        'decomposition': 'magenta',
-        'ensemble': 'red',
-        'moving_average': 'gray'
+        'arima': '#2b8cbe',         # Blue
+        'sarima': '#7b3294',        # Purple
+        'prophet': '#d95f0e',       # Orange
+        'lstm': '#e7298a',          # Pink
+        'holtwinters': '#1b9e77',   # Teal
+        'decomposition': '#66a61e', # Green
+        'ensemble': '#e6ab02',      # Yellow
+        'moving_average': '#666666',# Gray
+        'auto_arima': '#88419d',    # Dark purple
+        'ets': '#8c96c6',           # Light purple
+        'theta': '#fc8d59'          # Salmon
     }
 
     # Check if forecast_data is available
@@ -106,14 +110,47 @@ def plot_forecast(sales_data, forecast_data, sku=None, selected_models=None, sho
                     models_added = True
                     color = model_colors.get(model_key, 'red')  # Default to red if color not defined
 
+                    # Assign different line patterns based on model type
+                    dash_patterns = {
+                        'arima': 'solid',
+                        'sarima': 'dash',
+                        'prophet': 'dot',
+                        'lstm': 'dashdot',
+                        'holtwinters': 'longdash',
+                        'decomposition': 'longdashdot',
+                        'ensemble': 'solid',
+                        'moving_average': 'dash',
+                        'auto_arima': 'dot',
+                        'ets': 'dashdot',
+                        'theta': 'longdash'
+                    }
+                    
+                    # Assign different marker symbols for additional differentiation
+                    marker_symbols = {
+                        'arima': 'circle',
+                        'sarima': 'square',
+                        'prophet': 'diamond',
+                        'lstm': 'triangle-up',
+                        'holtwinters': 'pentagon',
+                        'decomposition': 'star',
+                        'ensemble': 'hexagon',
+                        'moving_average': 'cross',
+                        'auto_arima': 'circle-open',
+                        'ets': 'square-open',
+                        'theta': 'diamond-open'
+                    }
+                    
+                    dash_pattern = dash_patterns.get(model_key, 'solid')
+                    marker_symbol = marker_symbols.get(model_key, 'circle')
+                    
                     fig.add_trace(
                         go.Scatter(
                             x=model_forecast.index,
                             y=model_forecast.values,
                             mode='lines+markers',
                             name=f"{model_key.upper()} Forecast",
-                            line=dict(color=color, dash='solid'),
-                            marker=dict(size=8, symbol='circle'),
+                            line=dict(color=color, dash=dash_pattern, width=2),
+                            marker=dict(size=8, symbol=marker_symbol),
                             hovertemplate='%{x|%b %Y}: %{y:,.0f} units'
                         )
                     )
@@ -126,14 +163,46 @@ def plot_forecast(sales_data, forecast_data, sku=None, selected_models=None, sho
             model_key = model_name.lower()
             color = model_colors.get(model_key, 'red')
 
+            # Get dash pattern and marker symbol for this model
+            dash_patterns = {
+                'arima': 'solid',
+                'sarima': 'dash',
+                'prophet': 'dot',
+                'lstm': 'dashdot',
+                'holtwinters': 'longdash',
+                'decomposition': 'longdashdot',
+                'ensemble': 'solid',
+                'moving_average': 'dash',
+                'auto_arima': 'dot',
+                'ets': 'dashdot',
+                'theta': 'longdash'
+            }
+            
+            marker_symbols = {
+                'arima': 'circle',
+                'sarima': 'square',
+                'prophet': 'diamond',
+                'lstm': 'triangle-up',
+                'holtwinters': 'pentagon',
+                'decomposition': 'star',
+                'ensemble': 'hexagon',
+                'moving_average': 'cross',
+                'auto_arima': 'circle-open',
+                'ets': 'square-open',
+                'theta': 'diamond-open'
+            }
+            
+            dash_pattern = dash_patterns.get(model_key, 'solid')
+            marker_symbol = marker_symbols.get(model_key, 'circle')
+            
             fig.add_trace(
                 go.Scatter(
                     x=forecast_values.index,
                     y=forecast_values.values,
                     mode='lines+markers',
                     name=f"{model_name} Forecast",
-                    line=dict(color=color, dash='solid'),
-                    marker=dict(size=8, symbol='circle'),
+                    line=dict(color=color, dash=dash_pattern, width=2),
+                    marker=dict(size=8, symbol=marker_symbol),
                     hovertemplate='%{x|%b %Y}: %{y:,.0f} units'
                 )
             )
@@ -202,14 +271,47 @@ def plot_forecast(sales_data, forecast_data, sku=None, selected_models=None, sho
                             if test_predictions is None or not isinstance(test_predictions, pd.Series) or test_predictions.empty:
                                 continue
 
+                            # Get appropriate dash pattern and marker for this model
+                            dash_patterns = {
+                                'arima': 'solid',
+                                'sarima': 'dash',
+                                'prophet': 'dot',
+                                'lstm': 'dashdot',
+                                'holtwinters': 'longdash',
+                                'decomposition': 'longdashdot',
+                                'ensemble': 'solid',
+                                'moving_average': 'dash',
+                                'auto_arima': 'dot',
+                                'ets': 'dashdot',
+                                'theta': 'longdash'
+                            }
+                            
+                            marker_symbols = {
+                                'arima': 'circle',
+                                'sarima': 'square',
+                                'prophet': 'diamond',
+                                'lstm': 'triangle-up',
+                                'holtwinters': 'pentagon',
+                                'decomposition': 'star',
+                                'ensemble': 'hexagon',
+                                'moving_average': 'cross',
+                                'auto_arima': 'circle-open',
+                                'ets': 'square-open',
+                                'theta': 'diamond-open'
+                            }
+                            
+                            # For test predictions, use the same pattern but lighter
+                            dash_pattern = dash_patterns.get(model_key, 'dot')
+                            marker_symbol = marker_symbols.get(model_key, 'circle')
+                            
                             fig.add_trace(
                                 go.Scatter(
                                     x=test_predictions.index,
                                     y=test_predictions.values,
                                     mode='lines+markers',
                                     name=f"{model_key.upper()} Test Predictions",
-                                    line=dict(color=color, dash='dot'),
-                                    marker=dict(size=6, symbol='circle'),
+                                    line=dict(color=color, dash='dot', width=1.5),
+                                    marker=dict(size=6, symbol=marker_symbol),
                                     hovertemplate='%{x|%b %Y}: %{y:,.0f} units'
                                 )
                             )
