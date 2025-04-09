@@ -1129,13 +1129,10 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                 
                 if sku_models:
                     # Create metric cards for this SKU's performance
-                    st.markdown("<div class='metric-row'>", unsafe_allow_html=True)
-                    
-                    # Create a flexbox layout instead of columns for metrics
-                    st.markdown("<div style='display: flex; gap: 10px; flex-wrap: wrap;'>", unsafe_allow_html=True)
+                    metric_cols = st.columns(len(sku_models))
                     
                     # Add metric data for each model
-                    for model_type in sku_models:
+                    for i, model_type in enumerate(sku_models):
                         # Get score and format it
                         score = model_scores.get(selected_result_sku, {}).get(model_type, 0)
                         
@@ -1146,25 +1143,17 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                         elif 'model_names' in locals():
                             model_display = model_names.get(model_type, model_type)
                         
-                        # Create a styled metric card in the flexbox layout
-                        st.markdown(f"""
-                        <div style="border: 1px solid #ddd; border-radius: 0.5rem; padding: 1rem; text-align: center; flex: 1; min-width: 120px;">
-                            <div style="font-size: 0.8rem; color: #666; margin-bottom: 0.5rem;">
-                                {model_display}
-                            </div>
-                            <div style="font-size: 1.8rem; font-weight: bold; color: #333;">
-                                {score:.4f}
-                            </div>
-                            <div style="font-size: 0.7rem; color: #888; margin-top: 0.5rem;">
-                                MAPE Score
-                            </div>
-                        </div>
-                        """, unsafe_allow_html=True)
+                        # Use native Streamlit metrics that have better highlighting
+                        with metric_cols[i]:
+                            st.metric(
+                                label=f"{model_display}",
+                                value=f"{score:.4f}",
+                                delta=None,
+                                help="MAPE Score (lower is better)"
+                            )
                     
-                    # Close the flexbox container
-                    st.markdown("</div>", unsafe_allow_html=True)
-                    
-                    st.markdown("</div>", unsafe_allow_html=True)
+                    # Apply styling to highlight the metrics
+                    style_metric_cards(background_color="#f0f8ff", border_left_color="#4169e1")
                     
                     # Show parameters comparison across models
                     st.markdown("#### Parameter Comparison")
