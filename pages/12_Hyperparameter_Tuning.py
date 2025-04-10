@@ -1221,9 +1221,9 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                     if comparison_data:
                         comparison_df = pd.DataFrame(comparison_data)
                         
-                        # Create a styled dataframe
+                        # Create a styled dataframe with updated styling method
                         st.dataframe(
-                            comparison_df.style.applymap(
+                            comparison_df.style.map(
                                 lambda x: 'background-color: #f0f8ff' if x != '-' else ''
                             ),
                             use_container_width=True
@@ -1246,11 +1246,16 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                             st.markdown("<div style='border: 1px solid #ddd; border-radius: 5px; padding: 15px;'>", unsafe_allow_html=True)
                             st.markdown("### Forecasting Performance Comparison")
                             
-                            # Generate synthetic data for demonstration
-                            dates = pd.date_range(start='2023-01-01', periods=24, freq='MS')
-                            actuals = np.random.normal(100, 20, 24).cumsum() + 500
-                            before_forecast = actuals + np.random.normal(0, 50, 24)  # Higher error
-                            after_forecast = actuals + np.random.normal(0, 20, 24)   # Lower error
+                            # Generate synthetic data for demonstration with proper timestamp handling
+                            start_date = pd.Timestamp('2023-01-01')
+                            periods = 24
+                            dates = [start_date + pd.DateOffset(months=i) for i in range(periods)]
+                            
+                            # Generate random data
+                            np.random.seed(42)  # For consistent results
+                            actuals = np.random.normal(100, 20, periods).cumsum() + 500
+                            before_forecast = actuals + np.random.normal(0, 50, periods)  # Higher error
+                            after_forecast = actuals + np.random.normal(0, 20, periods)   # Lower error
                             
                             # Create a single figure with all three lines
                             fig = go.Figure()
@@ -1282,16 +1287,18 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                                 marker=dict(size=6, symbol='diamond')
                             ))
                             
-                            # Add a vertical line to indicate forecast start
-                            forecast_start = dates[int(len(dates) * 0.7)]  # Example forecast start point
-                            fig.add_vline(
-                                x=forecast_start, 
-                                line_dash="solid", 
-                                line_width=2, 
-                                line_color="gray",
-                                annotation_text="Forecast Start", 
-                                annotation_position="top right"
-                            )
+                            # Add a vertical line to indicate forecast start - calculate index safely
+                            forecast_idx = int(periods * 0.7)
+                            if 0 <= forecast_idx < len(dates):
+                                forecast_start = dates[forecast_idx]
+                                fig.add_vline(
+                                    x=forecast_start, 
+                                    line_dash="solid", 
+                                    line_width=2, 
+                                    line_color="gray",
+                                    annotation_text="Forecast Start", 
+                                    annotation_position="top right"
+                                )
                             
                             # Update layout for better visualization
                             fig.update_layout(
@@ -1503,7 +1510,7 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                             return 'background-color: #e6ffe6'
                         return ''
                     
-                    styled_df = summary_df.style.applymap(highlight_improvement, subset=["Improvement", "Improvement %"])
+                    styled_df = summary_df.style.map(highlight_improvement, subset=["Improvement", "Improvement %"])
                     
                     # Display the styled dataframe
                     st.dataframe(styled_df, use_container_width=True)
