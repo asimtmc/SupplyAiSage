@@ -216,61 +216,8 @@ if 'init_db_load' not in st.session_state:
 if 'db_load_status' not in st.session_state:
     st.session_state.db_load_status = {}
 
-def load_data_from_database():
-    """Function to load data from database and update status"""
-    st.session_state.db_load_status = {}
-    
-    try:
-        # Load sales data
-        sales_data_file = get_file_by_type('sales_data')
-        if sales_data_file:
-            st.session_state.sales_data = sales_data_file[1]
-            st.session_state.db_load_status['sales_data'] = {
-                'status': 'success',
-                'message': f"✅ Successfully loaded sales data: {sales_data_file[0]}"
-            }
-        else:
-            st.session_state.db_load_status['sales_data'] = {
-                'status': 'warning',
-                'message': "⚠️ No sales data found in database"
-            }
-            
-        # Load BOM data
-        bom_data_file = get_file_by_type('bom_data')
-        if bom_data_file:
-            st.session_state.bom_data = bom_data_file[1]
-            st.session_state.db_load_status['bom_data'] = {
-                'status': 'success',
-                'message': f"✅ Successfully loaded BOM data: {bom_data_file[0]}"
-            }
-        else:
-            st.session_state.db_load_status['bom_data'] = {
-                'status': 'warning',
-                'message': "⚠️ No BOM data found in database"
-            }
-            
-        # Load supplier data
-        supplier_data_file = get_file_by_type('supplier_data')
-        if supplier_data_file:
-            st.session_state.supplier_data = supplier_data_file[1]
-            st.session_state.db_load_status['supplier_data'] = {
-                'status': 'success',
-                'message': f"✅ Successfully loaded supplier data: {supplier_data_file[0]}"
-            }
-        else:
-            st.session_state.db_load_status['supplier_data'] = {
-                'status': 'warning',
-                'message': "⚠️ No supplier data found in database"
-            }
-        
-        return True
-    
-    except Exception as e:
-        st.session_state.db_load_status['error'] = {
-            'status': 'error',
-            'message': f"❌ Error loading data: {str(e)}"
-        }
-        return False
+# Import the data loader from our utility module
+from utils.data_loader import load_data_from_database
 
 # Try to load data from database on startup - always load the data
 # This ensures pages can open directly without requiring navigation through the main app

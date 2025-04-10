@@ -1,7 +1,5 @@
 import streamlit as st
-import sys
-import importlib
-from pathlib import Path
+from utils.data_loader import load_data_from_database
 
 def load_data_automatically():
     """
@@ -16,15 +14,7 @@ def load_data_automatically():
         return True
     
     try:
-        # Add parent directory to path to allow importing from app.py
-        app_path = str(Path(__file__).parent.parent)
-        if app_path not in sys.path:
-            sys.path.append(app_path)
-        
-        # Import the load function from app.py
-        from app import load_data_from_database
-        
-        # Run the data loading function
+        # Use the standalone data loader function
         success = load_data_from_database()
         return success
     except Exception as e:
