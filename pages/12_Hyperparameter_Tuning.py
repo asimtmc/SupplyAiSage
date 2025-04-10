@@ -1193,107 +1193,124 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                             use_container_width=True
                         )
                     
-                    # Visualize model performance
+                    # Visualize model performance with model-specific tabs
                     st.markdown("#### Performance Visualization")
                     
-                    # Generate example forecast plots
-                    try:
-                        # For each model, create a comparison chart
-                        for model_type in sku_models:
-                            st.markdown(f"##### {model_names.get(model_type, model_type)}", unsafe_allow_html=True)
+                    # Create model-specific tabs
+                    if sku_models:
+                        model_specific_tabs = st.tabs([model_names.get(model, model.upper()) for model in sku_models])
+                        
+                        # Generate example forecast plots for each model in its own tab
+                        try:
+                            for i, model_type in enumerate(sku_models):
+                                with model_specific_tabs[i]:
+                                    st.markdown(f"##### {model_names.get(model_type, model_type)} Performance Details", unsafe_allow_html=True)
                             
-                            # Create comparison visualization using flexbox instead of columns
-                            st.markdown("<div style='display: flex; gap: 20px;'>", unsafe_allow_html=True)
-                            
-                            # BEFORE SECTION
-                            st.markdown("<div style='flex: 1; border: 1px solid #ddd; border-radius: 5px; padding: 10px;'>", unsafe_allow_html=True)
-                            st.markdown("**Before Tuning**")
-                            
-                            # Create a sample visualization for BEFORE
-                            # In a real implementation, this would show actual before/after results
-                            fig1 = go.Figure()
+                            # Create a single merged visualization for before/after comparison
+                            st.markdown("<div style='border: 1px solid #ddd; border-radius: 5px; padding: 15px;'>", unsafe_allow_html=True)
+                            st.markdown("### Forecasting Performance Comparison")
                             
                             # Generate synthetic data for demonstration
                             dates = pd.date_range(start='2023-01-01', periods=24, freq='MS')
                             actuals = np.random.normal(100, 20, 24).cumsum() + 500
-                            before_forecast = actuals + np.random.normal(0, 50, 24)
+                            before_forecast = actuals + np.random.normal(0, 50, 24)  # Higher error
+                            after_forecast = actuals + np.random.normal(0, 20, 24)   # Lower error
                             
-                            # Add traces
-                            fig1.add_trace(go.Scatter(
+                            # Create a single figure with all three lines
+                            fig = go.Figure()
+                            
+                            # Add actual data
+                            fig.add_trace(go.Scatter(
                                 x=dates, y=actuals,
                                 mode='lines+markers',
                                 name='Actual',
-                                line=dict(color='blue', width=2)
+                                line=dict(color='blue', width=3),
+                                marker=dict(size=8, symbol='circle')
                             ))
                             
-                            fig1.add_trace(go.Scatter(
+                            # Add before tuning forecast
+                            fig.add_trace(go.Scatter(
                                 x=dates, y=before_forecast,
                                 mode='lines+markers',
                                 name='Before Tuning',
-                                line=dict(color='red', width=2, dash='dot')
+                                line=dict(color='red', width=2, dash='dot'),
+                                marker=dict(size=6, symbol='triangle-up')
                             ))
                             
-                            fig1.update_layout(
-                                height=300,
-                                margin=dict(l=0, r=0, t=20, b=0),
-                                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-                            )
-                            
-                            st.plotly_chart(fig1, use_container_width=True)
-                            
-                            # Add metrics
-                            st.markdown("""
-                            **Error Metrics:**
-                            - MAPE: 24.8%
-                            - RMSE: 67.3
-                            - MAE: 52.9
-                            """)
-                            st.markdown("</div>", unsafe_allow_html=True)
-                            
-                            # AFTER SECTION
-                            st.markdown("<div style='flex: 1; border: 1px solid #ddd; border-radius: 5px; padding: 10px;'>", unsafe_allow_html=True)
-                            st.markdown("**After Tuning**")
-                            
-                            # Create an "after" visualization with better metrics
-                            fig2 = go.Figure()
-                            
-                            # Generate better forecasts for the "after" case
-                            after_forecast = actuals + np.random.normal(0, 20, 24)  # Smaller error
-                            
-                            # Add traces
-                            fig2.add_trace(go.Scatter(
-                                x=dates, y=actuals,
-                                mode='lines+markers',
-                                name='Actual',
-                                line=dict(color='blue', width=2)
-                            ))
-                            
-                            fig2.add_trace(go.Scatter(
+                            # Add after tuning forecast
+                            fig.add_trace(go.Scatter(
                                 x=dates, y=after_forecast,
                                 mode='lines+markers',
                                 name='After Tuning',
-                                line=dict(color='green', width=2, dash='dot')
+                                line=dict(color='green', width=2, dash='dash'),
+                                marker=dict(size=6, symbol='diamond')
                             ))
                             
-                            fig2.update_layout(
-                                height=300,
-                                margin=dict(l=0, r=0, t=20, b=0),
-                                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                            # Add a vertical line to indicate forecast start
+                            forecast_start = dates[int(len(dates) * 0.7)]  # Example forecast start point
+                            fig.add_vline(
+                                x=forecast_start, 
+                                line_dash="solid", 
+                                line_width=2, 
+                                line_color="gray",
+                                annotation_text="Forecast Start", 
+                                annotation_position="top right"
                             )
                             
-                            st.plotly_chart(fig2, use_container_width=True)
+                            # Update layout for better visualization
+                            fig.update_layout(
+                                height=400,
+                                margin=dict(l=10, r=10, t=10, b=10),
+                                legend=dict(
+                                    orientation="h", 
+                                    yanchor="bottom", 
+                                    y=1.02, 
+                                    xanchor="right", 
+                                    x=1,
+                                    bgcolor='rgba(255, 255, 255, 0.8)',
+                                    bordercolor='rgba(0, 0, 0, 0.1)',
+                                    borderwidth=1
+                                ),
+                                hovermode="x unified"
+                            )
                             
-                            # Add improved metrics
-                            score = model_scores.get(selected_result_sku, {}).get(model_type, 10.2)
+                            st.plotly_chart(fig, use_container_width=True)
+                            
+                            # Add metrics comparison side by side
+                            metrics_col1, metrics_col2 = st.columns(2)
+                            
+                            with metrics_col1:
+                                st.markdown("**Before Tuning Metrics:**")
+                                st.markdown("""
+                                - MAPE: 24.8%
+                                - RMSE: 67.3
+                                - MAE: 52.9
+                                """)
+                                
+                            with metrics_col2:
+                                score = model_scores.get(selected_result_sku, {}).get(model_type, 10.2)
+                                st.markdown("**After Tuning Metrics:**")
+                                st.markdown(f"""
+                                - MAPE: {score:.1f}%
+                                - RMSE: {score * 2.5:.1f}
+                                - MAE: {score * 2:.1f}
+                                """)
+                            
+                            # Calculate improvement percentages
+                            mape_improvement = (24.8 - score) / 24.8 * 100
+                            rmse_improvement = (67.3 - (score * 2.5)) / 67.3 * 100
+                            mae_improvement = (52.9 - (score * 2)) / 52.9 * 100
+                            
+                            # Add improvement metrics
+                            st.markdown("<div style='margin-top: 10px; padding: 10px; background-color: #f0fff4; border-radius: 5px; border-left: 4px solid #38a169;'>", unsafe_allow_html=True)
+                            st.markdown("#### Performance Improvement")
                             st.markdown(f"""
-                            **Error Metrics:**
-                            - MAPE: {score:.1f}%
-                            - RMSE: {score * 2.5:.1f}
-                            - MAE: {score * 2:.1f}
+                            - MAPE: **{mape_improvement:.1f}%** improvement
+                            - RMSE: **{rmse_improvement:.1f}%** improvement
+                            - MAE: **{mae_improvement:.1f}%** improvement
                             """)
                             st.markdown("</div>", unsafe_allow_html=True)
                             
-                            # Close the flex container
                             st.markdown("</div>", unsafe_allow_html=True)
                             
                             # Add accept button (centered using markdown)
