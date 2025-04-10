@@ -1173,8 +1173,9 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                             "lstm": "#e53e3e"
                         }.get(model_type, "#718096")
                         
+                        # Using a fixed card width to ensure proper horizontal arrangement
                         st.markdown(f"""
-                        <div style="flex: 1; min-width: 150px; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; text-align: center; background-color: #f8fafc;">
+                        <div style="width: 180px; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; text-align: center; background-color: #f8fafc; margin-bottom: 15px;">
                             <div style="margin-bottom: 8px;">
                                 <span style="display: inline-block; background-color: {badge_color}; color: white; border-radius: 12px; padding: 2px 8px; font-size: 12px;">{badge}</span>
                                 <span style="font-weight: 500; margin-left: 6px;">{model_display}</span>
@@ -1714,19 +1715,29 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                                 st.plotly_chart(fig, use_container_width=True)
 
                         elif model == "prophet":
-                            # Create visualization for Prophet parameters
+                            # Create visualization for Prophet parameters with proper type handling
                             prophet_data = []
                             for sku, params in model_params.items():
                                 if params:
-                                    prophet_data.append({
-                                        "SKU": sku,
-                                        "changepoint_prior_scale": params.get("changepoint_prior_scale", 0.05),
-                                        "seasonality_prior_scale": params.get("seasonality_prior_scale", 10.0),
-                                        "seasonality_mode": params.get("seasonality_mode", "additive")
-                                    })
+                                    # Ensure all numeric values have consistent types
+                                    try:
+                                        changepoint = float(params.get("changepoint_prior_scale", 0.05))
+                                        seasonality = float(params.get("seasonality_prior_scale", 10.0))
+                                        mode = str(params.get("seasonality_mode", "additive"))
+                                        
+                                        prophet_data.append({
+                                            "SKU": str(sku),
+                                            "changepoint_prior_scale": changepoint,
+                                            "seasonality_prior_scale": seasonality,
+                                            "seasonality_mode": mode
+                                        })
+                                    except (ValueError, TypeError) as e:
+                                        st.warning(f"Skipping invalid parameter values for {sku}: {str(e)}")
 
                             if prophet_data:
+                                # Create DataFrame with explicit dtypes
                                 prophet_df = pd.DataFrame(prophet_data)
+                                # Display the data
                                 st.dataframe(prophet_df, use_container_width=True)
 
                                 # Create scatter plot for changepoint vs seasonality
