@@ -1664,9 +1664,12 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                                         # Create interactive forecast plot
                                         fig = go.Figure()
                                         
+                                        # Convert dates to strings for compatibility with Plotly
+                                        date_strs = [d.strftime('%Y-%m-%d') for d in dates]
+                                        
                                         # Add actual data
                                         fig.add_trace(go.Scatter(
-                                            x=dates, y=actuals,
+                                            x=date_strs, y=actuals,
                                             mode='lines+markers',
                                             name='Actual',
                                             line=dict(color='blue', width=3),
@@ -1675,7 +1678,7 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                                         
                                         # Add base forecast
                                         fig.add_trace(go.Scatter(
-                                            x=dates, y=base_forecast,
+                                            x=date_strs, y=base_forecast,
                                             mode='lines',
                                             name='Current Parameters',
                                             line=dict(color='gray', width=2, dash='dot'),
@@ -1683,7 +1686,7 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                                         
                                         # Add new forecast with parameter adjustments
                                         fig.add_trace(go.Scatter(
-                                            x=dates, y=new_forecast,
+                                            x=date_strs, y=new_forecast,
                                             mode='lines',
                                             name='New Parameters',
                                             line=dict(color='green', width=2),
@@ -1708,9 +1711,12 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                                         lower_bound = new_forecast - (new_forecast * new_performance["mape"]/100)
                                         upper_bound = new_forecast + (new_forecast * new_performance["mape"]/100)
                                         
-                                        # Add confidence interval
+                                        # Add confidence interval - convert dates to strings for compatibility
+                                        date_strs = [d.strftime('%Y-%m-%d') for d in dates]
+                                        date_strs_reversed = date_strs[::-1]
+                                        
                                         fig.add_trace(go.Scatter(
-                                            x=dates+dates[::-1],
+                                            x=date_strs+date_strs_reversed,
                                             y=list(upper_bound)+list(lower_bound[::-1]),
                                             fill='toself',
                                             fillcolor='rgba(0,176,120,0.2)',
@@ -1917,23 +1923,26 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                                         # Create figure
                                         fig = go.Figure()
                                         
+                                        # Convert dates to strings for Plotly compatibility
+                                        date_strs = [d.strftime('%Y-%m-%d') for d in dates]
+                                        
                                         # Add traces
                                         fig.add_trace(go.Scatter(
-                                            x=dates, y=actuals,
+                                            x=date_strs, y=actuals,
                                             mode='lines+markers',
                                             name='Actual',
                                             line=dict(color='blue', width=3)
                                         ))
                                         
                                         fig.add_trace(go.Scatter(
-                                            x=dates, y=base_forecast,
+                                            x=date_strs, y=base_forecast,
                                             mode='lines',
                                             name='Current Parameters',
                                             line=dict(color='gray', width=2, dash='dot')
                                         ))
                                         
                                         fig.add_trace(go.Scatter(
-                                            x=dates, y=new_forecast,
+                                            x=date_strs, y=new_forecast,
                                             mode='lines',
                                             name='New Parameters',
                                             line=dict(color='green', width=2)
