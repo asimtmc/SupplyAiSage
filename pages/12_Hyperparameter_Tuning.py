@@ -1317,11 +1317,11 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                             st.markdown("<div style='text-align: center; margin-top: 15px;'>", unsafe_allow_html=True)
                             st.button(f"👍 Accept {model_type.upper()} Parameters", key=f"accept_{model_type}")
                             st.markdown("</div>", unsafe_allow_html=True)
-                                
-                    except Exception as e:
-                        st.warning(f"Could not generate visualization: {str(e)}")
-                else:
-                    st.info("No model results available for this SKU.")
+                        
+                        except Exception as e:
+                            st.warning(f"Could not generate visualization: {str(e)}")
+                    else:
+                        st.info("No model results available for this SKU.")
             else:
                 st.info("No tuning results available. Run hyperparameter tuning first.")
         
