@@ -1139,8 +1139,8 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                 sku_models = list(tuning_results.get(selected_result_sku, {}).keys())
                 
                 if sku_models:
-                    # Create metric cards for this SKU's performance using flexbox layout
-                    st.markdown("<div style='display: flex; flex-wrap: wrap; gap: 10px;'>", unsafe_allow_html=True)
+                    # Create metric cards for this SKU's performance using flexbox layout with proper spacing
+                    st.markdown("<div style='display: flex; flex-wrap: wrap; gap: 20px; justify-content: flex-start; margin-bottom: 20px;'>", unsafe_allow_html=True)
                     
                     # Sample data for demonstration if no real data available
                     sample_scores = {
