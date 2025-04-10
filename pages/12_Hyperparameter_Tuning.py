@@ -1292,8 +1292,10 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                             forecast_idx = int(periods * 0.7)
                             if 0 <= forecast_idx < len(dates):
                                 forecast_start = dates[forecast_idx]
+                                # Convert timestamp to string for vline
+                                forecast_date_str = forecast_start.strftime('%Y-%m-%d')
                                 fig.add_vline(
-                                    x=forecast_start, 
+                                    x=forecast_date_str, 
                                     line_dash="solid", 
                                     line_width=2, 
                                     line_color="gray",
@@ -1691,8 +1693,10 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                                         forecast_idx = int(periods * 0.7)
                                         if 0 <= forecast_idx < len(dates):
                                             forecast_start = dates[forecast_idx]
+                                            # Convert timestamp to string for vline
+                                            forecast_date_str = forecast_start.strftime('%Y-%m-%d')
                                             fig.add_vline(
-                                                x=forecast_start, 
+                                                x=forecast_date_str, 
                                                 line_dash="solid", 
                                                 line_width=2, 
                                                 line_color="gray",
