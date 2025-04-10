@@ -460,10 +460,16 @@ def run_optimization_task(sku, model_type, data, cross_validation=True, n_trials
             if len(sku_data) > 0:
                 data = sku_data
                 if progress_callback:
-                    progress_callback(sku, model_type, f"Using {len(data)} data points specific to SKU {sku}")
+                    try:
+                        progress_callback(sku, model_type, f"Using {len(data)} data points specific to SKU {sku}")
+                    except Exception as callback_error:
+                        logger.warning(f"Callback error: {str(callback_error)}")
             else:
                 if progress_callback:
-                    progress_callback(sku, model_type, f"No data found for SKU {sku} in dataset", level="warning")
+                    try:
+                        progress_callback(sku, model_type, f"No data found for SKU {sku} in dataset", level="warning")
+                    except Exception as callback_error:
+                        logger.warning(f"Callback error: {str(callback_error)}")
 
         data.sort_values('date', inplace=True)
 
@@ -527,7 +533,10 @@ def run_optimization_task(sku, model_type, data, cross_validation=True, n_trials
                 parameters_scores.append(fold_result)
 
                 if progress_callback:
-                    progress_callback(sku, model_type, f"Completed CV fold {len(parameters_scores)}/{n_splits}")
+                    try:
+                        progress_callback(sku, model_type, f"Completed CV fold {len(parameters_scores)}/{n_splits}")
+                    except Exception as callback_error:
+                        logger.warning(f"Callback error: {str(callback_error)}")
 
             # Select best parameters based on average score
             best_score = float('inf')
@@ -586,26 +595,39 @@ def run_optimization_task(sku, model_type, data, cross_validation=True, n_trials
             )
 
             if progress_callback:
-                if save_success:
-                    progress_callback(sku, model_type, f"Parameters successfully saved to database", level='success')
-                else:
-                    progress_callback(sku, model_type, f"Failed to save parameters to database", level='warning')
+                try:
+                    if save_success:
+                        progress_callback(sku, model_type, f"Parameters successfully saved to database", level='success')
+                    else:
+                        progress_callback(sku, model_type, f"Failed to save parameters to database", level='warning')
+                except Exception as callback_error:
+                    logger.warning(f"Callback error: {str(callback_error)}")
         except Exception as db_error:
             if progress_callback:
-                progress_callback(sku, model_type, f"Error saving to database: {str(db_error)}", level='error')
+                try:
+                    progress_callback(sku, model_type, f"Error saving to database: {str(db_error)}", level='error')
+                except Exception as callback_error:
+                    logger.warning(f"Callback error: {str(callback_error)}")
             logger.error(f"Database error saving parameters for {sku}_{model_type}: {str(db_error)}")
 
         if progress_callback:
-            progress_callback(sku, model_type, f"Optimization complete, score: {final_result['score']:.4f}")
+            try:
+                progress_callback(sku, model_type, f"Optimization complete, score: {final_result['score']:.4f}")
+            except Exception as callback_error:
+                logger.warning(f"Callback error: {str(callback_error)}")
 
         return final_result
 
     except Exception as e:
+        if progress_callback:
+            try:
+                progress_callback(sku, model_type, f"Optimization failed: {str(e)}", level='error')
+            except Exception as callback_error:
+                # If callback fails, just log the error
+                logger.warning(f"Callback error: {str(callback_error)}")
+
         logger.error(f"Error optimizing parameters for {sku}, {model_type}: {str(e)}")
         logger.error(traceback.format_exc())
-
-        if progress_callback:
-            progress_callback(sku, model_type, f"Optimization failed: {str(e)}", level='error')
 
         return {'parameters': None, 'score': float('inf'), 'error': str(e)}
 
@@ -646,7 +668,10 @@ def optimize_parameters_async(sku, model_type, data, cross_validation=True, n_tr
     # Check if task is already running
     if task_key in _active_optimization_tasks:
         if progress_callback:
-            progress_callback(sku, model_type, "Optimization already in progress", level='warning')
+            try:
+                progress_callback(sku, model_type, "Optimization already in progress", level='warning')
+            except Exception as callback_error:
+                logger.warning(f"Callback error: {str(callback_error)}")
         return False
 
     # Clean up any stale tasks
@@ -655,9 +680,12 @@ def optimize_parameters_async(sku, model_type, data, cross_validation=True, n_tr
     # Check concurrency limits if not a priority task
     if not priority and get_active_tasks_count() >= MAX_CONCURRENT_TASKS:
         if progress_callback:
-            progress_callback(sku, model_type, 
-                             f"Optimization skipped - maximum concurrent tasks ({MAX_CONCURRENT_TASKS}) reached", 
-                             level='warning')
+            try:
+                progress_callback(sku, model_type, 
+                                 f"Optimization skipped - maximum concurrent tasks ({MAX_CONCURRENT_TASKS}) reached", 
+                                 level='warning')
+            except Exception as callback_error:
+                logger.warning(f"Callback error: {str(callback_error)}")
         return False
 
     # Create thread for optimization
@@ -675,13 +703,16 @@ def optimize_parameters_async(sku, model_type, data, cross_validation=True, n_tr
         'priority': priority
     }
 
-    # Start the thread
+    # Run the thread
     thread.start()
 
     if progress_callback:
-        progress_callback(sku, model_type, 
-                         f"Optimization started in background (Active tasks: {get_active_tasks_count()}/{MAX_CONCURRENT_TASKS})", 
-                         level='info')
+        try:
+            progress_callback(sku, model_type, 
+                            f"Optimization started in background (Active tasks: {get_active_tasks_count()}/{MAX_CONCURRENT_TASKS})", 
+                            level='info')
+        except Exception as callback_error:
+            logger.warning(f"Callback error: {str(callback_error)}")
 
     return True
 
@@ -755,14 +786,20 @@ def batch_optimize_parameters(sku_data_dict, model_types=None, max_workers=4, pr
             # Check if parameters need updating
             if not get_parameters_update_required(sku, model_type, days_threshold=7):
                 if progress_callback:
-                    progress_callback(sku, model_type, "Using cached parameters (less than 7 days old)", level='info')
+                    try:
+                        progress_callback(sku, model_type, "Using cached parameters (less than 7 days old)", level='info')
+                    except Exception as callback_error:
+                        logger.warning(f"Callback error: {str(callback_error)}")
                 continue
 
             combinations.append((sku, model_type, data))
 
     if not combinations:
         if progress_callback:
-            progress_callback(None, None, "No parameters need updating", level='info')
+            try:
+                progress_callback(None, None, "No parameters need updating", level='info')
+            except Exception as callback_error:
+                logger.warning(f"Callback error: {str(callback_error)}")
         return {}
 
     # Function to run optimization for a single combination
@@ -785,7 +822,10 @@ def batch_optimize_parameters(sku_data_dict, model_types=None, max_workers=4, pr
                 logger.error(f"Error optimizing {sku}_{model_type}: {str(e)}")
 
                 if progress_callback:
-                    progress_callback(sku, model_type, f"Optimization failed: {str(e)}", level='error')
+                    try:
+                        progress_callback(sku, model_type, f"Optimization failed: {str(e)}", level='error')
+                    except Exception as callback_error:
+                        logger.warning(f"Callback error: {str(callback_error)}")
 
     return results
 
