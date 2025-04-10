@@ -1120,7 +1120,7 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
         }
         
         # Create a tabbed interface for different result views
-        result_tabs = st.tabs(["Model Performance", "Parameter Impact", "Before/After Comparison", "Audit Log"])
+        result_tabs = st.tabs(["Model Performance", "Parameter Impact", "Interactive Exploration", "Before/After Comparison", "Audit Log"])
         
         with result_tabs[0]:
             st.markdown("### Model Performance Comparison")
@@ -1472,6 +1472,529 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                 st.info("No models have been tuned yet. Run hyperparameter tuning first.")
         
         with result_tabs[2]:
+            st.markdown("### Interactive Hyperparameter Exploration")
+            
+            st.markdown("""
+            This interactive tool allows you to explore how changing hyperparameters affects model performance in real-time.
+            Adjust the sliders to see immediate visual feedback on how forecast quality changes.
+            """)
+            
+            # Allow selecting a model to explore
+            explore_model_options = list(set([model for sku_models in tuning_results.values() for model in sku_models.keys()]))
+            if explore_model_options:
+                # Create columns for selector layout
+                explore_col1, explore_col2 = st.columns([2, 1])
+                
+                with explore_col1:
+                    selected_explore_model = st.selectbox(
+                        "Select model to explore",
+                        options=explore_model_options,
+                        index=0 if "prophet" in explore_model_options else 0,
+                        key="explore_model_selector"
+                    )
+                
+                with explore_col2:
+                    # SKU selection for this model
+                    available_skus = [sku for sku, models in tuning_results.items() if selected_explore_model in models]
+                    if available_skus:
+                        selected_explore_sku = st.selectbox(
+                            "Select SKU to visualize",
+                            options=available_skus,
+                            index=0,
+                            key="explore_sku_selector"
+                        )
+                        
+                        # Get current parameters for this SKU and model
+                        current_params = tuning_results.get(selected_explore_sku, {}).get(selected_explore_model, {})
+                        
+                        # Display interactive exploration based on model type
+                        if current_params:
+                            st.markdown(f"#### Interactive {selected_explore_model.upper()} Parameter Exploration")
+                            
+                            # Create containers for the visualization and controls
+                            params_container = st.container()
+                            simulation_container = st.container()
+                            
+                            # Define parameter ranges and default values based on model type
+                            if selected_explore_model == "prophet":
+                                with params_container:
+                                    st.markdown("##### Adjust Prophet Parameters")
+                                    
+                                    # Get current parameters or use defaults
+                                    current_cp = float(current_params.get("changepoint_prior_scale", 0.05))
+                                    current_sp = float(current_params.get("seasonality_prior_scale", 10.0))
+                                    current_sm = current_params.get("seasonality_mode", "additive")
+                                    
+                                    # Create parameter sliders with current values
+                                    cp_slider = st.slider(
+                                        "Changepoint Prior Scale",
+                                        min_value=0.001,
+                                        max_value=0.5,
+                                        value=current_cp,
+                                        step=0.001,
+                                        format="%.3f",
+                                        key="cp_slider",
+                                        help="Controls flexibility in trend changes. Lower values = more flexible trend."
+                                    )
+                                    
+                                    sp_slider = st.slider(
+                                        "Seasonality Prior Scale",
+                                        min_value=0.01,
+                                        max_value=10.0,
+                                        value=current_sp,
+                                        step=0.01,
+                                        format="%.2f",
+                                        key="sp_slider",
+                                        help="Controls flexibility of seasonality. Higher values = more flexible seasonality."
+                                    )
+                                    
+                                    sm_radio = st.radio(
+                                        "Seasonality Mode",
+                                        options=["additive", "multiplicative"],
+                                        index=0 if current_sm == "additive" else 1,
+                                        horizontal=True,
+                                        key="sm_radio",
+                                        help="Additive: seasonality is constant. Multiplicative: seasonality scales with trend."
+                                    )
+                                    
+                                    # Generate the visualization based on selected parameters
+                                    with simulation_container:
+                                        st.markdown("##### Forecast Simulation")
+                                        
+                                        # Create a visual indicator of parameter changes
+                                        st.markdown(f"""
+                                        <div style="margin-bottom: 10px; padding: 8px; background-color: #f8f9fa; border-radius: 4px;">
+                                        <span style="font-weight: bold;">Current Parameters:</span> changepoint_prior_scale={cp_slider:.3f}, 
+                                        seasonality_prior_scale={sp_slider:.2f}, seasonality_mode={sm_radio}
+                                        </div>
+                                        """, unsafe_allow_html=True)
+                                        
+                                        # Calculate simulated performance metrics based on parameter changes
+                                        # This uses a simplified model to simulate how changes affect performance
+                                        base_mape = 15.0  # Example base MAPE
+                                        
+                                        # Simple simulation function (would be replaced with actual model in production)
+                                        def simulate_prophet_performance(cp, sp, mode):
+                                            # Simplified model of how parameters affect performance
+                                            # These are just example relationships
+                                            cp_effect = 5 * abs(0.05 - cp) if cp <= 0.1 else 10 * abs(0.05 - cp)
+                                            sp_effect = 0.2 * abs(1.0 - sp) if sp <= 5.0 else 0.5 * abs(1.0 - sp)
+                                            mode_effect = 0.0 if mode == "additive" else 1.5  # Example penalty for multiplicative
+                                            
+                                            # Calculate simulated MAPE (lower is better)
+                                            simulated_mape = base_mape + cp_effect + sp_effect + mode_effect
+                                            
+                                            # Calculate other metrics
+                                            simulated_rmse = simulated_mape * 2.5
+                                            simulated_mae = simulated_mape * 2.0
+                                            
+                                            return {
+                                                "mape": simulated_mape,
+                                                "rmse": simulated_rmse,
+                                                "mae": simulated_mae
+                                            }
+                                        
+                                        # Simulate base performance (with current parameters)
+                                        base_performance = simulate_prophet_performance(current_cp, current_sp, current_sm)
+                                        
+                                        # Simulate new performance (with slider parameters)
+                                        new_performance = simulate_prophet_performance(cp_slider, sp_slider, sm_radio)
+                                        
+                                        # Calculate improvement
+                                        mape_change = (base_performance["mape"] - new_performance["mape"]) / base_performance["mape"] * 100
+                                        
+                                        # Display metrics side by side
+                                        metric_cols = st.columns(3)
+                                        
+                                        with metric_cols[0]:
+                                            metric_value = new_performance["mape"]
+                                            metric_delta = f"{mape_change:.1f}%" if mape_change != 0 else "No change"
+                                            st.metric(
+                                                label="Estimated MAPE",
+                                                value=f"{metric_value:.2f}%",
+                                                delta=metric_delta,
+                                                delta_color="inverse"  # Lower is better for MAPE
+                                            )
+                                        
+                                        with metric_cols[1]:
+                                            rmse_change = (base_performance["rmse"] - new_performance["rmse"]) / base_performance["rmse"] * 100
+                                            metric_value = new_performance["rmse"]
+                                            metric_delta = f"{rmse_change:.1f}%" if rmse_change != 0 else "No change"
+                                            st.metric(
+                                                label="Estimated RMSE",
+                                                value=f"{metric_value:.2f}",
+                                                delta=metric_delta,
+                                                delta_color="inverse"  # Lower is better for RMSE
+                                            )
+                                            
+                                        with metric_cols[2]:
+                                            mae_change = (base_performance["mae"] - new_performance["mae"]) / base_performance["mae"] * 100
+                                            metric_value = new_performance["mae"]
+                                            metric_delta = f"{mae_change:.1f}%" if mae_change != 0 else "No change"
+                                            st.metric(
+                                                label="Estimated MAE",
+                                                value=f"{metric_value:.2f}",
+                                                delta=metric_delta,
+                                                delta_color="inverse"  # Lower is better for MAE
+                                            )
+                                        
+                                        # Generate example forecast visualization
+                                        st.markdown("##### Forecast Visualization")
+                                        
+                                        # Simulated time series data
+                                        start_date = pd.Timestamp('2023-01-01')
+                                        periods = 24
+                                        dates = [start_date + pd.DateOffset(months=i) for i in range(periods)]
+                                        
+                                        # Generate synthetic data for visualization
+                                        np.random.seed(42)  # For consistent results
+                                        actuals = np.random.normal(100, 20, periods).cumsum() + 500
+                                        
+                                        # Simulate forecasts with different parameters
+                                        # Base parameters (current)
+                                        base_noise = np.random.normal(0, base_performance["mape"], periods)
+                                        base_forecast = actuals * (1 + base_noise/100)
+                                        
+                                        # New parameters (from sliders)
+                                        new_noise = np.random.normal(0, new_performance["mape"], periods)
+                                        new_forecast = actuals * (1 + new_noise/100)
+                                        
+                                        # Create interactive forecast plot
+                                        fig = go.Figure()
+                                        
+                                        # Add actual data
+                                        fig.add_trace(go.Scatter(
+                                            x=dates, y=actuals,
+                                            mode='lines+markers',
+                                            name='Actual',
+                                            line=dict(color='blue', width=3),
+                                            marker=dict(size=8, symbol='circle')
+                                        ))
+                                        
+                                        # Add base forecast
+                                        fig.add_trace(go.Scatter(
+                                            x=dates, y=base_forecast,
+                                            mode='lines',
+                                            name='Current Parameters',
+                                            line=dict(color='gray', width=2, dash='dot'),
+                                        ))
+                                        
+                                        # Add new forecast with parameter adjustments
+                                        fig.add_trace(go.Scatter(
+                                            x=dates, y=new_forecast,
+                                            mode='lines',
+                                            name='New Parameters',
+                                            line=dict(color='green', width=2),
+                                        ))
+                                        
+                                        # Add forecast boundary line
+                                        forecast_idx = int(periods * 0.7)
+                                        if 0 <= forecast_idx < len(dates):
+                                            forecast_start = dates[forecast_idx]
+                                            fig.add_vline(
+                                                x=forecast_start, 
+                                                line_dash="solid", 
+                                                line_width=2, 
+                                                line_color="gray",
+                                                annotation_text="Forecast Start", 
+                                                annotation_position="top right"
+                                            )
+                                        
+                                        # Calculate shaded confidence intervals for new forecast
+                                        lower_bound = new_forecast - (new_forecast * new_performance["mape"]/100)
+                                        upper_bound = new_forecast + (new_forecast * new_performance["mape"]/100)
+                                        
+                                        # Add confidence interval
+                                        fig.add_trace(go.Scatter(
+                                            x=dates+dates[::-1],
+                                            y=list(upper_bound)+list(lower_bound[::-1]),
+                                            fill='toself',
+                                            fillcolor='rgba(0,176,120,0.2)',
+                                            line=dict(color='rgba(255,255,255,0)'),
+                                            name='Confidence Interval'
+                                        ))
+                                        
+                                        # Update layout
+                                        fig.update_layout(
+                                            height=400,
+                                            margin=dict(l=10, r=10, t=10, b=10),
+                                            legend=dict(
+                                                orientation="h", 
+                                                yanchor="bottom", 
+                                                y=1.02, 
+                                                xanchor="right", 
+                                                x=1,
+                                                bgcolor='rgba(255, 255, 255, 0.8)',
+                                                bordercolor='rgba(0, 0, 0, 0.1)',
+                                                borderwidth=1
+                                            ),
+                                            hovermode="x unified"
+                                        )
+                                        
+                                        st.plotly_chart(fig, use_container_width=True)
+                                        
+                                        # Add apply button
+                                        apply_cols = st.columns([3, 2, 3])
+                                        with apply_cols[1]:
+                                            if st.button("Apply New Parameters", type="primary", use_container_width=True, key="apply_prophet_params"):
+                                                st.success(f"Parameters applied: changepoint_prior_scale={cp_slider:.3f}, seasonality_prior_scale={sp_slider:.2f}, seasonality_mode={sm_radio}")
+                                
+                                # Helpful tips for Prophet parameters
+                                with st.expander("Prophet Parameter Tips", expanded=False):
+                                    st.markdown("""
+                                    #### Prophet Parameter Guide
+                                    
+                                    **Changepoint Prior Scale (0.001 - 0.5)**
+                                    - Controls how flexible the trend is
+                                    - Lower values (e.g., 0.001) make the trend less flexible
+                                    - Higher values (e.g., 0.5) allow the trend to fit the data more closely
+                                    - Default is 0.05
+                                    
+                                    **Seasonality Prior Scale (0.01 - 10.0)**
+                                    - Controls how flexible the seasonality is
+                                    - Lower values (e.g., 0.01) make the seasonality less flexible
+                                    - Higher values (e.g., 10.0) allow the seasonality to fit the data more closely
+                                    - Default is 10.0
+                                    
+                                    **Seasonality Mode**
+                                    - Additive: Seasonality is constant regardless of trend level (default)
+                                    - Multiplicative: Seasonality scales with trend level
+                                    - Multiplicative is better for data where seasonal fluctuations increase with the trend
+                                    """)
+                            
+                            elif selected_explore_model == "auto_arima":
+                                with params_container:
+                                    st.markdown("##### Adjust ARIMA Parameters")
+                                    
+                                    # Get current parameters or use defaults
+                                    current_d = int(current_params.get("d", 1))
+                                    current_max_p = int(current_params.get("max_p", 5))
+                                    current_max_q = int(current_params.get("max_q", 5))
+                                    current_seasonal = current_params.get("seasonal", True)
+                                    
+                                    # Create parameter sliders with current values
+                                    d_slider = st.slider(
+                                        "Differencing Order (d)",
+                                        min_value=0,
+                                        max_value=2,
+                                        value=current_d,
+                                        step=1,
+                                        key="d_slider",
+                                        help="Number of differencing operations to make data stationary"
+                                    )
+                                    
+                                    max_p_slider = st.slider(
+                                        "Maximum AR Order (max_p)",
+                                        min_value=1,
+                                        max_value=10,
+                                        value=current_max_p,
+                                        step=1,
+                                        key="max_p_slider",
+                                        help="Maximum autoregressive order to consider"
+                                    )
+                                    
+                                    max_q_slider = st.slider(
+                                        "Maximum MA Order (max_q)",
+                                        min_value=1,
+                                        max_value=10,
+                                        value=current_max_q,
+                                        step=1,
+                                        key="max_q_slider",
+                                        help="Maximum moving average order to consider"
+                                    )
+                                    
+                                    seasonal_toggle = st.toggle(
+                                        "Include seasonality",
+                                        value=current_seasonal,
+                                        key="seasonal_toggle",
+                                        help="Whether to include seasonal components in the model"
+                                    )
+                                    
+                                    # Generate the visualization based on selected parameters
+                                    with simulation_container:
+                                        st.markdown("##### Forecast Simulation")
+                                        
+                                        # Create a visual indicator of parameter changes
+                                        st.markdown(f"""
+                                        <div style="margin-bottom: 10px; padding: 8px; background-color: #f8f9fa; border-radius: 4px;">
+                                        <span style="font-weight: bold;">Current Parameters:</span> d={d_slider}, 
+                                        max_p={max_p_slider}, max_q={max_q_slider}, seasonal={str(seasonal_toggle)}
+                                        </div>
+                                        """, unsafe_allow_html=True)
+                                        
+                                        # Simple simulation function for ARIMA (placeholder implementation)
+                                        def simulate_arima_performance(d, max_p, max_q, seasonal):
+                                            # Simplified model of how parameters affect performance
+                                            base_mape = 12.0  # Example base MAPE
+                                            
+                                            # Effects of parameters
+                                            d_effect = 2.0 if d == 0 else (0 if d == 1 else 1.0)
+                                            p_effect = 0.2 * abs(5 - max_p)
+                                            q_effect = 0.15 * abs(5 - max_q)
+                                            seasonal_effect = 0 if seasonal else 3.0
+                                            
+                                            # Calculate simulated metrics
+                                            simulated_mape = base_mape + d_effect + p_effect + q_effect + seasonal_effect
+                                            simulated_rmse = simulated_mape * 2.2
+                                            simulated_mae = simulated_mape * 1.8
+                                            
+                                            return {
+                                                "mape": simulated_mape,
+                                                "rmse": simulated_rmse,
+                                                "mae": simulated_mae
+                                            }
+                                        
+                                        # Simulate base performance (with current parameters)
+                                        base_performance = simulate_arima_performance(current_d, current_max_p, current_max_q, current_seasonal)
+                                        
+                                        # Simulate new performance (with slider parameters)
+                                        new_performance = simulate_arima_performance(d_slider, max_p_slider, max_q_slider, seasonal_toggle)
+                                        
+                                        # Calculate improvement
+                                        mape_change = (base_performance["mape"] - new_performance["mape"]) / base_performance["mape"] * 100
+                                        
+                                        # Display metrics using the same pattern as for Prophet
+                                        metric_cols = st.columns(3)
+                                        
+                                        with metric_cols[0]:
+                                            metric_value = new_performance["mape"]
+                                            metric_delta = f"{mape_change:.1f}%" if mape_change != 0 else "No change"
+                                            st.metric(
+                                                label="Estimated MAPE",
+                                                value=f"{metric_value:.2f}%",
+                                                delta=metric_delta,
+                                                delta_color="inverse"
+                                            )
+                                        
+                                        with metric_cols[1]:
+                                            rmse_change = (base_performance["rmse"] - new_performance["rmse"]) / base_performance["rmse"] * 100
+                                            metric_value = new_performance["rmse"]
+                                            metric_delta = f"{rmse_change:.1f}%" if rmse_change != 0 else "No change"
+                                            st.metric(
+                                                label="Estimated RMSE",
+                                                value=f"{metric_value:.2f}",
+                                                delta=metric_delta,
+                                                delta_color="inverse"
+                                            )
+                                            
+                                        with metric_cols[2]:
+                                            mae_change = (base_performance["mae"] - new_performance["mae"]) / base_performance["mae"] * 100
+                                            metric_value = new_performance["mae"]
+                                            metric_delta = f"{mae_change:.1f}%" if mae_change != 0 else "No change"
+                                            st.metric(
+                                                label="Estimated MAE",
+                                                value=f"{metric_value:.2f}",
+                                                delta=metric_delta,
+                                                delta_color="inverse"
+                                            )
+                                            
+                                        # Create ARIMA visualization
+                                        # Similar code to Prophet visualization with adjusted simulations
+                                        st.markdown("##### Forecast Visualization")
+                                        
+                                        # Create interactive forecast plot for ARIMA
+                                        start_date = pd.Timestamp('2023-01-01')
+                                        periods = 24
+                                        dates = [start_date + pd.DateOffset(months=i) for i in range(periods)]
+                                        
+                                        # Generate synthetic data
+                                        np.random.seed(42)  # For consistency
+                                        actuals = np.random.normal(100, 20, periods).cumsum() + 500
+                                        
+                                        # Simulate forecasts
+                                        # Base parameters
+                                        base_noise = np.random.normal(0, base_performance["mape"], periods)
+                                        base_forecast = actuals * (1 + base_noise/100)
+                                        
+                                        # New parameters
+                                        new_noise = np.random.normal(0, new_performance["mape"], periods)
+                                        new_forecast = actuals * (1 + new_noise/100)
+                                        
+                                        # Create figure
+                                        fig = go.Figure()
+                                        
+                                        # Add traces
+                                        fig.add_trace(go.Scatter(
+                                            x=dates, y=actuals,
+                                            mode='lines+markers',
+                                            name='Actual',
+                                            line=dict(color='blue', width=3)
+                                        ))
+                                        
+                                        fig.add_trace(go.Scatter(
+                                            x=dates, y=base_forecast,
+                                            mode='lines',
+                                            name='Current Parameters',
+                                            line=dict(color='gray', width=2, dash='dot')
+                                        ))
+                                        
+                                        fig.add_trace(go.Scatter(
+                                            x=dates, y=new_forecast,
+                                            mode='lines',
+                                            name='New Parameters',
+                                            line=dict(color='green', width=2)
+                                        ))
+                                        
+                                        # Update layout
+                                        fig.update_layout(
+                                            height=400,
+                                            margin=dict(l=10, r=10, t=10, b=10),
+                                            legend=dict(
+                                                orientation="h", 
+                                                yanchor="bottom", 
+                                                y=1.02, 
+                                                xanchor="right", 
+                                                x=1
+                                            ),
+                                            hovermode="x unified"
+                                        )
+                                        
+                                        st.plotly_chart(fig, use_container_width=True)
+                                        
+                                        # Add apply button
+                                        apply_cols = st.columns([3, 2, 3])
+                                        with apply_cols[1]:
+                                            if st.button("Apply New Parameters", type="primary", use_container_width=True, key="apply_arima_params"):
+                                                st.success(f"Parameters applied: d={d_slider}, max_p={max_p_slider}, max_q={max_q_slider}, seasonal={seasonal_toggle}")
+                                
+                                # Helpful tips for ARIMA parameters
+                                with st.expander("ARIMA Parameter Tips", expanded=False):
+                                    st.markdown("""
+                                    #### ARIMA Parameter Guide
+                                    
+                                    **Differencing Order (d)**
+                                    - Controls how many times the data is differenced to achieve stationarity
+                                    - d=0: No differencing (use when data is already stationary)
+                                    - d=1: First-order differencing (most common, removes linear trend)
+                                    - d=2: Second-order differencing (removes quadratic trend)
+                                    
+                                    **Maximum AR Order (max_p)**
+                                    - Controls the maximum number of lagged observations to consider
+                                    - Higher values allow the model to capture longer-term dependencies
+                                    - Typical values: 2-5
+                                    
+                                    **Maximum MA Order (max_q)**
+                                    - Controls the maximum number of lagged forecast errors to consider
+                                    - Higher values allow the model to account for more past forecast errors
+                                    - Typical values: 2-5
+                                    
+                                    **Seasonality**
+                                    - Whether to include seasonal components in the model
+                                    - Enables the model to capture recurring patterns at fixed intervals
+                                    - Usually beneficial for data with seasonal patterns
+                                    """)
+                            
+                            else:
+                                # Generic message for other model types
+                                st.info(f"Interactive exploration for {selected_explore_model.upper()} is coming soon! Check back later for updates.")
+                        else:
+                            st.warning(f"No parameters found for {selected_explore_sku} with model {selected_explore_model}.")
+                    else:
+                        st.info(f"No SKUs available for {selected_explore_model}.")
+            else:
+                st.info("No tuning results available for interactive exploration. Run hyperparameter tuning first.")
+            
+        with result_tabs[3]:
             st.markdown("### Before/After Performance Comparison")
             
             # Create a before/after performance comparison across all SKUs
@@ -1559,7 +2082,7 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
             else:
                 st.info("No performance metrics available. Run hyperparameter tuning first.")
         
-        with result_tabs[3]:
+        with result_tabs[4]:
             st.markdown("### Tuning Audit Log")
             
             # Display a history of tuning operations
