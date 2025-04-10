@@ -25,9 +25,11 @@ import uuid
 from streamlit_extras.metric_cards import style_metric_cards
 import extra_streamlit_components as stx
 
-# Initialize session state variables
-if 'sales_data' not in st.session_state or st.session_state.sales_data is None:
-    st.warning("Please upload sales data on the main page first.")
+# Load data automatically using the page_loader utility
+from utils.page_loader import check_data_requirements
+
+# Check that sales data is available, otherwise stop execution
+if not check_data_requirements(['sales_data']):
     st.stop()
 
 if 'tuning_in_progress' not in st.session_state:

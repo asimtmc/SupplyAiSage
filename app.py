@@ -272,10 +272,9 @@ def load_data_from_database():
         }
         return False
 
-# Try to load data from database on initial load
-if not st.session_state.init_db_load:
-    st.session_state.init_db_load = True  # Mark as attempted even if it fails
-    load_data_from_database()
+# Try to load data from database on startup - always load the data
+# This ensures pages can open directly without requiring navigation through the main app
+load_data_from_database()
 
 # Main page header with animated gradient
 st.markdown('<h1 class="gradient-text">AI-Powered Supply Chain Platform</h1>', unsafe_allow_html=True)
