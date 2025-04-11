@@ -18,12 +18,8 @@ show_all_models = False
 custom_models_lower = []
 first_forecast = None
 
-# Set page config
-st.set_page_config(
-    page_title="V2 Demand Forecasting",
-    page_icon="📈",
-    layout="wide"
-)
+# Page configuration is already set in app.py
+# Do not call st.set_page_config() here as it will cause errors
 
 # Initialize cache for forecast results
 if 'v2_forecast_cache' not in st.session_state:
