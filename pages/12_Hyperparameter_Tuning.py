@@ -1292,16 +1292,29 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                             forecast_idx = int(periods * 0.7)
                             if 0 <= forecast_idx < len(dates):
                                 forecast_start = dates[forecast_idx]
-                                # Convert timestamp to string for vline
-                                forecast_date_str = forecast_start.strftime('%Y-%m-%d')
-                                fig.add_vline(
-                                    x=forecast_date_str, 
-                                    line_dash="solid", 
-                                    line_width=2, 
-                                    line_color="gray",
-                                    annotation_text="Forecast Start", 
-                                    annotation_position="top right"
-                                )
+                                # Use the timestamp object directly for the vline
+                                try:
+                                    fig.add_vline(
+                                        x=forecast_start, 
+                                        line_dash="solid", 
+                                        line_width=2, 
+                                        line_color="gray",
+                                        annotation_text="Forecast Start", 
+                                        annotation_position="top right"
+                                    )
+                                except Exception as e:
+                                    # If using timestamp fails, fall back to using the index
+                                    try:
+                                        fig.add_vline(
+                                            x=forecast_idx, 
+                                            line_dash="solid", 
+                                            line_width=2, 
+                                            line_color="gray",
+                                            annotation_text="Forecast Start", 
+                                            annotation_position="top right"
+                                        )
+                                    except Exception as e2:
+                                        st.warning(f"Could not add forecast boundary: {str(e2)}")
                             
                             # Update layout for better visualization
                             fig.update_layout(
