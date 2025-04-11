@@ -1593,15 +1593,48 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                             # Prepare data
                             ts_data = train_data['quantity'].values
                             
-                            # Fit auto_arima model - automatically finds the best order parameters
-                            model = auto_arima(
-                                ts_data,
-                                seasonal=True,                   # Enable seasonality
-                                m=12 if len(train_data) >= 24 else 4,  # Seasonal period
-                                stepwise=True,                   # Use stepwise approach for faster fitting
-                                suppress_warnings=True,          # Suppress warnings for cleaner output
-                                error_action="ignore"            # Ignore errors in ARIMA estimation
-                            )
+                            # Check if we have tuned parameters for auto_arima
+                            if use_tuned_parameters and 'auto_arima' in tuned_parameters:
+                                params = tuned_parameters['auto_arima']
+                                # Convert parameters to correct types
+                                d = int(params.get('d', 1)) if params.get('d') is not None else None
+                                seasonal = params.get('seasonal', 'true').lower() == 'true'
+                                
+                                if seasonal:
+                                    m = int(params.get('m', 12 if len(train_data) >= 24 else 4))
+                                else:
+                                    m = 1
+                                    
+                                stepwise = params.get('stepwise', 'true').lower() == 'true'
+                                max_p = int(params.get('max_p', 5))
+                                max_q = int(params.get('max_q', 5))
+                                max_order = int(params.get('max_order', 5))
+                                
+                                print(f"Using tuned auto_arima parameters: d={d}, seasonal={seasonal}, m={m}, stepwise={stepwise}, max_p={max_p}, max_q={max_q}")
+                                
+                                # Fit auto_arima model with tuned parameters
+                                model = auto_arima(
+                                    ts_data,
+                                    d=d,                         # Differencing
+                                    seasonal=seasonal,           # Seasonality
+                                    m=m,                         # Seasonal period
+                                    stepwise=stepwise,           # Stepwise approach
+                                    max_p=max_p,                 # Max AR order
+                                    max_q=max_q,                 # Max MA order
+                                    max_order=max_order,         # Max total order
+                                    suppress_warnings=True,
+                                    error_action="ignore"
+                                )
+                            else:
+                                # Fit auto_arima model - automatically finds the best order parameters with default values
+                                model = auto_arima(
+                                    ts_data,
+                                    seasonal=True,                   # Enable seasonality
+                                    m=12 if len(train_data) >= 24 else 4,  # Seasonal period
+                                    stepwise=True,                   # Use stepwise approach for faster fitting
+                                    suppress_warnings=True,          # Suppress warnings for cleaner output
+                                    error_action="ignore"            # Ignore errors in ARIMA estimation
+                                )
                             
                             # Generate test forecasts
                             forecast_obj = model.predict(n_periods=len(test_data))
@@ -1612,14 +1645,32 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                             
                             # Train on all data for future forecast
                             full_data = data['quantity'].values
-                            full_model = auto_arima(
-                                full_data,
-                                seasonal=True,
-                                m=12 if len(data) >= 24 else 4,
-                                stepwise=True,
-                                suppress_warnings=True,
-                                error_action="ignore"
-                            )
+                            
+                            # Use the same parameters for the full model as we used for the training model
+                            if use_tuned_parameters and 'auto_arima' in tuned_parameters:
+                                # Use the same tuned parameters
+                                full_model = auto_arima(
+                                    full_data,
+                                    d=d,
+                                    seasonal=seasonal,
+                                    m=m,
+                                    stepwise=stepwise,
+                                    max_p=max_p,
+                                    max_q=max_q,
+                                    max_order=max_order,
+                                    suppress_warnings=True,
+                                    error_action="ignore"
+                                )
+                            else:
+                                # Use default parameters
+                                full_model = auto_arima(
+                                    full_data,
+                                    seasonal=True,
+                                    m=12 if len(data) >= 24 else 4,
+                                    stepwise=True,
+                                    suppress_warnings=True,
+                                    error_action="ignore"
+                                )
                             
                             # Generate future forecasts
                             future_values = full_model.predict(n_periods=forecast_periods)
@@ -1666,15 +1717,37 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                         # Prepare data
                         ts_data = train_data['quantity'].values
                         
-                        # Create and fit ETS model
-                        model = ETSModel(
-                            ts_data,
-                            error="add",                     # Additive errors
-                            trend="add",                     # Additive trend
-                            seasonal="add",                  # Additive seasonal
-                            damped_trend=True,               # Damped trend to avoid over-forecasting
-                            seasonal_periods=12 if len(train_data) >= 24 else 4  # Seasonal periods
-                        )
+                        # Check if we have tuned parameters for ETS
+                        if use_tuned_parameters and 'ets' in tuned_parameters:
+                            params = tuned_parameters['ets']
+                            # Convert parameters to correct types
+                            error_type = params.get('error', 'add')
+                            trend_type = params.get('trend', 'add')
+                            seasonal_type = params.get('seasonal', 'add')
+                            damped = params.get('damped_trend', 'true').lower() == 'true'
+                            seasonal_periods_param = int(params.get('seasonal_periods', 12 if len(train_data) >= 24 else 4))
+                            
+                            print(f"Using tuned ETS parameters: error={error_type}, trend={trend_type}, seasonal={seasonal_type}, damped={damped}, seasonal_periods={seasonal_periods_param}")
+                            
+                            # Create and fit ETS model with tuned parameters
+                            model = ETSModel(
+                                ts_data,
+                                error=error_type,
+                                trend=trend_type,
+                                seasonal=seasonal_type,
+                                damped_trend=damped,
+                                seasonal_periods=seasonal_periods_param
+                            )
+                        else:
+                            # Create and fit ETS model with default parameters
+                            model = ETSModel(
+                                ts_data,
+                                error="add",                     # Additive errors
+                                trend="add",                     # Additive trend
+                                seasonal="add",                  # Additive seasonal
+                                damped_trend=True,               # Damped trend to avoid over-forecasting
+                                seasonal_periods=12 if len(train_data) >= 24 else 4  # Seasonal periods
+                            )
                         model_fit = model.fit(disp=False)
                         
                         # Generate test forecasts
@@ -1691,14 +1764,28 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                         
                         # Train on all data for future forecast
                         full_data = data['quantity'].values
-                        full_model = ETSModel(
-                            full_data,
-                            error="add",
-                            trend="add",
-                            seasonal="add",
-                            damped_trend=True,
-                            seasonal_periods=12 if len(data) >= 24 else 4
-                        )
+                        
+                        # Use the same parameters for the full model
+                        if use_tuned_parameters and 'ets' in tuned_parameters:
+                            # Use the same tuned parameters
+                            full_model = ETSModel(
+                                full_data,
+                                error=error_type,
+                                trend=trend_type, 
+                                seasonal=seasonal_type,
+                                damped_trend=damped,
+                                seasonal_periods=seasonal_periods_param
+                            )
+                        else:
+                            # Use default parameters
+                            full_model = ETSModel(
+                                full_data,
+                                error="add",
+                                trend="add",
+                                seasonal="add",
+                                damped_trend=True,
+                                seasonal_periods=12 if len(data) >= 24 else 4
+                            )
                         full_model_fit = full_model.fit(disp=False)
                         
                         # Generate future forecasts
@@ -1725,12 +1812,28 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                         # Prepare data
                         ts_data = train_data['quantity'].values
                         
-                        # Create and fit Theta model
-                        model = ThetaModel(
-                            ts_data,
-                            deseasonalize=True,                # Deseasonalize the time series
-                            period=12 if len(train_data) >= 24 else 4  # Seasonal period
-                        )
+                        # Check if we have tuned parameters for Theta
+                        if use_tuned_parameters and 'theta' in tuned_parameters:
+                            params = tuned_parameters['theta']
+                            # Convert parameters to correct types
+                            deseasonalize_param = params.get('deseasonalize', 'true').lower() == 'true'
+                            period_param = int(params.get('period', 12 if len(train_data) >= 24 else 4))
+                            
+                            print(f"Using tuned Theta parameters: deseasonalize={deseasonalize_param}, period={period_param}")
+                            
+                            # Create and fit Theta model with tuned parameters
+                            model = ThetaModel(
+                                ts_data,
+                                deseasonalize=deseasonalize_param,
+                                period=period_param
+                            )
+                        else:
+                            # Create and fit Theta model with default parameters
+                            model = ThetaModel(
+                                ts_data,
+                                deseasonalize=True,                # Deseasonalize the time series
+                                period=12 if len(train_data) >= 24 else 4  # Seasonal period
+                            )
                         model_fit = model.fit()
                         
                         # Generate test forecasts
@@ -1742,11 +1845,22 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                         
                         # Train on all data for future forecast
                         full_data = data['quantity'].values
-                        full_model = ThetaModel(
-                            full_data,
-                            deseasonalize=True,
-                            period=12 if len(data) >= 24 else 4
-                        )
+                        
+                        # Use the same parameters for the full model
+                        if use_tuned_parameters and 'theta' in tuned_parameters:
+                            # Use the same tuned parameters
+                            full_model = ThetaModel(
+                                full_data,
+                                deseasonalize=deseasonalize_param,
+                                period=period_param
+                            )
+                        else:
+                            # Use default parameters
+                            full_model = ThetaModel(
+                                full_data,
+                                deseasonalize=True,
+                                period=12 if len(data) >= 24 else 4
+                            )
                         full_model_fit = full_model.fit()
                         
                         # Generate future forecasts
