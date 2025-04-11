@@ -1241,7 +1241,12 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                     
                     # Create a dataframe with the comparison data
                     if comparison_data:
+                        # Create a dataframe with string conversion to avoid serialization issues
                         comparison_df = pd.DataFrame(comparison_data)
+                        
+                        # Convert all values to strings to ensure consistent serialization
+                        for col in comparison_df.columns:
+                            comparison_df[col] = comparison_df[col].astype(str)
                         
                         # Create a styled dataframe with updated styling method
                         st.dataframe(
@@ -1313,29 +1318,46 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                             forecast_idx = int(periods * 0.7)
                             if 0 <= forecast_idx < len(dates):
                                 forecast_start = dates[forecast_idx]
-                                # Use the timestamp object directly for the vline
+                                # Create a vertical line by adding a separate shape to the layout
                                 try:
-                                    fig.add_vline(
-                                        x=forecast_start, 
-                                        line_dash="solid", 
-                                        line_width=2, 
-                                        line_color="gray",
-                                        annotation_text="Forecast Start", 
-                                        annotation_position="top right"
+                                    fig.update_layout(
+                                        shapes=[
+                                            dict(
+                                                type='line',
+                                                yref='paper',
+                                                xref='x',
+                                                x0=forecast_start,
+                                                y0=0,
+                                                x1=forecast_start,
+                                                y1=1,
+                                                line=dict(
+                                                    color='gray',
+                                                    width=2,
+                                                    dash='solid'
+                                                )
+                                            )
+                                        ],
+                                        annotations=[
+                                            dict(
+                                                x=forecast_start,
+                                                y=1,
+                                                xref='x',
+                                                yref='paper',
+                                                text="Forecast Start",
+                                                showarrow=False,
+                                                font=dict(
+                                                    color="gray",
+                                                    size=12
+                                                ),
+                                                bgcolor="white",
+                                                bordercolor="gray",
+                                                borderwidth=1,
+                                                borderpad=4
+                                            )
+                                        ]
                                     )
                                 except Exception as e:
-                                    # If using timestamp fails, fall back to using the index
-                                    try:
-                                        fig.add_vline(
-                                            x=forecast_idx, 
-                                            line_dash="solid", 
-                                            line_width=2, 
-                                            line_color="gray",
-                                            annotation_text="Forecast Start", 
-                                            annotation_position="top right"
-                                        )
-                                    except Exception as e2:
-                                        st.warning(f"Could not add forecast boundary: {str(e2)}")
+                                    st.warning(f"Could not add forecast boundary: {str(e)}")
                             
                             # Update layout for better visualization
                             fig.update_layout(
@@ -1429,12 +1451,16 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                 
                 # Create example parameter impact visualizations
                 if selected_impact_model == "prophet":
-                    # Prophet parameter impact analysis
+                    # Prophet parameter impact analysis - use strings for parameter names to avoid type issues
                     impact_data = pd.DataFrame({
                         "Parameter": ["changepoint_prior_scale", "changepoint_prior_scale", "changepoint_prior_scale", 
                                      "seasonality_prior_scale", "seasonality_prior_scale", "seasonality_prior_scale"],
                         "Value": [0.001, 0.05, 0.5, 0.1, 1.0, 10.0],
                         "MAPE": [18.5, 15.2, 22.1, 19.8, 15.2, 16.4]
+                    }).astype({
+                        "Parameter": str,
+                        "Value": float,
+                        "MAPE": float
                     })
                     
                     fig = px.line(
@@ -1556,10 +1582,21 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                                 with params_container:
                                     st.markdown("##### Adjust Prophet Parameters")
                                     
-                                    # Get current parameters or use defaults
-                                    current_cp = float(current_params.get("changepoint_prior_scale", 0.05))
-                                    current_sp = float(current_params.get("seasonality_prior_scale", 10.0))
+                                    # Get current parameters or use defaults with robust error handling
+                                    try:
+                                        current_cp = float(current_params.get("changepoint_prior_scale", 0.05))
+                                    except (ValueError, TypeError):
+                                        current_cp = 0.05
+                                        
+                                    try:
+                                        current_sp = float(current_params.get("seasonality_prior_scale", 10.0))
+                                    except (ValueError, TypeError):
+                                        current_sp = 10.0
+                                        
+                                    # Ensure the mode is one of the valid options
                                     current_sm = current_params.get("seasonality_mode", "additive")
+                                    if current_sm not in ["additive", "multiplicative"]:
+                                        current_sm = "additive"
                                     
                                     # Create parameter sliders with current values
                                     cp_slider = st.slider(
@@ -2586,7 +2623,12 @@ with st.expander("Parameter Database Status", expanded=False):
                     })
 
         if tuned_params_summary:
+            # Create DataFrame with explicit string type for all columns to avoid serialization issues
             summary_df = pd.DataFrame(tuned_params_summary)
+            # Convert columns to appropriate types
+            for col in summary_df.columns:
+                summary_df[col] = summary_df[col].astype(str)
+            
             st.dataframe(summary_df, use_container_width=True)
         else:
             st.info("No optimized parameters found in the database.")
