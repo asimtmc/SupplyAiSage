@@ -9,6 +9,8 @@ from datetime import datetime, timedelta
 from utils.data_processor import process_sales_data
 from utils.forecast_engine import extract_features, cluster_skus, generate_forecasts, evaluate_models, train_lstm_model, forecast_with_lstm, select_best_model
 from utils.visualization import plot_forecast, plot_cluster_summary, plot_model_comparison
+# Import parameter optimizer functions for using tuned parameters
+from utils.parameter_optimizer import get_model_parameters
 
 # Initialize variables that might be used in multiple places
 all_sku_data = []
@@ -197,7 +199,21 @@ with st.sidebar:
 
     # Store selected models for visualization
     st.session_state.v2_selected_models = models_to_evaluate
-
+    
+    # Add option to use tuned parameters from hyperparameter tuning
+    st.subheader("Parameter Options")
+    
+    # Initialize session state for using tuned parameters if not exists
+    if 'use_tuned_parameters' not in st.session_state:
+        st.session_state.use_tuned_parameters = False
+    
+    # Checkbox for using tuned parameters
+    st.session_state.use_tuned_parameters = st.checkbox(
+        "Use tuned parameters from Hyperparameter Tuning",
+        value=st.session_state.use_tuned_parameters,
+        help="Apply optimized model parameters from the Hyperparameter Tuning page. Will use default parameters if tuned parameters are not available for a specific SKU-model combination."
+    )
+    
     # Add option to forecast all or selected SKUs
     st.subheader("Forecast Scope")
 

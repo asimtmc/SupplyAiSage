@@ -1108,7 +1108,28 @@ if st.session_state.tuning_in_progress:
 
 # Display enhanced tuning results visualization with performance comparison
 if not st.session_state.tuning_in_progress and (st.session_state.tuning_results or 'tuning_results' in st.session_state):
-    st.markdown("<h3>5. Performance Comparison Panel</h3>", unsafe_allow_html=True)
+    st.markdown("<h3>5. Parameter Results and Comparison</h3>", unsafe_allow_html=True)
+    
+    # Add tabs for different result views
+    result_overview_tabs = st.tabs(["Model Performance", "Parameter Data Table"])
+    
+    with result_overview_tabs[1]:
+        st.markdown("### Hyperparameter Results - All SKUs and Models")
+        st.markdown("This table contains all tuned parameters for all SKUs and models. You can download this data for integration with other systems.")
+        
+        # Get model display names for nicer formatting
+        model_display_names = {
+            "auto_arima": "ARIMA", 
+            "prophet": "Prophet",
+            "ets": "ETS",
+            "theta": "Theta",
+            "lstm": "LSTM"
+        }
+        
+        # Create flattened parameter data for display and download
+        parameter_rows = []
+        
+        # Will be filled after session results are loaded
 
     # Get all tuned parameters from database for all SKUs that were tuned
     tuning_results = {}
@@ -1136,6 +1157,58 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
     # Log the tuning results for debugging
     print(f"Loaded tuning results for SKUs: {list(tuning_results.keys())}")
     print(f"Model scores for different SKUs: {model_scores}")
+    
+    # Now create the flattened parameter table
+    parameter_rows = []
+    
+    # Process all tuning results into a flat table structure
+    for sku_code in tuning_results:
+        for model_type, params in tuning_results[sku_code].items():
+            if params:
+                model_name = model_display_names.get(model_type, model_type.upper())
+                # For each parameter in this model, create a separate row
+                for param_name, param_value in params.items():
+                    # Convert values to appropriate string representation
+                    if isinstance(param_value, bool):
+                        param_value_str = str(param_value)
+                    elif isinstance(param_value, (int, float)):
+                        param_value_str = str(param_value)
+                    else:
+                        param_value_str = str(param_value)
+                    
+                    # Add a row in the format from the example
+                    parameter_rows.append({
+                        "SKU code": sku_code,
+                        "SKU name": sku_code,  # Using same value for simplicity
+                        "Model name": model_name,
+                        "Parameter name": param_name,
+                        "Parameter value": param_value_str
+                    })
+    
+    # Create the all parameters dataframe
+    if parameter_rows:
+        all_params_df = pd.DataFrame(parameter_rows)
+        
+        # Populate the parameter table in the second tab
+        with result_overview_tabs[1]:
+            # Display the parameters table
+            st.dataframe(all_params_df, use_container_width=True)
+            
+            # Create a download button for the table
+            csv = all_params_df.to_csv(index=False)
+            
+            # Add download button for CSV
+            st.download_button(
+                label="Download Parameters as CSV",
+                data=csv,
+                file_name="hyperparameter_tuning_results.csv",
+                mime="text/csv",
+                help="Download the complete parameter table in CSV format for use in other systems"
+            )
+            
+            # Add a copy to clipboard option (using streamlit's native feature)
+            st.code(csv, language=None)
+            st.caption("You can also copy the CSV data above for pasting into other applications")
 
     if tuning_results:
         # Create a more advanced results dashboard
