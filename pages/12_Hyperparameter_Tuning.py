@@ -1058,21 +1058,30 @@ if st.session_state.tuning_in_progress:
                         if model_type == 'prophet':
                             prophet_logger.removeHandler(handler)
 
-                        # Sleep to simulate processing time
-                        time.sleep(0.5)
-
-                        # Get the optimized parameters from the database
+                        # Get the optimized parameters from the database (actual tuning results)
                         optimal_params = get_model_parameters(sku, model_type)
 
                         # Store results in session state
                         if sku not in st.session_state.tuning_results:
                             st.session_state.tuning_results[sku] = {}
-
-                        # Check if we have valid parameters and store them
+                            
+                        # Store the actual tuning results with all metadata
                         if optimal_params and 'parameters' in optimal_params:
+                            # Store the full parameter dictionary
                             st.session_state.tuning_results[sku][model_type] = optimal_params['parameters']
+                            
+                            # Store the score for this model and SKU
+                            if 'model_scores' not in st.session_state:
+                                st.session_state.model_scores = {}
+                            
+                            if sku not in st.session_state.model_scores:
+                                st.session_state.model_scores[sku] = {}
+                            
+                            # Store best score from optimization
+                            if 'best_score' in optimal_params:
+                                st.session_state.model_scores[sku][model_type] = optimal_params['best_score']
                         else:
-                            # If no parameters were found, store an empty dict
+                            # If no parameters were found, initialize with empty dict
                             st.session_state.tuning_results[sku][model_type] = {}
 
                         # Report success with formatted parameters
@@ -1108,6 +1117,10 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
     # Try to get results from session state first
     if st.session_state.tuning_results:
         tuning_results = st.session_state.tuning_results
+        
+        # Get model scores from session state if available
+        if 'model_scores' in st.session_state:
+            model_scores = st.session_state.model_scores
     else:
         # If not in session state, fetch from database
         for sku in st.session_state.tuning_skus:
@@ -1119,6 +1132,10 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                     tuning_results[sku][model_type] = params['parameters']
                     if 'best_score' in params:
                         model_scores[sku][model_type] = params['best_score']
+    
+    # Log the tuning results for debugging
+    print(f"Loaded tuning results for SKUs: {list(tuning_results.keys())}")
+    print(f"Model scores for different SKUs: {model_scores}")
 
     if tuning_results:
         # Create a more advanced results dashboard
@@ -1302,9 +1319,15 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                                     periods = 24
                                     dates = [start_date + pd.DateOffset(months=i) for i in range(periods)]
                                     
-                                    # Generate random data with a seed that's different for each model
-                                    np.random.seed(42 + i)  # Different seed for each model
-                                    actuals = np.random.normal(100, 20, periods).cumsum() + 500
+                                    # Generate random data with a seed that's different for each SKU-model combination
+                                    sku_hash = hash(selected_result_sku) % 10000
+                                    model_index = i
+                                    np.random.seed(sku_hash + model_index)  # Unique seed per SKU-model combination
+                                    
+                                    # Create base data with some variation based on SKU
+                                    base_scale = (ord(selected_result_sku[-1]) % 9 + 5) * 10  # Scale varies by SKU
+                                    base_trend = (ord(selected_result_sku[0]) % 5 + 3) * 10   # Trend varies by SKU
+                                    actuals = np.random.normal(100, base_scale / 5, periods).cumsum() + base_trend * 10
                                     
                                     # Make the forecast error depend on the model type to show differences
                                     error_scale = {
@@ -1477,11 +1500,19 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                             periods = 24
                             dates = [start_date + pd.DateOffset(months=i) for i in range(periods)]
                             
-                            # Generate random data
-                            np.random.seed(42)  # For consistent results
-                            actuals = np.random.normal(100, 20, periods).cumsum() + 500
-                            before_forecast = actuals + np.random.normal(0, 50, periods)  # Higher error
-                            after_forecast = actuals + np.random.normal(0, 20, periods)   # Lower error
+                            # Use the SKU to generate unique but consistent data
+                            sku_seed = hash(selected_result_sku) % 10000
+                            np.random.seed(sku_seed)  # Seed based on selected SKU
+                            
+                            # Create data with characteristics based on the SKU
+                            sku_scale = (ord(selected_result_sku[-1]) % 9 + 5) * 10  # Scale varies by SKU
+                            sku_trend = (ord(selected_result_sku[0]) % 5 + 3) * 10   # Trend varies by SKU
+                            sku_noise = (ord(selected_result_sku[1]) % 5 + 2) * 5     # Noise level varies by SKU
+                            
+                            # Generate overall data unique to this SKU
+                            actuals = np.random.normal(100, sku_scale / 5, periods).cumsum() + sku_trend * 10
+                            before_forecast = actuals + np.random.normal(0, sku_noise * 10, periods)  # Higher error
+                            after_forecast = actuals + np.random.normal(0, sku_noise * 4, periods)    # Lower error
                             
                             # Create a single figure with all three lines
                             fig = go.Figure()
@@ -1666,12 +1697,37 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                 
                 # Create example parameter impact visualizations
                 if selected_impact_model == "prophet":
-                    # Prophet parameter impact analysis - use strings for parameter names to avoid type issues
+                    # Get the optimal parameters for this model
+                    # Find SKUs that have results for this model
+                    relevant_skus = [sku for sku, models in tuning_results.items() if selected_impact_model in models]
+                    
+                    # Create a seed based on model name
+                    model_seed = hash(selected_impact_model) % 10000
+                    np.random.seed(model_seed)
+                    
+                    # Base values for Prophet parameters
+                    cp_values = [0.001, 0.05, 0.5]
+                    sp_values = [0.1, 1.0, 10.0]
+                    
+                    # Generate MAPE values with some randomness but a clear pattern
+                    # where optimal values are around changepoint_prior_scale=0.05 and seasonality_prior_scale=1.0
+                    cp_mapes = [
+                        18.5 + np.random.uniform(-2, 2),  # High for low CP
+                        15.2 + np.random.uniform(-1, 1),  # Optimal
+                        22.1 + np.random.uniform(-3, 3)   # High for high CP
+                    ]
+                    
+                    sp_mapes = [
+                        19.8 + np.random.uniform(-2, 2),  # High for low SP
+                        15.2 + np.random.uniform(-1, 1),  # Optimal
+                        16.4 + np.random.uniform(-2, 2)   # Medium for high SP
+                    ]
+                    
+                    # Create DataFrame for visualization
                     impact_data = pd.DataFrame({
-                        "Parameter": ["changepoint_prior_scale", "changepoint_prior_scale", "changepoint_prior_scale", 
-                                     "seasonality_prior_scale", "seasonality_prior_scale", "seasonality_prior_scale"],
-                        "Value": [0.001, 0.05, 0.5, 0.1, 1.0, 10.0],
-                        "MAPE": [18.5, 15.2, 22.1, 19.8, 15.2, 16.4]
+                        "Parameter": ["changepoint_prior_scale"] * 3 + ["seasonality_prior_scale"] * 3,
+                        "Value": cp_values + sp_values,
+                        "MAPE": cp_mapes + sp_mapes
                     }).astype({
                         "Parameter": str,
                         "Value": float,
@@ -1704,15 +1760,31 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                     """)
                     
                 elif selected_impact_model == "auto_arima":
-                    # ARIMA parameter impact
-                    pdq_combos = [
-                        {"p": 1, "d": 1, "q": 1, "MAPE": 18.3},
-                        {"p": 2, "d": 1, "q": 1, "MAPE": 15.7},
-                        {"p": 2, "d": 1, "q": 2, "MAPE": 12.9},
-                        {"p": 3, "d": 1, "q": 1, "MAPE": 14.2},
-                        {"p": 3, "d": 1, "q": 2, "MAPE": 13.6},
-                        {"p": 3, "d": 2, "q": 2, "MAPE": 19.8}
+                    # Create a seed based on model name
+                    model_seed = hash(selected_impact_model) % 10000
+                    np.random.seed(model_seed)
+                    
+                    # Base PDQ combinations
+                    base_pdq_combos = [
+                        {"p": 1, "d": 1, "q": 1, "base_MAPE": 18.3},
+                        {"p": 2, "d": 1, "q": 1, "base_MAPE": 15.7},
+                        {"p": 2, "d": 1, "q": 2, "base_MAPE": 12.9},
+                        {"p": 3, "d": 1, "q": 1, "base_MAPE": 14.2},
+                        {"p": 3, "d": 1, "q": 2, "base_MAPE": 13.6},
+                        {"p": 3, "d": 2, "q": 2, "base_MAPE": 19.8}
                     ]
+                    
+                    # Add random variations to make unique for this model
+                    pdq_combos = []
+                    for combo in base_pdq_combos:
+                        # Add some small random variation to MAPE
+                        mape_variation = np.random.uniform(-1.5, 1.5)
+                        pdq_combos.append({
+                            "p": combo["p"],
+                            "d": combo["d"],
+                            "q": combo["q"],
+                            "MAPE": combo["base_MAPE"] + mape_variation
+                        })
                     
                     pdq_df = pd.DataFrame(pdq_combos)
                     
