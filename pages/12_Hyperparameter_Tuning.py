@@ -928,16 +928,37 @@ if st.session_state.tuning_in_progress:
         try:
             # Helper function to format parameters nicely
             def format_parameters(params, model_type):
+                # Ensure params is a dictionary
+                if not isinstance(params, dict):
+                    return str(params)
+                
                 if model_type == "auto_arima":
                     return f"p={params.get('p', 'auto')}, d={params.get('d', 'auto')}, q={params.get('q', 'auto')}"
                 elif model_type == "prophet":
-                    return f"changepoint_prior_scale={params.get('changepoint_prior_scale', 0.05):.3f}, seasonality_prior_scale={params.get('seasonality_prior_scale', 10.0):.3f}"
+                    # Convert values to appropriate types to avoid serialization issues
+                    cp_scale = params.get('changepoint_prior_scale', 0.05)
+                    sp_scale = params.get('seasonality_prior_scale', 10.0)
+                    
+                    # Ensure numeric values
+                    try:
+                        cp_scale = float(cp_scale)
+                        sp_scale = float(sp_scale)
+                    except (ValueError, TypeError):
+                        cp_scale = 0.05
+                        sp_scale = 10.0
+                        
+                    return f"changepoint_prior_scale={cp_scale:.3f}, seasonality_prior_scale={sp_scale:.3f}"
                 elif model_type == "ets":
-                    return f"trend={params.get('trend', 'add')}, seasonal={params.get('seasonal', None)}, damped={params.get('damped_trend', False)}"
+                    trend = params.get('trend', 'add')
+                    seasonal = params.get('seasonal', None)
+                    damped = params.get('damped_trend', False)
+                    return f"trend={trend}, seasonal={seasonal}, damped={damped}"
                 elif model_type == "theta":
                     return f"Theta parameters optimized"
                 elif model_type == "lstm":
-                    return f"units={params.get('units', 50)}, layers={params.get('n_layers', 2)}"
+                    units = params.get('units', 50)
+                    layers = params.get('n_layers', 2)
+                    return f"units={units}, layers={layers}"
                 else:
                     return str(params)
 
