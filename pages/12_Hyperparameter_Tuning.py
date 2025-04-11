@@ -1,12 +1,8 @@
-# IMPORTANT: st.set_page_config must be the first Streamlit command
+# Import streamlit first
 import streamlit as st
 
-# Set page config (must be the first Streamlit command)
-st.set_page_config(
-    page_title="Hyperparameter Tuning",
-    page_icon="🔧",
-    layout="wide"
-)
+# Page configuration is already set in app.py
+# Do not call st.set_page_config() here as it will cause errors
 
 import pandas as pd
 import numpy as np
