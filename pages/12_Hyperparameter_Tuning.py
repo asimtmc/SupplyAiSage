@@ -1698,14 +1698,18 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                                             forecast_start = dates[forecast_idx]
                                             # Convert timestamp to string for vline
                                             forecast_date_str = forecast_start.strftime('%Y-%m-%d')
-                                            fig.add_vline(
-                                                x=forecast_date_str, 
-                                                line_dash="solid", 
-                                                line_width=2, 
-                                                line_color="gray",
-                                                annotation_text="Forecast Start", 
-                                                annotation_position="top right"
-                                            )
+                                            # Use the numeric index instead of date string for the vline
+                                            try:
+                                                fig.add_vline(
+                                                    x=forecast_idx, 
+                                                    line_dash="solid", 
+                                                    line_width=2, 
+                                                    line_color="gray",
+                                                    annotation_text="Forecast Start", 
+                                                    annotation_position="top right"
+                                                )
+                                            except Exception as e:
+                                                st.warning(f"Could not add forecast boundary: {str(e)}")
                                         
                                         # Calculate shaded confidence intervals for new forecast
                                         lower_bound = new_forecast - (new_forecast * new_performance["mape"]/100)
