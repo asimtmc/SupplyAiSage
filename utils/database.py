@@ -662,6 +662,52 @@ def get_all_model_parameters():
         if session:
             session.close()
 
+def get_flat_model_parameters():
+    """
+    Get all model parameters in a flat format suitable for tabular display
+    
+    Returns:
+    --------
+    list of dict
+        List of dictionaries with keys: sku_code, sku_name, model_name, parameter_name, parameter_value
+    """
+    try:
+        session = SessionFactory()
+        all_params = session.query(ModelParameterCache).all()
+        
+        flat_results = []
+        import json
+        
+        for param in all_params:
+            try:
+                parameters = json.loads(param.parameters)
+                
+                # For each parameter, create a separate row
+                for param_name, param_value in parameters.items():
+                    # Convert value to string for consistent display
+                    if isinstance(param_value, (list, dict)):
+                        value_str = json.dumps(param_value)
+                    else:
+                        value_str = str(param_value)
+                    
+                    flat_results.append({
+                        'sku_code': param.sku,
+                        'sku_name': param.sku,  # Using SKU code as name since we don't have separate names
+                        'model_name': param.model_type.upper(),
+                        'parameter_name': param_name,
+                        'parameter_value': value_str
+                    })
+            except json.JSONDecodeError:
+                print(f"Error parsing JSON parameters for {param.sku}, {param.model_type}")
+        
+        return flat_results
+    except Exception as e:
+        print(f"Error retrieving flat model parameters: {str(e)}")
+        return []
+    finally:
+        if session:
+            session.close()
+
 def get_parameters_update_required(sku, model_type, days_threshold=7):
     """
     Check if parameters need updating based on age

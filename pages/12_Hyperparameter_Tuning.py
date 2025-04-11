@@ -3026,3 +3026,86 @@ with st.expander("Parameter Database Status", expanded=False):
             st.info("No optimized parameters found in the database.")
     except Exception as e:
         st.error(f"Error fetching parameter database status: {str(e)}")
+
+# Add a new section for displaying all parameters in a flat table format
+st.markdown("<h3>8. Complete Parameter Data Table</h3>", unsafe_allow_html=True)
+
+st.markdown("""
+This table displays all hyperparameter tuning results in a comprehensive, downloadable format.
+Each row represents a single parameter for a specific SKU and model.
+""")
+
+# Import the function to get flat model parameters
+from utils.database import get_flat_model_parameters
+
+try:
+    # Get flat model parameters in the format requested
+    flat_params = get_flat_model_parameters()
+    
+    if flat_params:
+        # Create a DataFrame with the flat parameters
+        params_df = pd.DataFrame(flat_params)
+        
+        # Display the DataFrame
+        st.dataframe(params_df, use_container_width=True, height=400)
+        
+        # Add download button for the parameters table
+        @st.cache_data
+        def convert_df_to_csv(df):
+            return df.to_csv(index=False).encode('utf-8')
+        
+        csv = convert_df_to_csv(params_df)
+        
+        st.download_button(
+            label="📥 Download Parameters Table as CSV",
+            data=csv,
+            file_name="hyperparameter_tuning_results.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
+        
+        # Add download button for Excel format
+        @st.cache_data
+        def convert_df_to_excel(df):
+            import io
+            buffer = io.BytesIO()
+            df.to_excel(buffer, index=False, engine='xlsxwriter')
+            buffer.seek(0)
+            return buffer.getvalue()
+        
+        excel_data = convert_df_to_excel(params_df)
+        
+        st.download_button(
+            label="📥 Download Parameters Table as Excel",
+            data=excel_data,
+            file_name="hyperparameter_tuning_results.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+        
+        # Display summary statistics
+        st.markdown(f"""
+        **Summary Statistics:**
+        - Total parameters: {len(params_df)}
+        - Unique SKUs: {params_df['sku_code'].nunique()}
+        - Models with parameters: {params_df['model_name'].nunique()}
+        """)
+        
+    else:
+        st.info("No parameter data available. Run hyperparameter tuning to generate parameters.")
+        
+        # Add example data table to show the format
+        st.markdown("### Example Data Format")
+        
+        # Create example data like the screenshot
+        example_data = [
+            {"sku_code": "SKU1", "sku_name": "SKU1", "model_name": "ARIMA", "parameter_name": "p", "parameter_value": "1"},
+            {"sku_code": "SKU1", "sku_name": "SKU1", "model_name": "ARIMA", "parameter_name": "d", "parameter_value": "2"},
+            {"sku_code": "SKU1", "sku_name": "SKU1", "model_name": "ARIMA", "parameter_name": "q", "parameter_value": "3"}
+        ]
+        example_df = pd.DataFrame(example_data)
+        
+        st.dataframe(example_df, use_container_width=True)
+        
+except Exception as e:
+    st.error(f"Error loading parameter data table: {str(e)}")
