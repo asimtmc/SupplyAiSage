@@ -1626,11 +1626,26 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
             # Allow selecting a model to analyze
             model_options = list(set([model for sku_models in tuning_results.values() for model in sku_models.keys()]))
             if model_options:
+                # Initialize session state for impact model if not present
+                if 'selected_impact_model' not in st.session_state:
+                    st.session_state.selected_impact_model = model_options[0] if "prophet" in model_options else model_options[0]
+                
+                # Define callback for model change
+                def on_impact_model_change():
+                    st.session_state.selected_impact_model = st.session_state.impact_model_selector
+                
+                # Find the current index for the selected model
+                model_index = 0
+                if st.session_state.selected_impact_model in model_options:
+                    model_index = model_options.index(st.session_state.selected_impact_model)
+                
+                # Create selectbox with callback
                 selected_impact_model = st.selectbox(
                     "Select model to analyze",
                     options=model_options,
-                    index=0 if "prophet" in model_options else 0,
-                    key="impact_model_selector"
+                    index=model_index,
+                    key="impact_model_selector",
+                    on_change=on_impact_model_change
                 )
                 
                 # Show parameter impact visualization
