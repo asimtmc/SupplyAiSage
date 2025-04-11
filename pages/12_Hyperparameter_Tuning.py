@@ -1149,11 +1149,22 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
             # Select an SKU to analyze in detail
             available_skus = list(tuning_results.keys())
             if available_skus:
+                # Use session state to track SKU changes
+                if 'selected_result_sku' not in st.session_state:
+                    st.session_state.selected_result_sku = available_skus[0]
+                
+                # Define callback to update on SKU change
+                def on_sku_change():
+                    # Update session state when SKU changes
+                    st.session_state.selected_result_sku = st.session_state.result_sku_selector
+                
+                # Create the selectbox with the callback
                 selected_result_sku = st.selectbox(
                     "Select SKU to analyze",
                     options=available_skus,
-                    index=0,
-                    key="result_sku_selector"
+                    index=available_skus.index(st.session_state.selected_result_sku),
+                    key="result_sku_selector",
+                    on_change=on_sku_change
                 )
                 
                 # Get model results for this SKU
@@ -1723,23 +1734,59 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                 # Create columns for selector layout
                 explore_col1, explore_col2 = st.columns([2, 1])
                 
+                # Initialize session state for model selection if not already present
+                if 'selected_explore_model' not in st.session_state:
+                    st.session_state.selected_explore_model = explore_model_options[0] if explore_model_options else ""
+                
+                # Define callback for model change
+                def on_model_change():
+                    st.session_state.selected_explore_model = st.session_state.explore_model_selector
+                    
+                    # When model changes, reset SKU selection
+                    available_skus = [sku for sku, models in tuning_results.items() 
+                                     if st.session_state.selected_explore_model in models]
+                    if available_skus:
+                        st.session_state.selected_explore_sku = available_skus[0]
+                
                 with explore_col1:
+                    model_index = 0
+                    if st.session_state.selected_explore_model in explore_model_options:
+                        model_index = explore_model_options.index(st.session_state.selected_explore_model)
+                        
                     selected_explore_model = st.selectbox(
                         "Select model to explore",
                         options=explore_model_options,
-                        index=0 if "prophet" in explore_model_options else 0,
-                        key="explore_model_selector"
+                        index=model_index,
+                        key="explore_model_selector",
+                        on_change=on_model_change
                     )
                 
                 with explore_col2:
                     # SKU selection for this model
                     available_skus = [sku for sku, models in tuning_results.items() if selected_explore_model in models]
+                    
+                    # Initialize selected SKU in session state if needed
+                    if 'selected_explore_sku' not in st.session_state and available_skus:
+                        st.session_state.selected_explore_sku = available_skus[0]
+                    
+                    # Define callback for SKU change
+                    def on_sku_change():
+                        st.session_state.selected_explore_sku = st.session_state.explore_sku_selector
+                    
                     if available_skus:
+                        # Default index if current selection not available
+                        sku_index = 0
+                        
+                        # Use stored selection if available
+                        if st.session_state.selected_explore_sku in available_skus:
+                            sku_index = available_skus.index(st.session_state.selected_explore_sku)
+                        
                         selected_explore_sku = st.selectbox(
                             "Select SKU to visualize",
                             options=available_skus,
-                            index=0,
-                            key="explore_sku_selector"
+                            index=sku_index,
+                            key="explore_sku_selector",
+                            on_change=on_sku_change
                         )
                         
                         # Get current parameters for this SKU and model
