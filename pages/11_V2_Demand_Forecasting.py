@@ -352,7 +352,8 @@ with st.sidebar:
                                 evaluate_models_flag=evaluate_models_flag,
                                 models_to_evaluate=models_to_evaluate,
                                 selected_skus=skus_to_forecast,
-                                progress_callback=forecast_progress_callback
+                                progress_callback=forecast_progress_callback,
+                                use_tuned_parameters=st.session_state.use_tuned_parameters
                             )
 
                     # Update progress based on callback data with improved visuals

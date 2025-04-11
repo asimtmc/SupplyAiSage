@@ -17,6 +17,7 @@ import io
 import base64
 import json
 import math
+from utils.parameter_optimizer import get_model_parameters
 
 # For auto_arima, try to import pmdarima (also known as pyramid-arima)
 auto_arima_available = False
@@ -1030,7 +1031,7 @@ def create_ensemble_forecast(forecasts_dict, weights=None, method="weighted_aver
     
     return ensemble_forecast
 
-def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_periods=12):
+def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_periods=12, use_tuned_parameters=False):
     """
     Evaluate multiple forecasting models on a test set and select the best one
 
@@ -1044,6 +1045,10 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
         Proportion of data to use for testing (default is 0.2)
     forecast_periods : int, optional
         Number of periods to forecast (default is 12)
+    use_tuned_parameters : bool, optional
+        Whether to use tuned parameters from hyperparameter optimization (default is False).
+        If True, will attempt to use tuned parameters for each model/SKU combination,
+        falling back to default parameters when tuned parameters are not available.
 
     Returns:
     --------
@@ -1063,7 +1068,39 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
 
     # Print list of models being evaluated (for debugging)
     print(f"Evaluating models: {models_to_evaluate}")
-
+    
+    # Get SKU identifier for parameter lookup if using tuned parameters
+    sku_identifier = data['sku'].iloc[0] if 'sku' in data.columns else None
+    
+    # Create a dictionary to store tuned parameters for each model type
+    tuned_parameters = {}
+    
+    # If using tuned parameters, try to load them for each model
+    if use_tuned_parameters and sku_identifier:
+        print(f"Attempting to use tuned parameters for SKU: {sku_identifier}")
+        for model_type in models_to_evaluate:
+            # Map the model_type to model types used in parameter tuning
+            param_model_type = model_type
+            if model_type == "auto_arima":
+                param_model_type = "auto_arima"
+            elif model_type == "prophet":
+                param_model_type = "prophet"
+            elif model_type == "ets":
+                param_model_type = "ets"
+            elif model_type == "theta":
+                param_model_type = "theta"
+            
+            # Try to get tuned parameters for this model type and SKU
+            try:
+                model_params = get_model_parameters(sku_identifier, param_model_type)
+                if model_params and 'parameters' in model_params:
+                    tuned_parameters[model_type] = model_params['parameters']
+                    print(f"Loaded tuned parameters for {model_type}: {tuned_parameters[model_type]}")
+                else:
+                    print(f"No tuned parameters found for {model_type}, using defaults")
+            except Exception as e:
+                print(f"Error loading tuned parameters for {model_type}: {str(e)}")
+    
     # Always use the last 6 months as test data regardless of test_size parameter
     if len(data) <= 6:
         # If we have 6 or fewer data points, use at least one for testing
@@ -1178,10 +1215,20 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                     'y': train_data['quantity']
                 })
 
-                # Train Prophet model
+                # Check if we have tuned parameters for prophet
+                if use_tuned_parameters and 'prophet' in tuned_parameters:
+                    params = tuned_parameters['prophet']
+                    cp_scale = float(params.get('changepoint_prior_scale', 0.05))
+                    season_scale = float(params.get('seasonality_prior_scale', 0.1))
+                    print(f"Using tuned Prophet parameters: changepoint_prior_scale={cp_scale}, seasonality_prior_scale={season_scale}")
+                else:
+                    cp_scale = 0.05
+                    season_scale = 0.1
+                
+                # Train Prophet model with default or tuned parameters
                 m = Prophet(
-                    changepoint_prior_scale=0.05,
-                    seasonality_prior_scale=0.1,
+                    changepoint_prior_scale=cp_scale,
+                    seasonality_prior_scale=season_scale,
                     yearly_seasonality=True if len(train_data) >= 24 else False,
                     weekly_seasonality=False,
                     daily_seasonality=False
@@ -1204,9 +1251,10 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                     'y': data['quantity']
                 })
 
+                # Use the same parameters (tuned or default) for the full model
                 full_m = Prophet(
-                    changepoint_prior_scale=0.05,
-                    seasonality_prior_scale=0.1,
+                    changepoint_prior_scale=cp_scale,
+                    seasonality_prior_scale=season_scale,
                     yearly_seasonality=True if len(data) >= 24 else False,
                     weekly_seasonality=False,
                     daily_seasonality=False
@@ -2279,7 +2327,7 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
         "all_models_test_pred": all_models_test_pred
     }
 
-def generate_forecasts(sales_data, cluster_info, forecast_periods=12, evaluate_models_flag=False, models_to_evaluate=None, selected_skus=None, progress_callback=None):
+def generate_forecasts(sales_data, cluster_info, forecast_periods=12, evaluate_models_flag=False, models_to_evaluate=None, selected_skus=None, progress_callback=None, use_tuned_parameters=False):
     """
     Generate forecasts for SKUs based on their clusters
 
@@ -2299,6 +2347,10 @@ def generate_forecasts(sales_data, cluster_info, forecast_periods=12, evaluate_m
         List of specific SKUs to forecast. If None, forecasts all SKUs (default is None)
     progress_callback : function, optional
         Callback function to report progress (current_index, current_sku, total_skus)
+    use_tuned_parameters : bool, optional
+        Whether to use tuned parameters from hyperparameter optimization (default is False).
+        If True, will attempt to use tuned parameters for each model/SKU combination,
+        falling back to default parameters when tuned parameters are not available.
 
     Returns:
     --------
