@@ -133,7 +133,7 @@ def objective_function_arima(params, train_data, val_data):
             predictions = fitted_model.forecast(steps=len(val_data))
             
             # Check for invalid predictions
-            if any(pd.isna(predictions)) or any(pd.isinf(predictions)):
+            if np.isnan(predictions).any() or np.isinf(predictions).any():
                 logger.warning(f"ARIMA model produced invalid predictions for order ({p},{d},{q})")
                 return float('inf')
                 
@@ -311,7 +311,7 @@ def objective_function_theta(params, train_data, val_data):
         logger.info(f"Fitting Theta model with parameters: theta={theta_value}, deseasonalize={deseasonalize}, period={period}")
         
         # Make sure data is clean
-        if pd.isna(train_data).any() or pd.isinf(train_data).any():
+        if train_data.isna().any() or np.isinf(train_data.values).any():
             logger.warning("Training data contains NaN or Inf values, cleaning...")
             train_data = train_data.replace([np.inf, -np.inf], np.nan).dropna()
             
@@ -374,11 +374,11 @@ def optimize_arima_parameters(train_data, val_data, n_trials=30):
         return {'parameters': {'p': 1, 'd': 1, 'q': 0}, 'score': float('inf')}
     
     # Ensure the data is clean (no NaN, Inf)
-    if pd.isna(train_data).any() or pd.isinf(train_data).any():
+    if train_data.isna().any() or np.isinf(train_data.values).any():
         logger.warning("Training data contains NaN or Inf values, cleaning...")
         train_data = train_data.replace([np.inf, -np.inf], np.nan).dropna()
         
-    if pd.isna(val_data).any() or pd.isinf(val_data).any():
+    if val_data.isna().any() or np.isinf(val_data.values).any():
         logger.warning("Validation data contains NaN or Inf values, cleaning...")
         val_data = val_data.replace([np.inf, -np.inf], np.nan).dropna()
     
@@ -602,11 +602,11 @@ def optimize_theta_parameters(train_data, val_data, n_trials=10):
     import pandas as pd
     
     # Make sure data is clean
-    if pd.isna(train_data).any() or pd.isinf(train_data).any():
+    if train_data.isna().any() or np.isinf(train_data.values).any():
         logger.warning("Training data contains NaN or Inf values, cleaning...")
         train_data = train_data.replace([np.inf, -np.inf], np.nan).dropna()
         
-    if pd.isna(val_data).any() or pd.isinf(val_data).any():
+    if val_data.isna().any() or np.isinf(val_data.values).any():
         logger.warning("Validation data contains NaN or Inf values, cleaning...")
         val_data = val_data.replace([np.inf, -np.inf], np.nan).dropna()
     
