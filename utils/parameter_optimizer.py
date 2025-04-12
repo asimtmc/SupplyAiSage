@@ -146,8 +146,9 @@ def objective_function_arima(params, train_data, val_data):
 
         # Use a try block specifically for model fitting
         try:
-            # Updated: Remove 'disp' parameter which is no longer supported
-            fitted_model = model.fit(maxiter=100)  # Increase max iterations
+            # Use only compatible parameters for current statsmodels version
+            # Don't pass disp or maxiter which may cause errors in newer versions
+            fitted_model = model.fit()
             logger.info(f"ARIMA fitting complete. AIC: {fitted_model.aic:.2f}, BIC: {fitted_model.bic:.2f}")
         except Exception as fit_error:
             logger.error(f"ARIMA fitting failed for order ({p},{d},{q}): {str(fit_error)}")
@@ -362,7 +363,6 @@ def objective_function_theta(params, train_data, val_data):
                 train_data,
                 period=period if deseasonalize else None,
                 deseasonalize=deseasonalize,
-                use_test=False,  # Don't use test data
                 method=method   # Use the specified method
             )
 
