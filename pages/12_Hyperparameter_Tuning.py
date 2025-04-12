@@ -503,6 +503,9 @@ with tuning_col1:
             
             with col_select:
                 st.write("")  # Add some spacing
+                # Store previous state before updating
+                previous_selected = model_key in selected_models
+                
                 model_selected = st.checkbox(
                     "Enable Tuning",
                     value=(model_key in ["auto_arima", "prophet"]),
@@ -517,6 +520,11 @@ with tuning_col1:
                             "ranges": {},
                             "included": []
                         }
+                    
+                    # Auto-select all parameters if model was just enabled
+                    if not previous_selected:
+                        # Pre-populate with all parameter keys
+                        st.session_state.selected_models_with_params[model_key]["included"] = list(model_info["params"].keys())
             
             # Parameter display
             if model_selected:
@@ -546,10 +554,10 @@ with tuning_col1:
                                 <div style='font-size: 0.8rem; margin-bottom: 0.5rem;'>{param_info["desc"]}</div>
                                 """, unsafe_allow_html=True)
                                 
-                                # Checkbox to include parameter in tuning
+                                # Checkbox to include parameter in tuning - default to True when model is selected
                                 include_param = st.checkbox(
                                     f"Tune this parameter",
-                                    value=param_key in st.session_state.selected_models_with_params.get(model_key, {}).get("included", []),
+                                    value=model_selected and (param_key in st.session_state.selected_models_with_params.get(model_key, {}).get("included", [])),
                                     key=f"include_{model_key}_{param_key}"
                                 )
                                 
