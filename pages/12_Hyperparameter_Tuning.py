@@ -95,43 +95,96 @@ def render_parameter_lookup_table():
         found_count = sum(len(models) for models in all_params.values())
         st.success(f"Parameters found for {found_count} SKU-model combinations")
         
-        # Create expanders for each SKU-model combination
+        # Create a comprehensive table of all parameters in a flat structure
+        st.markdown("### Parameter Data Table")
+        st.info("This table shows all parameter values for the selected SKU-model combinations.")
+        
+        # Create a flat table structure for all parameters
+        table_data = []
+        
         for sku in all_params:
             for model in all_params[sku]:
                 params = all_params[sku][model]
                 if 'parameters' in params:
-                    with st.expander(f"{sku} / {model_options[model]}", expanded=found_count <= 3):
-                        # Display parameters in a nice table format
-                        param_dict = params['parameters']
-                        
-                        # Create two columns for parameter display
-                        param_col1, param_col2 = st.columns(2)
-                        
-                        with param_col1:
-                            st.markdown("### Parameter Values")
-                            # Convert parameters to a more readable format
-                            param_table = []
-                            for param_name, param_value in param_dict.items():
-                                param_table.append({"Parameter": param_name, "Value": str(param_value)})
-                            
-                            import pandas as pd
-                            st.dataframe(pd.DataFrame(param_table), use_container_width=True)
-                        
-                        with param_col2:
-                            st.markdown("### Tuning Metadata")
-                            if 'last_updated' in params:
-                                st.write(f"**Last Updated:** {params['last_updated'].strftime('%Y-%m-%d %H:%M')}")
-                            if 'tuning_iterations' in params:
-                                st.write(f"**Tuning Iterations:** {params['tuning_iterations']}")
-                            if 'best_score' in params:
-                                st.write(f"**Best Score:** {params['best_score']:.4f}")
-                            
-                            # Add a button to rerun tuning specifically for this combination
-                            if st.button("Retune This Combination", key=f"retune_{sku}_{model}"):
-                                st.session_state.parameter_tuning_in_progress = True
-                                st.session_state.tuning_skus = [sku]
-                                st.session_state.tuning_models = [model]
-                                st.rerun()
+                    param_dict = params['parameters']
+                    model_display_name = model_options[model]
+                    
+                    # Get metadata information
+                    last_updated = params.get('last_updated', '').strftime('%Y-%m-%d %H:%M') if 'last_updated' in params else 'N/A'
+                    tuning_iterations = str(params.get('tuning_iterations', 'N/A'))
+                    best_score = f"{params.get('best_score', 0):.4f}" if 'best_score' in params else 'N/A'
+                    
+                    # Add each parameter as a row
+                    for param_name, param_value in param_dict.items():
+                        table_data.append({
+                            "SKU": sku,
+                            "Model": model_display_name,
+                            "Parameter": param_name,
+                            "Value": str(param_value),
+                            "Last Updated": last_updated,
+                            "Tuning Iterations": tuning_iterations,
+                            "Best Score": best_score
+                        })
+        
+        if table_data:
+            # Create dataframe and display
+            import pandas as pd
+            params_df = pd.DataFrame(table_data)
+            
+            # Configure the display columns
+            column_config = {
+                "SKU": st.column_config.TextColumn("SKU", width="medium"),
+                "Model": st.column_config.TextColumn("Model", width="medium"),
+                "Parameter": st.column_config.TextColumn("Parameter", width="medium"),
+                "Value": st.column_config.TextColumn("Value", width="medium"),
+                "Last Updated": st.column_config.TextColumn("Last Updated", width="medium"),
+                "Tuning Iterations": st.column_config.TextColumn("Iterations", width="small"),
+                "Best Score": st.column_config.TextColumn("Score", width="small")
+            }
+            
+            # Display the data table
+            st.dataframe(params_df, column_config=column_config, use_container_width=True, height=400)
+            
+            # Add download options
+            st.markdown("### Download Options")
+            
+            # CSV download
+            csv = params_df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="Download as CSV",
+                data=csv,
+                file_name="parameter_values.csv",
+                mime="text/csv",
+                key="download_csv_btn"
+            )
+            
+            # Excel download
+            buffer = io.BytesIO()
+            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                params_df.to_excel(writer, sheet_name='Parameters', index=False)
+                # Auto-adjust column widths
+                worksheet = writer.sheets['Parameters']
+                for i, col in enumerate(params_df.columns):
+                    max_width = max(params_df[col].astype(str).map(len).max(), len(col)) + 2
+                    worksheet.set_column(i, i, max_width)
+            
+            excel_data = buffer.getvalue()
+            st.download_button(
+                label="Download as Excel",
+                data=excel_data,
+                file_name="parameter_values.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="download_excel_btn"
+            )
+        else:
+            st.warning("No parameter data available for the selected SKUs and models.")
+            
+        # Add a button to retune all selected combinations
+        if st.button("Retune All Selected Combinations", type="primary"):
+            st.session_state.parameter_tuning_in_progress = True
+            st.session_state.tuning_skus = selected_skus
+            st.session_state.tuning_models = selected_models
+            st.rerun()
         
         # Add option to retune all selected combinations
         if st.button("Retune All Selected Combinations", type="primary"):
