@@ -1645,10 +1645,10 @@ def get_table_styles():
 # Example function for demo/standalone usage
 def create_demo_dashboard(title="Demand Forecasting Dashboard"):
     st.title(title)
-    
+
     # File uploader
     uploaded_file = st.file_uploader("Choose a CSV file", type=["csv"])
-    
+
     if uploaded_file is not None:
         sales_data = pd.read_csv(uploaded_file)
         sales_data['date'] = pd.to_datetime(sales_data['date'])
