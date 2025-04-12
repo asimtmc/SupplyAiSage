@@ -18,16 +18,18 @@ def render_parameter_lookup_table():
     search_col1, search_col2 = st.columns([2, 2])
     
     with search_col1:
-        # Let user search by SKU
+        # Let user search by SKU - changed to multiselect
         if 'sales_data' in st.session_state:
             all_skus = sorted(st.session_state.sales_data['sku'].unique().tolist())
-            selected_sku = st.selectbox("Select SKU", options=all_skus, key="lookup_sku_selector")
+            selected_skus = st.multiselect("Select SKUs", options=all_skus, default=[all_skus[0]] if all_skus else [], key="lookup_sku_selector")
+            if not selected_skus and all_skus:
+                selected_skus = [all_skus[0]]  # Default to first SKU if none selected
         else:
             st.warning("No sales data loaded. Please load data first.")
             return
     
     with search_col2:
-        # Let user select model type
+        # Let user select model type - changed to multiselect
         model_options = {
             "auto_arima": "Auto ARIMA",
             "prophet": "Prophet",
@@ -35,50 +37,76 @@ def render_parameter_lookup_table():
             "theta": "Theta Method",
             "lstm": "LSTM Neural Network"
         }
-        selected_model = st.selectbox("Select Model", options=list(model_options.keys()), 
+        selected_models = st.multiselect("Select Models", 
+                                     options=list(model_options.keys()),
+                                     default=["auto_arima"],
                                      format_func=lambda x: model_options.get(x, x), 
                                      key="lookup_model_selector")
+        if not selected_models:
+            selected_models = ["auto_arima"]  # Default to ARIMA if none selected
     
-    # Get parameters for the selected combination
+    # Get parameters for all selected combinations
     from utils.database import get_model_parameters
-    params = get_model_parameters(selected_sku, selected_model)
+    all_params = {}
+    for selected_sku in selected_skus:
+        for selected_model in selected_models:
+            params = get_model_parameters(selected_sku, selected_model)
+            if params and 'parameters' in params:
+                if selected_sku not in all_params:
+                    all_params[selected_sku] = {}
+                all_params[selected_sku][selected_model] = params
     
-    if params and 'parameters' in params:
-        st.success(f"Parameters found for {selected_sku} / {model_options[selected_model]}")
+    if all_params:
+        found_count = sum(len(models) for models in all_params.values())
+        st.success(f"Parameters found for {found_count} SKU-model combinations")
         
-        # Display parameters in a nice table format
-        param_dict = params['parameters']
+        # Create expanders for each SKU-model combination
+        for sku in all_params:
+            for model in all_params[sku]:
+                params = all_params[sku][model]
+                if 'parameters' in params:
+                    with st.expander(f"{sku} / {model_options[model]}", expanded=found_count <= 3):
+                        # Display parameters in a nice table format
+                        param_dict = params['parameters']
+                        
+                        # Create two columns for parameter display
+                        param_col1, param_col2 = st.columns(2)
+                        
+                        with param_col1:
+                            st.markdown("### Parameter Values")
+                            # Convert parameters to a more readable format
+                            param_table = []
+                            for param_name, param_value in param_dict.items():
+                                param_table.append({"Parameter": param_name, "Value": str(param_value)})
+                            
+                            import pandas as pd
+                            st.dataframe(pd.DataFrame(param_table), use_container_width=True)
+                        
+                        with param_col2:
+                            st.markdown("### Tuning Metadata")
+                            if 'last_updated' in params:
+                                st.write(f"**Last Updated:** {params['last_updated'].strftime('%Y-%m-%d %H:%M')}")
+                            if 'tuning_iterations' in params:
+                                st.write(f"**Tuning Iterations:** {params['tuning_iterations']}")
+                            if 'best_score' in params:
+                                st.write(f"**Best Score:** {params['best_score']:.4f}")
+                            
+                            # Add a button to rerun tuning specifically for this combination
+                            if st.button("Retune This Combination", key=f"retune_{sku}_{model}"):
+                                st.session_state.parameter_tuning_in_progress = True
+                                st.session_state.tuning_skus = [sku]
+                                st.session_state.tuning_models = [model]
+                                st.rerun()
         
-        # Create two columns for parameter display
-        param_col1, param_col2 = st.columns(2)
-        
-        with param_col1:
-            st.markdown("### Parameter Values")
-            # Convert parameters to a more readable format
-            param_table = []
-            for param_name, param_value in param_dict.items():
-                param_table.append({"Parameter": param_name, "Value": str(param_value)})
-            
-            import pandas as pd
-            st.dataframe(pd.DataFrame(param_table), use_container_width=True)
-        
-        with param_col2:
-            st.markdown("### Tuning Metadata")
-            if 'last_updated' in params:
-                st.write(f"**Last Updated:** {params['last_updated'].strftime('%Y-%m-%d %H:%M')}")
-            if 'tuning_iterations' in params:
-                st.write(f"**Tuning Iterations:** {params['tuning_iterations']}")
-            if 'best_score' in params:
-                st.write(f"**Best Score:** {params['best_score']:.4f}")
-            
-            # Add a button to rerun tuning specifically for this combination
-            if st.button("Retune This Combination", key="retune_specific"):
-                st.session_state.parameter_tuning_in_progress = True
-                st.session_state.tuning_skus = [selected_sku]
-                st.session_state.tuning_models = [selected_model]
-                st.rerun()
+        # Add option to retune all selected combinations
+        if st.button("Retune All Selected Combinations", type="primary"):
+            st.session_state.parameter_tuning_in_progress = True
+            st.session_state.tuning_skus = selected_skus
+            st.session_state.tuning_models = selected_models
+            st.rerun()
     else:
-        st.info(f"No parameters found for {selected_sku} with {model_options[selected_model]}. Run hyperparameter tuning to generate parameters.")
+        combinations = [f"{sku} with {model_options[model]}" for sku in selected_skus for model in selected_models]
+        st.info(f"No parameters found for the selected combinations: {', '.join(combinations)}. Run hyperparameter tuning to generate parameters.")
     
     # Display a complete parameter table
     st.markdown("### All Tuned Parameters")
@@ -86,6 +114,9 @@ def render_parameter_lookup_table():
     if flat_params:
         # Convert to DataFrame
         import pandas as pd
+        import io
+        import xlsxwriter
+        
         params_df = pd.DataFrame(flat_params)
         
         # Rename columns to match required format if needed
@@ -98,15 +129,99 @@ def render_parameter_lookup_table():
                 'parameter_value': 'Parameter value'
             })
         
-        # Filter by selected SKU if user has made a selection
-        if selected_sku and selected_sku != "All SKUs":
-            filtered_df = params_df[params_df['SKU code'] == selected_sku]
+        # Filter by selected SKUs if user has made selections
+        if selected_skus:
+            filtered_df = params_df[params_df['SKU code'].isin(selected_skus)]
+            # Further filter by selected models if any
+            if selected_models and 'Model name' in filtered_df.columns:
+                model_display_names = [model_options[m] for m in selected_models]
+                filtered_df = filtered_df[filtered_df['Model name'].isin(model_display_names)]
+            
             if len(filtered_df) > 0:
                 st.dataframe(filtered_df, use_container_width=True)
+                
+                # Add Excel download option
+                excel_buffer = io.BytesIO()
+                with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
+                    filtered_df.to_excel(writer, sheet_name='Parameters', index=False)
+                    # Get the xlsxwriter workbook and worksheet objects
+                    workbook = writer.book
+                    worksheet = writer.sheets['Parameters']
+                    
+                    # Add formats
+                    header_format = workbook.add_format({
+                        'bold': True,
+                        'text_wrap': True,
+                        'valign': 'top',
+                        'fg_color': '#D7E4BC',
+                        'border': 1
+                    })
+                    
+                    # Apply header format
+                    for col_num, value in enumerate(filtered_df.columns.values):
+                        worksheet.write(0, col_num, value, header_format)
+                        
+                    # Set column widths
+                    worksheet.set_column(0, 0, 15)  # SKU code
+                    worksheet.set_column(1, 1, 15)  # SKU name
+                    worksheet.set_column(2, 2, 15)  # Model name
+                    worksheet.set_column(3, 3, 20)  # Parameter name
+                    worksheet.set_column(4, 4, 20)  # Parameter value
+                
+                excel_buffer.seek(0)
+                
+                # Create download button
+                download_label = f"Download Parameters for {len(selected_skus)} SKU(s) as Excel"
+                st.download_button(
+                    label=download_label,
+                    data=excel_buffer,
+                    file_name=f"hyperparameter_data_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    mime="application/vnd.ms-excel",
+                    use_container_width=True
+                )
             else:
-                st.info(f"No parameters found for {selected_sku}.")
+                st.info(f"No parameters found for the selected SKUs and models.")
         else:
+            # Show all parameters if no filtering
             st.dataframe(params_df, use_container_width=True)
+            
+            # Add Excel download option for all parameters
+            excel_buffer = io.BytesIO()
+            with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
+                params_df.to_excel(writer, sheet_name='All Parameters', index=False)
+                workbook = writer.book
+                worksheet = writer.sheets['All Parameters']
+                
+                # Add formats
+                header_format = workbook.add_format({
+                    'bold': True,
+                    'text_wrap': True,
+                    'valign': 'top',
+                    'fg_color': '#D7E4BC',
+                    'border': 1
+                })
+                
+                # Apply header format
+                for col_num, value in enumerate(params_df.columns.values):
+                    worksheet.write(0, col_num, value, header_format)
+                    
+                # Set column widths
+                worksheet.set_column(0, 0, 15)  # SKU code
+                worksheet.set_column(1, 1, 15)  # SKU name
+                worksheet.set_column(2, 2, 15)  # Model name
+                worksheet.set_column(3, 3, 20)  # Parameter name
+                worksheet.set_column(4, 4, 20)  # Parameter value
+            
+            excel_buffer.seek(0)
+            
+            # Create download button
+            st.download_button(
+                label="Download All Parameters as Excel",
+                data=excel_buffer,
+                file_name=f"all_hyperparameters_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                mime="application/vnd.ms-excel",
+                use_container_width=True
+            )
     else:
         st.info("No parameters have been tuned yet. Run hyperparameter tuning to generate parameters.")
     
