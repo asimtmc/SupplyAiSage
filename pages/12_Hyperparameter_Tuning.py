@@ -961,8 +961,16 @@ if st.session_state.tuning_in_progress:
             # Process each SKU and model
             total_count = len(st.session_state.tuning_skus) * len(st.session_state.tuning_models)
             current_count = 0
+            
+            # Initialize tuning_results in session_state if not already present
+            if 'tuning_results' not in st.session_state:
+                st.session_state.tuning_results = {}
 
             for sku in st.session_state.tuning_skus:
+                # Initialize results for this SKU
+                if sku not in st.session_state.tuning_results:
+                    st.session_state.tuning_results[sku] = {}
+                    
                 # Filter data for this SKU
                 sku_data_filtered = st.session_state.sales_data[st.session_state.sales_data['sku'] == sku].copy()
 
@@ -972,6 +980,9 @@ if st.session_state.tuning_in_progress:
                         f"Insufficient data for tuning (needs at least 8 data points, found {len(sku_data_filtered)})", 
                         "warning"
                     )
+                    # Still initialize all models for this SKU with empty parameters
+                    for model_type in st.session_state.tuning_models:
+                        st.session_state.tuning_results[sku][model_type] = {}
                     continue
 
                 for model_type in st.session_state.tuning_models:
@@ -1124,8 +1135,6 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
         
         # Create flattened parameter data for display and download
         parameter_rows = []
-        
-        # Will be filled after session results are loaded
 
     # Get all tuned parameters from database for all SKUs that were tuned
     tuning_results = {}
@@ -1154,32 +1163,75 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
     print(f"Loaded tuning results for SKUs: {list(tuning_results.keys())}")
     print(f"Model scores for different SKUs: {model_scores}")
     
-    # Now create the flattened parameter table
+    # Create a comprehensive table showing results for all selected SKUs and models
     parameter_rows = []
     
+    # Get the list of all selected SKUs and models
+    selected_skus = st.session_state.tuning_skus if 'tuning_skus' in st.session_state else []
+    selected_models = st.session_state.tuning_models if 'tuning_models' in st.session_state else []
+    
     # Process all tuning results into a flat table structure
-    for sku_code in tuning_results:
-        for model_type, params in tuning_results[sku_code].items():
-            if params:
+    if selected_skus and selected_models:
+        # First, create a dictionary to store all parameter names for each model
+        model_params = {}
+        for model_type in selected_models:
+            model_params[model_type] = set()
+            # Find all parameter names used by this model across all SKUs
+            for sku_code in tuning_results:
+                if model_type in tuning_results.get(sku_code, {}):
+                    params = tuning_results[sku_code][model_type]
+                    if params:
+                        for param_name in params.keys():
+                            model_params[model_type].add(param_name)
+        
+        # Now, for each SKU and model, create rows for all parameters
+        for sku_code in selected_skus:
+            for model_type in selected_models:
                 model_name = model_display_names.get(model_type, model_type.upper())
-                # For each parameter in this model, create a separate row
-                for param_name, param_value in params.items():
-                    # Convert values to appropriate string representation
-                    if isinstance(param_value, bool):
-                        param_value_str = str(param_value)
-                    elif isinstance(param_value, (int, float)):
-                        param_value_str = str(param_value)
+                
+                # Check if this SKU-model combination has results
+                params = tuning_results.get(sku_code, {}).get(model_type, {})
+                
+                if params:
+                    # For each parameter in this model, create a separate row
+                    for param_name, param_value in params.items():
+                        # Convert values to appropriate string representation
+                        if isinstance(param_value, bool):
+                            param_value_str = str(param_value)
+                        elif isinstance(param_value, (int, float)):
+                            param_value_str = str(param_value)
+                        else:
+                            param_value_str = str(param_value)
+                        
+                        # Add a row in the format from the example
+                        parameter_rows.append({
+                            "SKU code": sku_code,
+                            "SKU name": sku_code,  # Using same value for simplicity
+                            "Model name": model_name,
+                            "Parameter name": param_name,
+                            "Parameter value": param_value_str
+                        })
+                else:
+                    # If no parameters for this model-SKU, create rows with "N/A" values
+                    # for each parameter that this model can have
+                    if model_type in model_params:
+                        for param_name in model_params[model_type]:
+                            parameter_rows.append({
+                                "SKU code": sku_code,
+                                "SKU name": sku_code,
+                                "Model name": model_name,
+                                "Parameter name": param_name,
+                                "Parameter value": "N/A"  # Indicate not tuned
+                            })
                     else:
-                        param_value_str = str(param_value)
-                    
-                    # Add a row in the format from the example
-                    parameter_rows.append({
-                        "SKU code": sku_code,
-                        "SKU name": sku_code,  # Using same value for simplicity
-                        "Model name": model_name,
-                        "Parameter name": param_name,
-                        "Parameter value": param_value_str
-                    })
+                        # If we don't know any parameters for this model, add a dummy row
+                        parameter_rows.append({
+                            "SKU code": sku_code,
+                            "SKU name": sku_code,
+                            "Model name": model_name,
+                            "Parameter name": "No parameters",
+                            "Parameter value": "N/A"  # Indicate not tuned
+                        })
     
     # Create the all parameters dataframe
     if parameter_rows:
@@ -3078,67 +3130,12 @@ try:
             params_df = pd.DataFrame(manual_params)
             st.info("Showing parameters from current tuning session.")
     
-    # If no data from session state, try from database
-    if len(params_df) == 0 and flat_params:
-        # Create a DataFrame with the flat parameters
-        # Rename columns to match requested format
-        flat_df = pd.DataFrame(flat_params)
-        if 'sku_code' in flat_df.columns:
-            flat_df = flat_df.rename(columns={
-                'sku_code': 'SKU code',
-                'sku_name': 'SKU name',
-                'model_name': 'Model name',
-                'parameter_name': 'Parameter name',
-                'parameter_value': 'Parameter value'
-            })
-            params_df = flat_df
-    
-    # Filter to show relevant parameters if user has made selections
-    if len(params_df) > 0 and 'tuning_skus' in st.session_state and 'tuning_models' in st.session_state:
-        if len(st.session_state.tuning_skus) > 0 and len(st.session_state.tuning_models) > 0:
-            # Convert model names to standard format
-            model_name_map = {
-                'auto_arima': 'ARIMA',
-                'prophet': 'Prophet',
-                'ets': 'ETS',
-                'theta': 'Theta',
-                'lstm': 'LSTM'
-            }
-            
-            # Create list of model names to filter by (handling both formats)
-            filter_models = []
-            for model in st.session_state.tuning_models:
-                filter_models.append(model)
-                if model in model_name_map:
-                    filter_models.append(model_name_map[model])
-            
-            # Apply filters
-            mask = (params_df['SKU code'].isin(st.session_state.tuning_skus)) & \
-                   (params_df['Model name'].isin(filter_models))
-            
-            # Apply filter if it gives results, otherwise show all
-            if mask.sum() > 0:
-                params_df = params_df[mask]
-                st.info(f"Showing parameters for selected SKUs and models. Filtered to {len(params_df)} parameters.")
-            else:
-                st.info("Showing all parameters - couldn't find exact matches for your selections.")
-    
-    # If still no real data, create example data as fallback
+    # Don't try to get data from database or create example data
     if len(params_df) == 0:
-        st.info("No parameter data available. Run hyperparameter tuning to generate parameters.")
+        st.info("No parameter data available from current tuning session. Run hyperparameter tuning to generate parameters.")
         
-        # Create example data showing multiple models
-        example_data = [
-            {"SKU code": "SKU1", "SKU name": "SKU1", "Model name": "ARIMA", "Parameter name": "p", "Parameter value": "1"},
-            {"SKU code": "SKU1", "SKU name": "SKU1", "Model name": "ARIMA", "Parameter name": "d", "Parameter value": "2"},
-            {"SKU code": "SKU1", "SKU name": "SKU1", "Model name": "ARIMA", "Parameter name": "q", "Parameter value": "3"},
-            {"SKU code": "SKU1", "SKU name": "SKU1", "Model name": "Prophet", "Parameter name": "changepoint_prior_scale", "Parameter value": "0.05"},
-            {"SKU code": "SKU1", "SKU name": "SKU1", "Model name": "Prophet", "Parameter name": "seasonality_prior_scale", "Parameter value": "10.0"},
-            {"SKU code": "SKU2", "SKU name": "SKU2", "Model name": "ETS", "Parameter name": "trend", "Parameter value": "add"},
-            {"SKU code": "SKU2", "SKU name": "SKU2", "Model name": "ETS", "Parameter name": "seasonal", "Parameter value": "add"}
-        ]
-        params_df = pd.DataFrame(example_data)
-        st.markdown("### Example Data Format")
+        # Create an empty dataframe with the correct columns but no data
+        params_df = pd.DataFrame(columns=["SKU code", "SKU name", "Model name", "Parameter name", "Parameter value"])
     
     # Display the DataFrame
     if len(params_df) > 0:
