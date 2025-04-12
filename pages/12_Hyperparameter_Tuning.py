@@ -9,6 +9,9 @@ def render_parameter_lookup_table():
     """
     Renders a parameter lookup table at the top of the page for quick reference
     """
+    # Import io module within the function to ensure it's available in this scope
+    import io
+    
     st.markdown("## 📊 Parameter Lookup")
     st.markdown("Quickly look up previously tuned parameters for any SKU-model combination.")
     
