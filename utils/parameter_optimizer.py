@@ -87,27 +87,65 @@ def objective_function_arima(params, train_data, val_data):
         Error metric to minimize
     """
     try:
+        import pandas as pd
         from statsmodels.tsa.arima.model import ARIMA
 
         # Extract parameters
         p = params['p']
         d = params['d']
         q = params['q']
+        
+        # Make sure data is properly formatted for ARIMA
+        if not isinstance(train_data, pd.Series):
+            logger.warning("Converting train_data to Series for ARIMA")
+            if hasattr(train_data, 'values'):
+                train_data = pd.Series(train_data.values)
+            else:
+                train_data = pd.Series(train_data)
+                
+        if not isinstance(val_data, pd.Series):
+            logger.warning("Converting val_data to Series for ARIMA")
+            if hasattr(val_data, 'values'):
+                val_data = pd.Series(val_data.values)
+            else:
+                val_data = pd.Series(val_data)
+        
+        # Make sure we have sufficient data for the specified order
+        min_data_needed = max(5, p + d + q + 1)  # At least p+d+q+1 points needed
+        if len(train_data) < min_data_needed:
+            logger.warning(f"Not enough training data for ARIMA order ({p},{d},{q}). Need at least {min_data_needed}")
+            return float('inf')
 
         # Train model with detailed logging enabled
         logger.info(f"Fitting ARIMA model with order=(p={p}, d={d}, q={q})")
         model = ARIMA(train_data, order=(p, d, q))
-        fitted_model = model.fit(disp=1, maxiter=50)  # Set disp=1 to show convergence messages
-        logger.info(f"ARIMA fitting complete. AIC: {fitted_model.aic:.2f}, BIC: {fitted_model.bic:.2f}")
+        
+        # Use a try block specifically for model fitting
+        try:
+            fitted_model = model.fit(disp=0, maxiter=100)  # Increase max iterations and disable convergence messages
+            logger.info(f"ARIMA fitting complete. AIC: {fitted_model.aic:.2f}, BIC: {fitted_model.bic:.2f}")
+        except Exception as fit_error:
+            logger.error(f"ARIMA fitting failed for order ({p},{d},{q}): {str(fit_error)}")
+            return float('inf')
 
         # Make predictions on validation set
-        predictions = fitted_model.forecast(steps=len(val_data))
-
-        # Calculate metrics
-        metrics = calculate_metrics(val_data.values, predictions)
-
-        # Return weighted error
-        return metrics['weighted_error']
+        try:
+            predictions = fitted_model.forecast(steps=len(val_data))
+            
+            # Check for invalid predictions
+            if any(pd.isna(predictions)) or any(pd.isinf(predictions)):
+                logger.warning(f"ARIMA model produced invalid predictions for order ({p},{d},{q})")
+                return float('inf')
+                
+            # Calculate metrics
+            metrics = calculate_metrics(val_data.values, predictions)
+            
+            # Return weighted error
+            return metrics['weighted_error']
+            
+        except Exception as pred_error:
+            logger.error(f"Error in ARIMA predictions for order ({p},{d},{q}): {str(pred_error)}")
+            return float('inf')
 
     except Exception as e:
         logger.error(f"Error in ARIMA objective function: {str(e)}")
