@@ -1399,73 +1399,99 @@ if st.session_state.tuning_in_progress:
                         # Log the start of tuning
                         print(f"Starting parameter optimization for {sku}, model: {model_type}")
                         
-                        # Create directly simulated parameters instead of using async optimization
-                        # This avoids the session context errors in the background threads
+                        # Perform actual parameter optimization using the SKU's real data
+                        # Prepare data for optimization
                         
-                        # Default parameter sets for different models
-                        default_params = {
-                            "auto_arima": {
-                                "p": 2,
-                                "d": 1,
-                                "q": 1,
-                                "seasonal": True,
-                                "m": 12,
-                                "max_iter": 100
-                            },
-                            "prophet": {
-                                "changepoint_prior_scale": 0.05,
-                                "seasonality_prior_scale": 10.0,
-                                "seasonality_mode": "additive",
-                                "yearly_seasonality": True,
-                                "weekly_seasonality": True
-                            },
-                            "ets": {
-                                "trend": "add",
-                                "seasonal": "add",
-                                "seasonal_periods": 12,
-                                "damped_trend": False
-                            },
-                            "theta": {
-                                "theta": 2.0,
-                                "deseasonalize": True,
-                                "use_test": False
-                            },
-                            "lstm": {
-                                "units": 50,
-                                "n_layers": 2,
-                                "dropout": 0.2,
-                                "epochs": 50,
-                                "batch_size": 16
-                            }
-                        }
-                        
-                        # Get the default parameters for this model
-                        if model_type in default_params:
-                            optimal_params = default_params[model_type]
-                            
-                            # Vary params slightly based on SKU to show different results
-                            import hashlib
-                            # Create a hash of the SKU name for consistent but different values
-                            sku_hash = int(hashlib.md5(sku.encode()).hexdigest(), 16) % 10000
-                            
-                            # Adjust parameters based on hash
-                            if model_type == "auto_arima":
-                                optimal_params["p"] = 1 + (sku_hash % 3)  # 1, 2, or 3
-                                optimal_params["d"] = sku_hash % 2        # 0 or 1
-                                optimal_params["q"] = 1 + (sku_hash % 2)  # 1 or 2
-                            elif model_type == "prophet":
-                                optimal_params["changepoint_prior_scale"] = 0.01 + (sku_hash % 10) / 100  # 0.01 to 0.1
-                                optimal_params["seasonality_prior_scale"] = 5.0 + (sku_hash % 10)  # 5.0 to 14.0
-                                optimal_params["seasonality_mode"] = "additive" if sku_hash % 2 == 0 else "multiplicative"
-                            elif model_type == "ets":
-                                optimal_params["trend"] = "add" if sku_hash % 2 == 0 else "mul"
-                                optimal_params["seasonal"] = "add" if sku_hash % 3 != 0 else None
-                            
-                            # Generate a random score
-                            best_score = 10.0 + (sku_hash % 10)
+                        # Set reasonable number of trials based on model complexity
+                        if model_type == "auto_arima":
+                            n_trials = 20
+                        elif model_type == "prophet":
+                            n_trials = 15
+                        elif model_type == "ets":
+                            n_trials = 12
+                        elif model_type == "theta":
+                            n_trials = 10
                         else:
+                            n_trials = 15
+                            
+                        # Prepare data for optimization
+                        time_col = 'date'
+                        value_col = 'quantity'
+                        
+                        # Sort data by date for time series analysis
+                        sku_data_filtered = sku_data_filtered.sort_values(time_col)
+                        
+                        # For time series optimization, we need to split into train/validation sets
+                        split_idx = int(len(sku_data_filtered) * 0.8)  # 80% for training
+                        train_data = sku_data_filtered.iloc[:split_idx]
+                        val_data = sku_data_filtered.iloc[split_idx:]
+                        
+                        # Make sure we have enough data
+                        if len(train_data) < 6 or len(val_data) < 3:
+                            status_text.warning(f"Not enough data for proper validation split for {sku}")
                             optimal_params = {}
-                            best_score = 15.0
+                            best_score = float('inf')
+                        else:
+                            # Perform model-specific optimization
+                            try:
+                                status_text.info(f"Starting real hyperparameter optimization for {sku} using {model_type} model...")
+                                
+                                if model_type == "auto_arima":
+                                    # Prepare data for ARIMA
+                                    train_series = train_data.set_index(time_col)[value_col]
+                                    val_series = val_data.set_index(time_col)[value_col]
+                                    
+                                    # Import ARIMA optimizer
+                                    from utils.parameter_optimizer import optimize_arima_parameters
+                                    optimization_result = optimize_arima_parameters(train_series, val_series, n_trials=n_trials)
+                                    
+                                elif model_type == "prophet":
+                                    # Prepare data for Prophet (needs 'ds' and 'y' columns)
+                                    train_prophet = pd.DataFrame({
+                                        'ds': train_data[time_col],
+                                        'y': train_data[value_col]
+                                    })
+                                    val_prophet = pd.DataFrame({
+                                        'ds': val_data[time_col],
+                                        'y': val_data[value_col]
+                                    })
+                                    
+                                    # Import Prophet optimizer
+                                    from utils.parameter_optimizer import optimize_prophet_parameters
+                                    optimization_result = optimize_prophet_parameters(train_prophet, val_prophet, n_trials=n_trials)
+                                    
+                                elif model_type == "ets":
+                                    # Prepare data for ETS
+                                    train_series = train_data.set_index(time_col)[value_col]
+                                    val_series = val_data.set_index(time_col)[value_col]
+                                    
+                                    # Import ETS optimizer
+                                    from utils.parameter_optimizer import optimize_ets_parameters
+                                    optimization_result = optimize_ets_parameters(train_series, val_series, n_trials=n_trials)
+                                    
+                                else:
+                                    # Default to ARIMA for other model types
+                                    train_series = train_data.set_index(time_col)[value_col]
+                                    val_series = val_data.set_index(time_col)[value_col]
+                                    
+                                    # Import ARIMA optimizer as fallback
+                                    from utils.parameter_optimizer import optimize_arima_parameters
+                                    optimization_result = optimize_arima_parameters(train_series, val_series, n_trials=n_trials)
+                                
+                                # Extract results from optimization
+                                if optimization_result and 'parameters' in optimization_result:
+                                    optimal_params = optimization_result['parameters']
+                                    best_score = optimization_result.get('score', float('inf'))
+                                    status_text.success(f"Successfully found optimal parameters for {sku} with {model_type}")
+                                else:
+                                    status_text.warning(f"Optimization for {model_type} on {sku} returned invalid result")
+                                    optimal_params = {}
+                                    best_score = float('inf')
+                                    
+                            except Exception as e:
+                                status_text.error(f"Error in optimization for {sku} with {model_type}: {str(e)}")
+                                optimal_params = {}
+                                best_score = float('inf')
                         
                         # Show progress steps
                         for step in range(1, 6):
