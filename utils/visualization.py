@@ -1640,16 +1640,18 @@ def get_table_styles():
         {'selector': 'thead th:nth-child(-n+4)', 'props': 'position: sticky; top: 0; left: 0; z-index: 4; background-color: white; box-shadow: 2px 2px 3px rgba(0,0,0,0.1);'}
     ]
 
-st.set_page_config(page_title="Demand Forecasting App", page_icon=":bar_chart:", layout="wide")
-st.title("Demand Forecasting Dashboard")
+# Remove page config and demo UI elements that interfere with importing this module
 
-# --- DATA IMPORT ---
-# File uploader
-uploaded_file = st.file_uploader("Choose a CSV file", type=["csv"])
-
-if uploaded_file is not None:
-    sales_data = pd.read_csv(uploaded_file)
-    sales_data['date'] = pd.to_datetime(sales_data['date'])
+# Example function for demo/standalone usage
+def create_demo_dashboard(title="Demand Forecasting Dashboard"):
+    st.title(title)
+    
+    # File uploader
+    uploaded_file = st.file_uploader("Choose a CSV file", type=["csv"])
+    
+    if uploaded_file is not None:
+        sales_data = pd.read_csv(uploaded_file)
+        sales_data['date'] = pd.to_datetime(sales_data['date'])
 
     # --- DATA PREPROCESSING ---
     # Convert date column to datetime
