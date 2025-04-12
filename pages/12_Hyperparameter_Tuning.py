@@ -1492,7 +1492,28 @@ if st.session_state.tuning_in_progress:
                                     # Import ETS optimizer
                                     from utils.parameter_optimizer import optimize_ets_parameters
                                     optimization_result = optimize_ets_parameters(train_series, val_series, n_trials=n_trials)
+                                
+                                elif model_type == "theta":
+                                    # Prepare data for Theta method
+                                    train_series = train_data.set_index(time_col)[value_col]
+                                    val_series = val_data.set_index(time_col)[value_col]
                                     
+                                    # Add logging for data analysis
+                                    print(f"Theta Train data: {len(train_series)} points, Range: {train_series.index.min()} to {train_series.index.max()}")
+                                    print(f"Theta Val data: {len(val_series)} points, Range: {val_series.index.min()} to {val_series.index.max()}")
+                                    
+                                    # Import Theta optimizer
+                                    from utils.parameter_optimizer import optimize_theta_parameters
+                                    status_text.info(f"Running Theta parameter optimization for {sku}...")
+                                    
+                                    try:
+                                        optimization_result = optimize_theta_parameters(train_series, val_series, n_trials=n_trials)
+                                        print(f"Theta optimization result: {optimization_result}")
+                                    except Exception as e:
+                                        print(f"Theta optimization error: {str(e)}")
+                                        status_text.error(f"Error in Theta optimization: {str(e)}")
+                                        optimization_result = {'parameters': {'theta': 2.0, 'deseasonalize': True}, 'score': float('inf')}
+                                
                                 else:
                                     # Default to ARIMA for other model types
                                     train_series = train_data.set_index(time_col)[value_col]
