@@ -4,6 +4,115 @@ import streamlit as st
 # Page configuration is already set in app.py
 # Do not call st.set_page_config() here as it will cause errors
 
+def render_parameter_lookup_table():
+    """
+    Renders a parameter lookup table at the top of the page for quick reference
+    """
+    st.markdown("## 📊 Parameter Lookup")
+    st.markdown("Quickly look up previously tuned parameters for any SKU-model combination.")
+    
+    # Get all SKUs and models from the database
+    from utils.database import get_all_model_parameters, get_flat_model_parameters
+    
+    # Create a two-column layout for search
+    search_col1, search_col2 = st.columns([2, 2])
+    
+    with search_col1:
+        # Let user search by SKU
+        if 'sales_data' in st.session_state:
+            all_skus = sorted(st.session_state.sales_data['sku'].unique().tolist())
+            selected_sku = st.selectbox("Select SKU", options=all_skus, key="lookup_sku_selector")
+        else:
+            st.warning("No sales data loaded. Please load data first.")
+            return
+    
+    with search_col2:
+        # Let user select model type
+        model_options = {
+            "auto_arima": "Auto ARIMA",
+            "prophet": "Prophet",
+            "ets": "ETS (Exponential Smoothing)",
+            "theta": "Theta Method",
+            "lstm": "LSTM Neural Network"
+        }
+        selected_model = st.selectbox("Select Model", options=list(model_options.keys()), 
+                                     format_func=lambda x: model_options.get(x, x), 
+                                     key="lookup_model_selector")
+    
+    # Get parameters for the selected combination
+    from utils.database import get_model_parameters
+    params = get_model_parameters(selected_sku, selected_model)
+    
+    if params and 'parameters' in params:
+        st.success(f"Parameters found for {selected_sku} / {model_options[selected_model]}")
+        
+        # Display parameters in a nice table format
+        param_dict = params['parameters']
+        
+        # Create two columns for parameter display
+        param_col1, param_col2 = st.columns(2)
+        
+        with param_col1:
+            st.markdown("### Parameter Values")
+            # Convert parameters to a more readable format
+            param_table = []
+            for param_name, param_value in param_dict.items():
+                param_table.append({"Parameter": param_name, "Value": str(param_value)})
+            
+            import pandas as pd
+            st.dataframe(pd.DataFrame(param_table), use_container_width=True)
+        
+        with param_col2:
+            st.markdown("### Tuning Metadata")
+            if 'last_updated' in params:
+                st.write(f"**Last Updated:** {params['last_updated'].strftime('%Y-%m-%d %H:%M')}")
+            if 'tuning_iterations' in params:
+                st.write(f"**Tuning Iterations:** {params['tuning_iterations']}")
+            if 'best_score' in params:
+                st.write(f"**Best Score:** {params['best_score']:.4f}")
+            
+            # Add a button to rerun tuning specifically for this combination
+            if st.button("Retune This Combination", key="retune_specific"):
+                st.session_state.parameter_tuning_in_progress = True
+                st.session_state.tuning_skus = [selected_sku]
+                st.session_state.tuning_models = [selected_model]
+                st.rerun()
+    else:
+        st.info(f"No parameters found for {selected_sku} with {model_options[selected_model]}. Run hyperparameter tuning to generate parameters.")
+    
+    # Display a complete parameter table
+    st.markdown("### All Tuned Parameters")
+    flat_params = get_flat_model_parameters()
+    if flat_params:
+        # Convert to DataFrame
+        import pandas as pd
+        params_df = pd.DataFrame(flat_params)
+        
+        # Rename columns to match required format if needed
+        if 'sku_code' in params_df.columns:
+            params_df = params_df.rename(columns={
+                'sku_code': 'SKU code',
+                'sku_name': 'SKU name',
+                'model_name': 'Model name',
+                'parameter_name': 'Parameter name',
+                'parameter_value': 'Parameter value'
+            })
+        
+        # Filter by selected SKU if user has made a selection
+        if selected_sku and selected_sku != "All SKUs":
+            filtered_df = params_df[params_df['SKU code'] == selected_sku]
+            if len(filtered_df) > 0:
+                st.dataframe(filtered_df, use_container_width=True)
+            else:
+                st.info(f"No parameters found for {selected_sku}.")
+        else:
+            st.dataframe(params_df, use_container_width=True)
+    else:
+        st.info("No parameters have been tuned yet. Run hyperparameter tuning to generate parameters.")
+    
+    # Add horizontal rule to separate from main content
+    st.markdown("---")
+
 import pandas as pd
 import numpy as np
 import plotly.express as px
@@ -153,6 +262,9 @@ cookie_manager = stx.CookieManager()
 
 # Page title with enhanced styling
 st.markdown("<div class='highlighted-header'><h1 style='margin:0'>🔧 Hyperparameter Tuning Station</h1></div>", unsafe_allow_html=True)
+
+# Display the parameter lookup table at the top of the page
+render_parameter_lookup_table()
 
 st.markdown("""
 This advanced module optimizes model hyperparameters for specific SKUs to maximize forecast accuracy.
