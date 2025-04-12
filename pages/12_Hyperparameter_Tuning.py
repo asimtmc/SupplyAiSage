@@ -1490,6 +1490,20 @@ if st.session_state.tuning_in_progress:
                         # Store best score
                         st.session_state.model_scores[sku][model_type] = best_score
                         
+                        # Save parameters to the database (not just session state)
+                        save_success = save_model_parameters(
+                            sku=sku,
+                            model_type=model_type,
+                            parameters=optimal_params,
+                            best_score=best_score,
+                            tuning_iterations=n_trials if 'n_trials' in locals() else 30
+                        )
+                        
+                        if save_success:
+                            status_text.success(f"Parameters for {sku}/{model_type} saved to database successfully")
+                        else:
+                            status_text.warning(f"Failed to save parameters for {sku}/{model_type} to database")
+                        
                         # Report success with formatted parameters
                         if optimal_params:
                             success_msg = f"Successfully tuned parameters: {format_parameters(optimal_params, model_type)}"
