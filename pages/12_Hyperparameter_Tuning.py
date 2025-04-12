@@ -1,5 +1,6 @@
 # Import streamlit first
 import streamlit as st
+import io
 
 # Page configuration
 st.set_page_config(page_title="Hyperparameter Tuning", page_icon=":wrench:", layout="wide")
