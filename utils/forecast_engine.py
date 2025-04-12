@@ -816,7 +816,7 @@ def train_lstm_model(data, test_size=0.2, sequence_length=12, epochs=50, include
         recurrent_dropout = 0.1
     else:  # More abundant data
         units = 50
-        dropout_rate = 02
+        dropout_rate = 0.2
         recurrent_dropout = 0.0
 
     # Reshape for LSTM [samples, time steps, features]
