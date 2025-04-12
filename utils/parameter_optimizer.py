@@ -298,39 +298,88 @@ def optimize_arima_parameters(train_data, val_data, n_trials=30):
     dict
         Optimized parameters and score
     """
+    import pandas as pd
+    
+    # Initial validation
+    if len(train_data) < 5 or len(val_data) < 1:
+        logger.warning(f"Not enough data for ARIMA optimization: train={len(train_data)}, val={len(val_data)}")
+        return {'parameters': {'p': 1, 'd': 1, 'q': 0}, 'score': float('inf')}
+    
+    # Ensure the data is clean (no NaN, Inf)
+    if pd.isna(train_data).any() or pd.isinf(train_data).any():
+        logger.warning("Training data contains NaN or Inf values, cleaning...")
+        train_data = train_data.replace([np.inf, -np.inf], np.nan).dropna()
+        
+    if pd.isna(val_data).any() or pd.isinf(val_data).any():
+        logger.warning("Validation data contains NaN or Inf values, cleaning...")
+        val_data = val_data.replace([np.inf, -np.inf], np.nan).dropna()
+    
+    # Check again after cleaning
+    if len(train_data) < 5 or len(val_data) < 1:
+        logger.warning(f"Not enough data after cleaning: train={len(train_data)}, val={len(val_data)}")
+        return {'parameters': {'p': 1, 'd': 1, 'q': 0}, 'score': float('inf')}
+    
     best_params = {'p': 1, 'd': 1, 'q': 0}  # Default values
     best_score = float('inf')
 
     # Grid of parameters to try - prioritize simpler models
-    p_values = [0, 1, 2, 3]
-    d_values = [0, 1, 2]
-    q_values = [0, 1, 2, 3]
+    p_values = [0, 1, 2]
+    d_values = [0, 1]
+    q_values = [0, 1, 2]
+    
+    # Log optimization parameters
+    logger.info(f"ARIMA optimization starting with {len(p_values) * len(d_values) * len(q_values)} combinations")
+    logger.info(f"Training data: {len(train_data)} points, Validation data: {len(val_data)} points")
 
     # Try stationarity test to guess good d value
     try:
         from statsmodels.tsa.stattools import adfuller
         result = adfuller(train_data)
         if result[1] > 0.05:  # Not stationary
-            d_values = [1, 2, 0]  # Prioritize d=1
+            d_values = [1, 0]  # Prioritize d=1
+            logger.info(f"Data is not stationary (p-value={result[1]:.4f}), prioritizing d=1")
         else:
-            d_values = [0, 1, 2]  # Prioritize d=0
-    except:
-        pass
+            d_values = [0, 1]  # Prioritize d=0
+            logger.info(f"Data is stationary (p-value={result[1]:.4f}), prioritizing d=0")
+    except Exception as e:
+        logger.warning(f"Stationarity test failed: {str(e)}")
 
-    # Try combinations
+    # Try combinations - adding a counter
+    tried_combinations = 0
+    successful_fits = 0
+    
     for p in p_values:
         for d in d_values:
             for q in q_values:
-                if p + d + q > 4:
-                    continue  # Skip overly complex models
-
+                if p + d + q > 3:
+                    continue  # Skip overly complex models (reduced from 4 to 3)
+                
+                tried_combinations += 1
+                
+                # Log current attempt
+                logger.info(f"Trying ARIMA({p},{d},{q}) - combination {tried_combinations}")
+                
                 params = {'p': p, 'd': d, 'q': q}
                 score = objective_function_arima(params, train_data, val_data)
-
+                
+                # If score is not infinite, it's a successful fit
+                if score < float('inf'):
+                    successful_fits += 1
+                
                 if score < best_score:
                     best_score = score
                     best_params = params
+                    logger.info(f"New best model: ARIMA({p},{d},{q}) with score {score:.4f}")
 
+    # Log optimization summary
+    logger.info(f"ARIMA optimization complete. Tried {tried_combinations} combinations, {successful_fits} successful fits")
+    logger.info(f"Best model: ARIMA({best_params['p']},{best_params['d']},{best_params['q']}) with score {best_score:.4f}")
+
+    # If we couldn't find any working model, try a simpler approach
+    if best_score == float('inf'):
+        logger.warning("No suitable ARIMA model found, trying simple first difference model")
+        best_params = {'p': 1, 'd': 1, 'q': 0}  # Simple AR(1) with first differencing
+        
     return {'parameters': best_params, 'score': best_score}
 
 def optimize_prophet_parameters(train_data, val_data, n_trials=20):
