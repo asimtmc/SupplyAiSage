@@ -336,12 +336,14 @@ def objective_function_theta(params, train_data, val_data):
         from statsmodels.tsa.forecasting.theta import ThetaModel
         
         # Extract parameters
-        theta_value = params.get('theta', 2.0)
+        # Note: statsmodels ThetaModel has a fixed theta=2.0, it's not configurable
         deseasonalize = params.get('deseasonalize', True)
         period = params.get('period', 12)
+        method = params.get('method', 'auto')
+        use_mle = params.get('use_mle', False)
         
         # Log parameters
-        logger.info(f"Fitting Theta model with parameters: theta={theta_value}, deseasonalize={deseasonalize}, period={period}")
+        logger.info(f"Fitting Theta model with parameters: deseasonalize={deseasonalize}, period={period}, method={method}, use_mle={use_mle}")
         
         # Make sure data is clean
         if train_data.isna().any() or np.isinf(train_data.values).any():
@@ -355,14 +357,13 @@ def objective_function_theta(params, train_data, val_data):
         
         # Fit the model
         try:
-            # Use statsmodels' implementation
+            # Use statsmodels' implementation - ThetaModel doesn't accept theta parameter
             model = ThetaModel(
                 train_data,
                 period=period if deseasonalize else None,
                 deseasonalize=deseasonalize,
                 use_test=False,  # Don't use test data
-                method='auto',   # Auto select method
-                theta=theta_value  # Correctly set theta parameter in constructor
+                method='auto'    # Auto select method
             )
             
             # Fit and get forecasts - don't pass theta to fit()
@@ -371,7 +372,7 @@ def objective_function_theta(params, train_data, val_data):
             
             # Calculate accuracy metrics
             metrics = calculate_metrics(val_data.values, predictions)
-            logger.info(f"Theta model (theta={theta_value}) fit completed successfully")
+            logger.info(f"Theta model fit completed successfully (statsmodels uses fixed theta=2)")
             
             return metrics['weighted_error']
             
@@ -653,36 +654,39 @@ def optimize_theta_parameters(train_data, val_data, n_trials=10):
     best_params = {'theta': 2.0, 'deseasonalize': True, 'period': 12}
     best_score = float('inf')
     
-    # Parameters to try
-    theta_values = [1.5, 2.0, 2.5, 3.0]
+    # Parameters to try - Note: statsmodels ThetaModel has a fixed theta=2
     deseasonalize_options = [True, False]
+    method_options = ['auto', 'additive', 'multiplicative']
     period_values = [4, 12] if len(train_data) >= 24 else [min(len(train_data) // 2, 12)]
+    use_mle_options = [True, False]
     
     # Log optimization parameters
-    logger.info(f"Theta optimization starting with {len(theta_values) * len(deseasonalize_options) * len(period_values)} combinations")
+    logger.info(f"Theta optimization starting with {len(deseasonalize_options) * len(method_options) * len(period_values) * len(use_mle_options)} combinations")
     logger.info(f"Training data: {len(train_data)} points, Validation data: {len(val_data)} points")
     
     # Try combinations
     tried_combinations = 0
     successful_fits = 0
     
-    for theta in theta_values:
-        for deseasonalize in deseasonalize_options:
+    for deseasonalize in deseasonalize_options:
+        for method in method_options:
             for period in period_values:
-                tried_combinations += 1
-                
-                # Skip unnecessary combinations
-                if not deseasonalize and period != period_values[0]:
-                    continue
-                
-                # Log current attempt
-                logger.info(f"Trying Theta model with theta={theta}, deseasonalize={deseasonalize}, period={period} - combination {tried_combinations}")
-                
-                params = {
-                    'theta': theta,
-                    'deseasonalize': deseasonalize,
-                    'period': period
-                }
+                for use_mle in use_mle_options:
+                    tried_combinations += 1
+                    
+                    # Skip unnecessary combinations
+                    if not deseasonalize and period != period_values[0]:
+                        continue
+                    
+                    # Log current attempt
+                    logger.info(f"Trying Theta model with deseasonalize={deseasonalize}, period={period}, method={method}, use_mle={use_mle} - combination {tried_combinations}")
+                    
+                    params = {
+                        'deseasonalize': deseasonalize,
+                        'period': period,
+                        'method': method,
+                        'use_mle': use_mle
+                    }
                 
                 score = objective_function_theta(params, train_data, val_data)
                 
@@ -693,7 +697,7 @@ def optimize_theta_parameters(train_data, val_data, n_trials=10):
                 if score < best_score:
                     best_score = score
                     best_params = params
-                    logger.info(f"New best Theta model: theta={theta}, deseasonalize={deseasonalize}, period={period} with score {score:.4f}")
+                    logger.info(f"New best Theta model: deseasonalize={deseasonalize}, period={period}, method={method}, use_mle={use_mle} with score {score:.4f}")
     
     # Log optimization summary
     logger.info(f"Theta optimization complete. Tried {tried_combinations} combinations, {successful_fits} successful fits")
