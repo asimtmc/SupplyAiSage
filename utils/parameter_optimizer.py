@@ -488,7 +488,7 @@ def optimize_arima_parameters(train_data, val_data, n_trials=30):
 
 def optimize_prophet_parameters(train_data, val_data, n_trials=20):
     """
-    Optimize Prophet parameters
+    Optimize Prophet parameters with validation and sanity checks
 
     Parameters:
     -----------
@@ -504,6 +504,27 @@ def optimize_prophet_parameters(train_data, val_data, n_trials=20):
     dict
         Optimized parameters and score
     """
+    # Default parameters to use as a baseline
+    default_params = {
+        'changepoint_prior_scale': 0.05,
+        'seasonality_prior_scale': 10.0,
+        'seasonality_mode': 'additive'
+    }
+    
+    # Get baseline score using default parameters
+    default_score = objective_function_prophet(default_params, train_data, val_data)
+    
+    # If default parameters give infinity as score, there's an issue with the data
+    if default_score == float('inf'):
+        logger.warning("Default Prophet parameters resulted in infinite score. Data may be problematic.")
+        return {'parameters': default_params, 'score': default_score}
+    
+    logger.info(f"Baseline Prophet score with default parameters: {default_score:.4f}")
+    
+    # Initialize best parameters and score with defaults
+    best_params = default_params.copy()
+    best_score = default_score
+    
     # Try to use Optuna if available
     try:
         import optuna
@@ -514,23 +535,29 @@ def optimize_prophet_parameters(train_data, val_data, n_trials=20):
                 'seasonality_prior_scale': trial.suggest_float('seasonality_prior_scale', 0.01, 10, log=True),
                 'seasonality_mode': trial.suggest_categorical('seasonality_mode', ['additive', 'multiplicative'])
             }
-            return objective_function_prophet(params, train_data, val_data)
+            score = objective_function_prophet(params, train_data, val_data)
+            
+            # Verify the score is reasonable (not extreme or NaN)
+            if score != float('inf') and not np.isnan(score) and score < 1000:
+                return score
+            else:
+                # Return a high but not infinite score to allow optimization to continue
+                return 1000.0
 
         study = optuna.create_study(direction='minimize')
         study.optimize(objective, n_trials=n_trials)
 
-        best_params = study.best_params
-        best_score = study.best_value
+        candidate_params = study.best_params
+        candidate_score = study.best_value
+        
+        # Only use the new parameters if they provide significant improvement (at least 10% better)
+        if candidate_score < best_score * 0.9 and candidate_score != float('inf') and not np.isnan(candidate_score):
+            best_params = candidate_params
+            best_score = candidate_score
+            logger.info(f"Found better Prophet parameters, improvement: {(default_score - candidate_score) / default_score * 100:.2f}%")
 
     except ImportError:
         # Fallback to grid search if Optuna is not available
-        best_params = {
-            'changepoint_prior_scale': 0.05,
-            'seasonality_prior_scale': 10,
-            'seasonality_mode': 'additive'
-        }
-        best_score = float('inf')
-
         # Grid of parameters to try
         changepoint_prior_scales = [0.001, 0.01, 0.05, 0.1, 0.5]
         seasonality_prior_scales = [0.01, 0.1, 1.0, 10.0]
@@ -547,10 +574,20 @@ def optimize_prophet_parameters(train_data, val_data, n_trials=20):
                     }
                     score = objective_function_prophet(params, train_data, val_data)
 
-                    if score < best_score:
-                        best_score = score
-                        best_params = params
+                    # Only consider valid scores
+                    if score != float('inf') and not np.isnan(score) and score < 1000:
+                        if score < best_score * 0.9:  # Must be at least 10% better
+                            best_score = score
+                            best_params = params
+                            logger.info(f"Found better Prophet parameters: {params} with score {score:.4f}")
 
+    # Add sanity check - if optimization made things significantly worse, revert to defaults
+    if best_score > default_score * 5:  # If more than 5 times worse
+        logger.warning(f"Optimization resulted in significantly worse score ({best_score:.4f} vs {default_score:.4f}). Reverting to default parameters.")
+        best_params = default_params
+        best_score = default_score
+
+    logger.info(f"Final Prophet parameters: {best_params} with score {best_score:.4f}")
     return {'parameters': best_params, 'score': best_score}
 
 def optimize_ets_parameters(train_data, val_data, n_trials=15):
