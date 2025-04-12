@@ -363,7 +363,8 @@ def objective_function_theta(params, train_data, val_data):
                 period=period if deseasonalize else None,
                 deseasonalize=deseasonalize,
                 use_test=False,  # Don't use test data
-                method='auto'    # Auto select method
+                method=method,   # Use the specified method
+                use_mle=use_mle  # Whether to use MLE for initial parameters
             )
             
             # Fit and get forecasts - don't pass theta to fit()
@@ -649,9 +650,9 @@ def optimize_theta_parameters(train_data, val_data, n_trials=10):
     # Check if we have enough data
     if len(train_data) < 4:
         logger.warning(f"Not enough data for Theta optimization: {len(train_data)} points")
-        return {'parameters': {'theta': 2.0, 'deseasonalize': True, 'period': 12}, 'score': float('inf')}
+        return {'parameters': {'deseasonalize': True, 'period': 12, 'method': 'auto', 'use_mle': False}, 'score': float('inf')}
     
-    best_params = {'theta': 2.0, 'deseasonalize': True, 'period': 12}
+    best_params = {'deseasonalize': True, 'period': 12, 'method': 'auto', 'use_mle': False}
     best_score = float('inf')
     
     # Parameters to try - Note: statsmodels ThetaModel has a fixed theta=2
@@ -687,24 +688,24 @@ def optimize_theta_parameters(train_data, val_data, n_trials=10):
                         'method': method,
                         'use_mle': use_mle
                     }
+                    
+                    score = objective_function_theta(params, train_data, val_data)
                 
-                score = objective_function_theta(params, train_data, val_data)
-                
-                # If score is not infinite, it's a successful fit
-                if score < float('inf'):
-                    successful_fits += 1
-                
-                if score < best_score:
-                    best_score = score
-                    best_params = params
-                    logger.info(f"New best Theta model: deseasonalize={deseasonalize}, period={period}, method={method}, use_mle={use_mle} with score {score:.4f}")
+                    # If score is not infinite, it's a successful fit
+                    if score < float('inf'):
+                        successful_fits += 1
+                    
+                    if score < best_score:
+                        best_score = score
+                        best_params = params
+                        logger.info(f"New best Theta model: deseasonalize={deseasonalize}, period={period}, method={method}, use_mle={use_mle} with score {score:.4f}")
     
     # Log optimization summary
     logger.info(f"Theta optimization complete. Tried {tried_combinations} combinations, {successful_fits} successful fits")
     
     if best_score == float('inf'):
         logger.warning("No suitable Theta model found, using default parameters")
-        best_params = {'theta': 2.0, 'deseasonalize': True, 'period': 12}
+        best_params = {'deseasonalize': True, 'period': 12, 'method': 'auto', 'use_mle': False}
     
     return {'parameters': best_params, 'score': best_score}
 
