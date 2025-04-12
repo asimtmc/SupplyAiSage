@@ -54,7 +54,7 @@ def calculate_metrics(y_true, y_pred):
         # Ensure numpy arrays
         y_true = np.asarray(y_true)
         y_pred = np.asarray(y_pred)
-        
+
         # Check for invalid values
         if np.isnan(y_true).any() or np.isnan(y_pred).any() or np.isinf(y_true).any() or np.isinf(y_pred).any():
             logger.warning("Input data for metrics calculation contains NaN or Inf values")
@@ -118,7 +118,7 @@ def objective_function_arima(params, train_data, val_data):
         p = params['p']
         d = params['d']
         q = params['q']
-        
+
         # Make sure data is properly formatted for ARIMA
         if not isinstance(train_data, pd.Series):
             logger.warning("Converting train_data to Series for ARIMA")
@@ -126,14 +126,14 @@ def objective_function_arima(params, train_data, val_data):
                 train_data = pd.Series(train_data.values)
             else:
                 train_data = pd.Series(train_data)
-                
+
         if not isinstance(val_data, pd.Series):
             logger.warning("Converting val_data to Series for ARIMA")
             if hasattr(val_data, 'values'):
                 val_data = pd.Series(val_data.values)
             else:
                 val_data = pd.Series(val_data)
-        
+
         # Make sure we have sufficient data for the specified order
         min_data_needed = max(5, p + d + q + 1)  # At least p+d+q+1 points needed
         if len(train_data) < min_data_needed:
@@ -143,7 +143,7 @@ def objective_function_arima(params, train_data, val_data):
         # Train model with detailed logging enabled
         logger.info(f"Fitting ARIMA model with order=(p={p}, d={d}, q={q})")
         model = ARIMA(train_data, order=(p, d, q))
-        
+
         # Use a try block specifically for model fitting
         try:
             fitted_model = model.fit(disp=0, maxiter=100)  # Increase max iterations and disable convergence messages
@@ -155,18 +155,18 @@ def objective_function_arima(params, train_data, val_data):
         # Make predictions on validation set
         try:
             predictions = fitted_model.forecast(steps=len(val_data))
-            
+
             # Check for invalid predictions
             if np.isnan(predictions).any() or np.isinf(predictions).any():
                 logger.warning(f"ARIMA model produced invalid predictions for order ({p},{d},{q})")
                 return float('inf')
-                
+
             # Calculate metrics
             metrics = calculate_metrics(val_data.values, predictions)
-            
+
             # Return weighted error
             return metrics['weighted_error']
-            
+
         except Exception as pred_error:
             logger.error(f"Error in ARIMA predictions for order ({p},{d},{q}): {str(pred_error)}")
             return float('inf')
@@ -312,7 +312,7 @@ def objective_function_ets(params, train_data, val_data):
     except Exception as e:
         logger.error(f"Error in ETS objective function: {str(e)}")
         return float('inf')
-        
+
 def objective_function_theta(params, train_data, val_data):
     """
     Objective function for Theta method parameter optimization
@@ -334,27 +334,26 @@ def objective_function_theta(params, train_data, val_data):
     try:
         import pandas as pd
         from statsmodels.tsa.forecasting.theta import ThetaModel
-        
+
         # Extract parameters
         # Note: statsmodels ThetaModel has a fixed theta=2.0, it's not configurable
         deseasonalize = params.get('deseasonalize', True)
         period = params.get('period', 12)
         method = params.get('method', 'auto')
-        use_mle = params.get('use_mle', False)
-        
+
         # Log parameters
-        logger.info(f"Fitting Theta model with parameters: deseasonalize={deseasonalize}, period={period}, method={method}, use_mle={use_mle}")
-        
+        logger.info(f"Fitting Theta model with parameters: deseasonalize={deseasonalize}, period={period}, method={method}")
+
         # Make sure data is clean
         if train_data.isna().any() or np.isinf(train_data.values).any():
             logger.warning("Training data contains NaN or Inf values, cleaning...")
             train_data = train_data.replace([np.inf, -np.inf], np.nan).dropna()
-            
+
         # Check if we have enough data points
         if len(train_data) < 4:
             logger.warning(f"Not enough training data for Theta model: {len(train_data)} points")
             return float('inf')
-        
+
         # Fit the model
         try:
             # Use statsmodels' implementation - ThetaModel doesn't accept theta parameter
@@ -363,24 +362,23 @@ def objective_function_theta(params, train_data, val_data):
                 period=period if deseasonalize else None,
                 deseasonalize=deseasonalize,
                 use_test=False,  # Don't use test data
-                method=method,   # Use the specified method
-                use_mle=use_mle  # Whether to use MLE for initial parameters
+                method=method   # Use the specified method
             )
-            
+
             # Fit and get forecasts - don't pass theta to fit()
             results = model.fit()
             predictions = results.forecast(steps=len(val_data))
-            
+
             # Calculate accuracy metrics
             metrics = calculate_metrics(val_data.values, predictions)
             logger.info(f"Theta model fit completed successfully (statsmodels uses fixed theta=2)")
-            
+
             return metrics['weighted_error']
-            
+
         except Exception as model_error:
             logger.error(f"Error in Theta model fitting: {str(model_error)}")
             return float('inf')
-        
+
     except Exception as e:
         logger.error(f"Error in Theta objective function: {str(e)}")
         return float('inf')
@@ -404,26 +402,26 @@ def optimize_arima_parameters(train_data, val_data, n_trials=30):
         Optimized parameters and score
     """
     import pandas as pd
-    
+
     # Initial validation
     if len(train_data) < 5 or len(val_data) < 1:
         logger.warning(f"Not enough data for ARIMA optimization: train={len(train_data)}, val={len(val_data)}")
         return {'parameters': {'p': 1, 'd': 1, 'q': 0}, 'score': float('inf')}
-    
+
     # Ensure the data is clean (no NaN, Inf)
     if train_data.isna().any() or np.isinf(train_data.values).any():
         logger.warning("Training data contains NaN or Inf values, cleaning...")
         train_data = train_data.replace([np.inf, -np.inf], np.nan).dropna()
-        
+
     if val_data.isna().any() or np.isinf(val_data.values).any():
         logger.warning("Validation data contains NaN or Inf values, cleaning...")
         val_data = val_data.replace([np.inf, -np.inf], np.nan).dropna()
-    
+
     # Check again after cleaning
     if len(train_data) < 5 or len(val_data) < 1:
         logger.warning(f"Not enough data after cleaning: train={len(train_data)}, val={len(val_data)}")
         return {'parameters': {'p': 1, 'd': 1, 'q': 0}, 'score': float('inf')}
-    
+
     best_params = {'p': 1, 'd': 1, 'q': 0}  # Default values
     best_score = float('inf')
 
@@ -431,7 +429,7 @@ def optimize_arima_parameters(train_data, val_data, n_trials=30):
     p_values = [0, 1, 2]
     d_values = [0, 1]
     q_values = [0, 1, 2]
-    
+
     # Log optimization parameters
     logger.info(f"ARIMA optimization starting with {len(p_values) * len(d_values) * len(q_values)} combinations")
     logger.info(f"Training data: {len(train_data)} points, Validation data: {len(val_data)} points")
@@ -452,25 +450,25 @@ def optimize_arima_parameters(train_data, val_data, n_trials=30):
     # Try combinations - adding a counter
     tried_combinations = 0
     successful_fits = 0
-    
+
     for p in p_values:
         for d in d_values:
             for q in q_values:
                 if p + d + q > 3:
                     continue  # Skip overly complex models (reduced from 4 to 3)
-                
+
                 tried_combinations += 1
-                
+
                 # Log current attempt
                 logger.info(f"Trying ARIMA({p},{d},{q}) - combination {tried_combinations}")
-                
+
                 params = {'p': p, 'd': d, 'q': q}
                 score = objective_function_arima(params, train_data, val_data)
-                
+
                 # If score is not infinite, it's a successful fit
                 if score < float('inf'):
                     successful_fits += 1
-                
+
                 if score < best_score:
                     best_score = score
                     best_params = params
@@ -484,7 +482,7 @@ def optimize_arima_parameters(train_data, val_data, n_trials=30):
     if best_score == float('inf'):
         logger.warning("No suitable ARIMA model found, trying simple first difference model")
         best_params = {'p': 1, 'd': 1, 'q': 0}  # Simple AR(1) with first differencing
-        
+
     return {'parameters': best_params, 'score': best_score}
 
 def optimize_prophet_parameters(train_data, val_data, n_trials=20):
@@ -617,7 +615,7 @@ def optimize_ets_parameters(train_data, val_data, n_trials=15):
                         best_params = params
 
     return {'parameters': best_params, 'score': best_score}
-    
+
 def optimize_theta_parameters(train_data, val_data, n_trials=10):
     """
     Optimize Theta method parameters
@@ -637,76 +635,73 @@ def optimize_theta_parameters(train_data, val_data, n_trials=10):
         Optimized parameters and score
     """
     import pandas as pd
-    
+
     # Make sure data is clean
     if train_data.isna().any() or np.isinf(train_data.values).any():
         logger.warning("Training data contains NaN or Inf values, cleaning...")
         train_data = train_data.replace([np.inf, -np.inf], np.nan).dropna()
-        
+
     if val_data.isna().any() or np.isinf(val_data.values).any():
         logger.warning("Validation data contains NaN or Inf values, cleaning...")
         val_data = val_data.replace([np.inf, -np.inf], np.nan).dropna()
-    
+
     # Check if we have enough data
     if len(train_data) < 4:
         logger.warning(f"Not enough data for Theta optimization: {len(train_data)} points")
-        return {'parameters': {'deseasonalize': True, 'period': 12, 'method': 'auto', 'use_mle': False}, 'score': float('inf')}
-    
-    best_params = {'deseasonalize': True, 'period': 12, 'method': 'auto', 'use_mle': False}
+        return {'parameters': {'deseasonalize': True, 'period': 12, 'method': 'auto'}, 'score': float('inf')}
+
+    best_params = {'deseasonalize': True, 'period': 12, 'method': 'auto'}
     best_score = float('inf')
-    
+
     # Parameters to try - Note: statsmodels ThetaModel has a fixed theta=2
     deseasonalize_options = [True, False]
     method_options = ['auto', 'additive', 'multiplicative']
     period_values = [4, 12] if len(train_data) >= 24 else [min(len(train_data) // 2, 12)]
-    use_mle_options = [True, False]
-    
+
     # Log optimization parameters
-    logger.info(f"Theta optimization starting with {len(deseasonalize_options) * len(method_options) * len(period_values) * len(use_mle_options)} combinations")
+    logger.info(f"Theta optimization starting with {len(deseasonalize_options) * len(method_options) * len(period_values)} combinations")
     logger.info(f"Training data: {len(train_data)} points, Validation data: {len(val_data)} points")
-    
+
     # Try combinations
     tried_combinations = 0
     successful_fits = 0
-    
+
     for deseasonalize in deseasonalize_options:
         for method in method_options:
             for period in period_values:
-                for use_mle in use_mle_options:
-                    tried_combinations += 1
-                    
-                    # Skip unnecessary combinations
-                    if not deseasonalize and period != period_values[0]:
-                        continue
-                    
-                    # Log current attempt
-                    logger.info(f"Trying Theta model with deseasonalize={deseasonalize}, period={period}, method={method}, use_mle={use_mle} - combination {tried_combinations}")
-                    
-                    params = {
-                        'deseasonalize': deseasonalize,
-                        'period': period,
-                        'method': method,
-                        'use_mle': use_mle
-                    }
-                    
-                    score = objective_function_theta(params, train_data, val_data)
-                
-                    # If score is not infinite, it's a successful fit
-                    if score < float('inf'):
-                        successful_fits += 1
-                    
-                    if score < best_score:
-                        best_score = score
-                        best_params = params
-                        logger.info(f"New best Theta model: deseasonalize={deseasonalize}, period={period}, method={method}, use_mle={use_mle} with score {score:.4f}")
-    
+                tried_combinations += 1
+
+                # Skip unnecessary combinations
+                if not deseasonalize and period != period_values[0]:
+                    continue
+
+                # Log current attempt
+                logger.info(f"Trying Theta model with deseasonalize={deseasonalize}, period={period}, method={method} - combination {tried_combinations}")
+
+                params = {
+                    'deseasonalize': deseasonalize,
+                    'period': period,
+                    'method': method
+                }
+
+                score = objective_function_theta(params, train_data, val_data)
+
+                # If score is not infinite, it's a successful fit
+                if score < float('inf'):
+                    successful_fits += 1
+
+                if score < best_score:
+                    best_score = score
+                    best_params = params
+                    logger.info(f"New best Theta model: deseasonalize={deseasonalize}, period={period}, method={method} with score {score:.4f}")
+
     # Log optimization summary
     logger.info(f"Theta optimization complete. Tried {tried_combinations} combinations, {successful_fits} successful fits")
-    
+
     if best_score == float('inf'):
         logger.warning("No suitable Theta model found, using default parameters")
-        best_params = {'deseasonalize': True, 'period': 12, 'method': 'auto', 'use_mle': False}
-    
+        best_params = {'deseasonalize': True, 'period': 12, 'method': 'auto'}
+
     return {'parameters': best_params, 'score': best_score}
 
 def run_optimization_task(sku, model_type, data, cross_validation=True, n_trials=None, progress_callback=None):
@@ -800,7 +795,7 @@ def run_optimization_task(sku, model_type, data, cross_validation=True, n_trials
                     train_series = train_data.set_index('date')['quantity']
                     val_series = val_data.set_index('date')['quantity']
                     fold_result = optimize_ets_parameters(train_series, val_series, n_trials=max(6, n_trials // n_splits))
-                
+
                 elif model_type == 'theta':
                     train_series = train_data.set_index('date')['quantity']
                     val_series = val_data.set_index('date')['quantity']
@@ -856,7 +851,7 @@ def run_optimization_task(sku, model_type, data, cross_validation=True, n_trials
                 train_series = train_data.set_index('date')['quantity']
                 val_series = val_data.set_index('date')['quantity']
                 final_result = optimize_ets_parameters(train_series, val_series, n_trials=n_trials)
-                
+
             elif model_type == 'theta':
                 train_series = train_data.set_index('date')['quantity']
                 val_series = val_data.set_index('date')['quantity']
