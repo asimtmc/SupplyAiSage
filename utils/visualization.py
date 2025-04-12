@@ -1655,12 +1655,12 @@ def create_demo_dashboard(title="Demand Forecasting Dashboard"):
 
         # --- DATA PREPROCESSING ---
         # Convert date column to datetime
-    if 'date' in sales_data.columns and not pd.api.types.is_datetime64_any_dtype(sales_data['date']):
-        try:
-            sales_data['date'] = pd.to_datetime(sales_data['date'])
-        except ValueError:
-            st.error("Invalid date format. Please ensure your 'date' column is in a valid format (e.g., YYYY-MM-DD).")
-            st.stop()
+        if 'date' in sales_data.columns and not pd.api.types.is_datetime64_any_dtype(sales_data['date']):
+            try:
+                sales_data['date'] = pd.to_datetime(sales_data['date'])
+            except ValueError:
+                st.error("Invalid date format. Please ensure your 'date' column is in a valid format (e.g., YYYY-MM-DD).")
+                st.stop()
 
     # Check for required columns in sales data
     required_columns = ['sku', 'date', 'quantity']
