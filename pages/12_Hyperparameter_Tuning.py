@@ -1180,11 +1180,22 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
     
     # Process all tuning results into a flat table structure
     if selected_skus and selected_models:
+        # Define default parameters for each model type to ensure we display something for all combinations
+        default_model_params = {
+            "auto_arima": ["p", "d", "q", "seasonal", "m", "max_iter"],
+            "arima": ["p", "d", "q", "seasonal", "m", "max_iter"],
+            "prophet": ["changepoint_prior_scale", "seasonality_prior_scale", "seasonality_mode", "yearly_seasonality", "weekly_seasonality"],
+            "ets": ["trend", "seasonal", "seasonal_periods", "damped_trend"],
+            "theta": ["theta", "deseasonalize", "use_test"],
+            "lstm": ["units", "n_layers", "dropout", "epochs", "batch_size"]
+        }
+        
         # First, create a dictionary to store all parameter names for each model
         model_params = {}
         for model_type in selected_models:
-            model_params[model_type] = set()
-            # Find all parameter names used by this model across all SKUs
+            model_params[model_type] = set(default_model_params.get(model_type, []))
+            
+            # Add any additional parameters found in actual results
             for sku_code in tuning_results:
                 if model_type in tuning_results.get(sku_code, {}):
                     params = tuning_results[sku_code][model_type]
@@ -1200,7 +1211,7 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                 # Check if this SKU-model combination has results
                 params = tuning_results.get(sku_code, {}).get(model_type, {})
                 
-                if params:
+                if params and len(params) > 0:
                     # For each parameter in this model, create a separate row
                     for param_name, param_value in params.items():
                         # Convert values to appropriate string representation
@@ -1221,8 +1232,8 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                         })
                 else:
                     # If no parameters for this model-SKU, create rows with "N/A" values
-                    # for each parameter that this model can have
-                    if model_type in model_params:
+                    # Check if we have default parameters for this model type
+                    if model_type in model_params and len(model_params[model_type]) > 0:
                         for param_name in model_params[model_type]:
                             parameter_rows.append({
                                 "SKU code": sku_code,
@@ -1232,12 +1243,12 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                                 "Parameter value": "N/A"  # Indicate not tuned
                             })
                     else:
-                        # If we don't know any parameters for this model, add a dummy row
+                        # If we don't have any parameters for this model type, show a placeholder
                         parameter_rows.append({
                             "SKU code": sku_code,
                             "SKU name": sku_code,
                             "Model name": model_name,
-                            "Parameter name": "No parameters",
+                            "Parameter name": "parameters_not_available",
                             "Parameter value": "N/A"  # Indicate not tuned
                         })
     
