@@ -3042,141 +3042,179 @@ try:
     # Get flat model parameters in the format requested
     flat_params = get_flat_model_parameters()
     
-    if flat_params:
+    # Initialize empty dataframe
+    params_df = pd.DataFrame()
+    
+    # First try to get data from session state for the most up-to-date results
+    if 'tuning_results' in st.session_state and st.session_state.tuning_results:
+        # Create flat parameter list from session state
+        manual_params = []
+        for sku, models in st.session_state.tuning_results.items():
+            for model_type, params in models.items():
+                # Get display name for model
+                model_display = model_type
+                if model_type == 'auto_arima':
+                    model_display = 'ARIMA'
+                elif model_type == 'prophet':
+                    model_display = 'Prophet'
+                elif model_type == 'ets':
+                    model_display = 'ETS'
+                elif model_type == 'theta':
+                    model_display = 'Theta'
+                elif model_type == 'lstm':
+                    model_display = 'LSTM'
+                
+                # Add each parameter as a row
+                for param_name, param_value in params.items():
+                    manual_params.append({
+                        "SKU code": sku,
+                        "SKU name": sku,
+                        "Model name": model_display,
+                        "Parameter name": param_name,
+                        "Parameter value": str(param_value)
+                    })
+        
+        if manual_params:
+            params_df = pd.DataFrame(manual_params)
+            st.info("Showing parameters from current tuning session.")
+    
+    # If no data from session state, try from database
+    if len(params_df) == 0 and flat_params:
         # Create a DataFrame with the flat parameters
-        params_df = pd.DataFrame(flat_params)
+        # Rename columns to match requested format
+        flat_df = pd.DataFrame(flat_params)
+        if 'sku_code' in flat_df.columns:
+            flat_df = flat_df.rename(columns={
+                'sku_code': 'SKU code',
+                'sku_name': 'SKU name',
+                'model_name': 'Model name',
+                'parameter_name': 'Parameter name',
+                'parameter_value': 'Parameter value'
+            })
+            params_df = flat_df
+    
+    # Filter to show relevant parameters if user has made selections
+    if len(params_df) > 0 and 'tuning_skus' in st.session_state and 'tuning_models' in st.session_state:
+        if len(st.session_state.tuning_skus) > 0 and len(st.session_state.tuning_models) > 0:
+            # Convert model names to standard format
+            model_name_map = {
+                'auto_arima': 'ARIMA',
+                'prophet': 'Prophet',
+                'ets': 'ETS',
+                'theta': 'Theta',
+                'lstm': 'LSTM'
+            }
+            
+            # Create list of model names to filter by (handling both formats)
+            filter_models = []
+            for model in st.session_state.tuning_models:
+                filter_models.append(model)
+                if model in model_name_map:
+                    filter_models.append(model_name_map[model])
+            
+            # Apply filters
+            mask = (params_df['SKU code'].isin(st.session_state.tuning_skus)) & \
+                   (params_df['Model name'].isin(filter_models))
+            
+            # Apply filter if it gives results, otherwise show all
+            if mask.sum() > 0:
+                params_df = params_df[mask]
+                st.info(f"Showing parameters for selected SKUs and models. Filtered to {len(params_df)} parameters.")
+            else:
+                st.info("Showing all parameters - couldn't find exact matches for your selections.")
+    
+    # If still no real data, create example data as fallback
+    if len(params_df) == 0:
+        st.info("No parameter data available. Run hyperparameter tuning to generate parameters.")
         
-        # Filter to show relevant parameters if user has made selections
-        if 'tuning_skus' in st.session_state and 'tuning_models' in st.session_state:
-            if len(st.session_state.tuning_skus) > 0 and len(st.session_state.tuning_models) > 0:
-                # Convert model names to standard format
-                model_name_map = {
-                    'auto_arima': 'ARIMA',
-                    'prophet': 'Prophet',
-                    'ets': 'ETS',
-                    'theta': 'Theta',
-                    'lstm': 'LSTM'
-                }
-                
-                # Create list of model names to filter by (handling both formats)
-                filter_models = []
-                for model in st.session_state.tuning_models:
-                    filter_models.append(model)
-                    if model in model_name_map:
-                        filter_models.append(model_name_map[model])
-                
-                # Apply filters
-                mask = (params_df['sku_code'].isin(st.session_state.tuning_skus)) & \
-                       (params_df['model_name'].isin(filter_models))
-                
-                # Apply filter if it gives results, otherwise show all
-                if mask.sum() > 0:
-                    params_df = params_df[mask]
-                    st.info(f"Showing parameters for selected SKUs and models. Filtered to {len(params_df)} parameters.")
-                else:
-                    st.info("Showing all parameters - couldn't find exact matches for your selections.")
+        # Create example data showing multiple models
+        example_data = [
+            {"SKU code": "SKU1", "SKU name": "SKU1", "Model name": "ARIMA", "Parameter name": "p", "Parameter value": "1"},
+            {"SKU code": "SKU1", "SKU name": "SKU1", "Model name": "ARIMA", "Parameter name": "d", "Parameter value": "2"},
+            {"SKU code": "SKU1", "SKU name": "SKU1", "Model name": "ARIMA", "Parameter name": "q", "Parameter value": "3"},
+            {"SKU code": "SKU1", "SKU name": "SKU1", "Model name": "Prophet", "Parameter name": "changepoint_prior_scale", "Parameter value": "0.05"},
+            {"SKU code": "SKU1", "SKU name": "SKU1", "Model name": "Prophet", "Parameter name": "seasonality_prior_scale", "Parameter value": "10.0"},
+            {"SKU code": "SKU2", "SKU name": "SKU2", "Model name": "ETS", "Parameter name": "trend", "Parameter value": "add"},
+            {"SKU code": "SKU2", "SKU name": "SKU2", "Model name": "ETS", "Parameter name": "seasonal", "Parameter value": "add"}
+        ]
+        params_df = pd.DataFrame(example_data)
+        st.markdown("### Example Data Format")
+    
+    # Display the DataFrame
+    if len(params_df) > 0:
+        # Ensure column names exactly match requested format
+        if 'sku_code' in params_df.columns:
+            params_df = params_df.rename(columns={
+                'sku_code': 'SKU code',
+                'sku_name': 'SKU name',
+                'model_name': 'Model name',
+                'parameter_name': 'Parameter name',
+                'parameter_value': 'Parameter value'
+            })
         
-        # If still no data, check session state for manually tracked results
-        if len(params_df) == 0 and 'tuning_results' in st.session_state and st.session_state.tuning_results:
-            # Create flat parameter list from session state
-            manual_params = []
-            for sku, models in st.session_state.tuning_results.items():
-                for model_type, params in models.items():
-                    # Get display name for model
-                    model_display = model_type
-                    if model_type == 'auto_arima':
-                        model_display = 'ARIMA'
-                    elif model_type == 'prophet':
-                        model_display = 'Prophet'
-                    elif model_type == 'ets':
-                        model_display = 'ETS'
-                    elif model_type == 'theta':
-                        model_display = 'Theta'
-                    elif model_type == 'lstm':
-                        model_display = 'LSTM'
-                    
-                    # Add each parameter as a row
-                    for param_name, param_value in params.items():
-                        manual_params.append({
-                            "sku_code": sku,
-                            "sku_name": sku,
-                            "model_name": model_display,
-                            "parameter_name": param_name,
-                            "parameter_value": str(param_value)
-                        })
-            
-            if manual_params:
-                params_df = pd.DataFrame(manual_params)
-                st.info("Showing parameters from current tuning session.")
+        # Sort by SKU and model for easier reading
+        params_df = params_df.sort_values(['SKU code', 'Model name', 'Parameter name'])
         
-        # Display the DataFrame if we have data
-        if len(params_df) > 0:
-            # Sort by SKU and model for easier reading
-            params_df = params_df.sort_values(['sku_code', 'model_name', 'parameter_name'])
-            
-            # Display the DataFrame
-            st.dataframe(params_df, use_container_width=True, height=400)
-            
-            # Add download button for the parameters table
-            @st.cache_data
-            def convert_df_to_csv(df):
-                return df.to_csv(index=False).encode('utf-8')
-            
-            csv = convert_df_to_csv(params_df)
-            
-            st.download_button(
-                label="📥 Download Parameters Table as CSV",
-                data=csv,
-                file_name="hyperparameter_tuning_results.csv",
-                mime="text/csv",
-                use_container_width=True
-            )
-            
-            # Add download button for Excel format
-            @st.cache_data
-            def convert_df_to_excel(df):
-                import io
-                buffer = io.BytesIO()
-                df.to_excel(buffer, index=False, engine='xlsxwriter')
-                buffer.seek(0)
-                return buffer.getvalue()
-            
-            excel_data = convert_df_to_excel(params_df)
-            
-            st.download_button(
-                label="📥 Download Parameters Table as Excel",
-                data=excel_data,
-                file_name="hyperparameter_tuning_results.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
-            
-            # Display summary statistics
-            st.markdown(f"""
-            **Summary Statistics:**
-            - Total parameters: {len(params_df)}
-            - Unique SKUs: {params_df['sku_code'].nunique()}
-            - Models with parameters: {params_df['model_name'].nunique()}
-            """)
-        else:
-            st.info("No parameter data available. Run hyperparameter tuning to generate parameters.")
-            
-            # Add example data table to show the format
-            st.markdown("### Example Data Format")
-            
-            # Create example data showing multiple models
-            example_data = [
-                {"sku_code": "SKU1", "sku_name": "SKU1", "model_name": "ARIMA", "parameter_name": "p", "parameter_value": "1"},
-                {"sku_code": "SKU1", "sku_name": "SKU1", "model_name": "ARIMA", "parameter_name": "d", "parameter_value": "2"},
-                {"sku_code": "SKU1", "sku_name": "SKU1", "model_name": "ARIMA", "parameter_name": "q", "parameter_value": "3"},
-                {"sku_code": "SKU1", "sku_name": "SKU1", "model_name": "Prophet", "parameter_name": "changepoint_prior_scale", "parameter_value": "0.05"},
-                {"sku_code": "SKU1", "sku_name": "SKU1", "model_name": "Prophet", "parameter_name": "seasonality_prior_scale", "parameter_value": "10.0"},
-                {"sku_code": "SKU2", "sku_name": "SKU2", "model_name": "ETS", "parameter_name": "trend", "parameter_value": "add"},
-                {"sku_code": "SKU2", "sku_name": "SKU2", "model_name": "ETS", "parameter_name": "seasonal", "parameter_value": "add"}
-            ]
-            example_df = pd.DataFrame(example_data)
-            
-            st.dataframe(example_df, use_container_width=True)
-            
+        # Display the DataFrame with exact requested column order
+        column_order = ["SKU code", "SKU name", "Model name", "Parameter name", "Parameter value"]
+        # Make sure all columns exist
+        for col in column_order:
+            if col not in params_df.columns:
+                params_df[col] = ""
+        
+        # Display the DataFrame with the specified columns
+        st.dataframe(params_df[column_order], use_container_width=True, height=400)
+        
+        # Add download button for the parameters table
+        @st.cache_data
+        def convert_df_to_csv(df):
+            return df.to_csv(index=False).encode('utf-8')
+        
+        csv = convert_df_to_csv(params_df[column_order])
+        
+        st.download_button(
+            label="📥 Download Parameters Table as CSV",
+            data=csv,
+            file_name="hyperparameter_tuning_results.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
+        
+        # Add download button for Excel format
+        @st.cache_data
+        def convert_df_to_excel(df):
+            import io
+            buffer = io.BytesIO()
+            df.to_excel(buffer, index=False, engine='xlsxwriter')
+            buffer.seek(0)
+            return buffer.getvalue()
+        
+        excel_data = convert_df_to_excel(params_df[column_order])
+        
+        st.download_button(
+            label="📥 Download Parameters Table as Excel",
+            data=excel_data,
+            file_name="hyperparameter_tuning_results.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+        
+        # Display summary statistics
+        st.markdown(f"""
+        **Summary Statistics:**
+        - Total parameters: {len(params_df)}
+        - Unique SKUs: {params_df['SKU code'].nunique()}
+        - Models with parameters: {params_df['Model name'].nunique()}
+        """)
+        
 except Exception as e:
     st.error(f"Error loading parameter data table: {str(e)}")
+    
+    # Create a fallback example table with the exact columns requested
+    fallback_data = [
+        {"SKU code": "SKU1", "SKU name": "SKU1", "Model name": "ARIMA", "Parameter name": "p", "Parameter value": "1"},
+        {"SKU code": "SKU1", "SKU name": "SKU1", "Model name": "ARIMA", "Parameter name": "d", "Parameter value": "2"},
+        {"SKU code": "SKU1", "SKU name": "SKU1", "Model name": "ARIMA", "Parameter name": "q", "Parameter value": "3"}
+    ]
+    st.markdown("### Example Format (Error Loading Actual Data)")
+    st.dataframe(pd.DataFrame(fallback_data), use_container_width=True)
