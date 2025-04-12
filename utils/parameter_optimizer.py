@@ -146,7 +146,8 @@ def objective_function_arima(params, train_data, val_data):
 
         # Use a try block specifically for model fitting
         try:
-            fitted_model = model.fit(disp=0, maxiter=100)  # Increase max iterations and disable convergence messages
+            # Updated: Remove 'disp' parameter which is no longer supported
+            fitted_model = model.fit(maxiter=100)  # Increase max iterations
             logger.info(f"ARIMA fitting complete. AIC: {fitted_model.aic:.2f}, BIC: {fitted_model.bic:.2f}")
         except Exception as fit_error:
             logger.error(f"ARIMA fitting failed for order ({p},{d},{q}): {str(fit_error)}")
