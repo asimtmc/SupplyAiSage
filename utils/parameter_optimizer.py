@@ -1,14 +1,14 @@
 import pandas as pd
 import numpy as np
-import json
-import time
-import threading
-import concurrent.futures
-from datetime import datetime, timedelta
 import traceback
-import logging
-from sklearn.metrics import mean_absolute_error, mean_squared_error
+import time
 import uuid
+import concurrent.futures
+import threading
+import json
+import logging
+from datetime import datetime, timedelta
+from sklearn.metrics import mean_absolute_error, mean_squared_error
 
 # Import database functions for parameter caching
 from utils.database import save_model_parameters, get_model_parameters, get_parameters_update_required, ModelParameterCache, SessionFactory
@@ -21,7 +21,7 @@ logger = logging.getLogger('parameter_optimizer')
 _active_optimization_tasks = {}
 
 # Maximum number of concurrent optimization tasks
-MAX_CONCURRENT_TASKS = 2
+MAX_CONCURRENT_TASKS = 6
 
 # Background task management
 def get_active_tasks_count():
