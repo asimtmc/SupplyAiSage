@@ -735,29 +735,60 @@ def get_flat_model_parameters():
                 try:
                     # Get parameters from the parameters field
                     if param.parameters:
-                        parameters = json.loads(param.parameters)
-                        
-                        # For parameters stored in a nested 'parameters' key, extract them
-                        if 'parameters' in parameters and isinstance(parameters['parameters'], dict):
-                            param_dict = parameters['parameters']
-                        else:
-                            param_dict = parameters
-                        
-                        # For each parameter, create a separate row
-                        for param_name, param_value in param_dict.items():
-                            # Convert value to string for consistent display
-                            if isinstance(param_value, (list, dict)):
-                                value_str = json.dumps(param_value)
-                            else:
-                                value_str = str(param_value)
+                        try:
+                            parameters = json.loads(param.parameters)
                             
+                            # Handle null/None parameters
+                            if parameters is None:
+                                # Add a placeholder row for models with null parameters
+                                flat_results.append({
+                                    'sku_code': param.sku,
+                                    'sku_name': param.sku,
+                                    'model_name': param.model_type.upper(),
+                                    'parameter_name': 'status',
+                                    'parameter_value': 'Tuning failed or parameters not available'
+                                })
+                                continue
+                                
+                            # For parameters stored in a nested 'parameters' key, extract them
+                            if 'parameters' in parameters and isinstance(parameters['parameters'], dict):
+                                param_dict = parameters['parameters']
+                            else:
+                                param_dict = parameters
+                            
+                            # For each parameter, create a separate row
+                            for param_name, param_value in param_dict.items():
+                                # Convert value to string for consistent display
+                                if isinstance(param_value, (list, dict)):
+                                    value_str = json.dumps(param_value)
+                                else:
+                                    value_str = str(param_value)
+                                
+                                flat_results.append({
+                                    'sku_code': param.sku,
+                                    'sku_name': param.sku,  # Using SKU code as name since we don't have separate names
+                                    'model_name': param.model_type.upper(),
+                                    'parameter_name': param_name,
+                                    'parameter_value': value_str
+                                })
+                        except json.JSONDecodeError:
+                            # Handle JSON decode error
                             flat_results.append({
                                 'sku_code': param.sku,
-                                'sku_name': param.sku,  # Using SKU code as name since we don't have separate names
+                                'sku_name': param.sku,
                                 'model_name': param.model_type.upper(),
-                                'parameter_name': param_name,
-                                'parameter_value': value_str
+                                'parameter_name': 'error',
+                                'parameter_value': 'Invalid parameter format'
                             })
+                    else:
+                        # Handle null parameters
+                        flat_results.append({
+                            'sku_code': param.sku,
+                            'sku_name': param.sku,
+                            'model_name': param.model_type.upper(),
+                            'parameter_name': 'status',
+                            'parameter_value': 'Parameters not available'
+                        })
                 except Exception as e:
                     print(f"Error parsing parameters for {param.sku}, {param.model_type}: {str(e)}")
                     continue
