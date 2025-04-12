@@ -124,7 +124,7 @@ def plot_forecast(sales_data, forecast_data, sku=None, selected_models=None, sho
                         'ets': 'dashdot',
                         'theta': 'longdash'
                     }
-                    
+
                     # Assign different marker symbols for additional differentiation
                     marker_symbols = {
                         'arima': 'circle',
@@ -139,10 +139,10 @@ def plot_forecast(sales_data, forecast_data, sku=None, selected_models=None, sho
                         'ets': 'square-open',
                         'theta': 'diamond-open'
                     }
-                    
+
                     dash_pattern = dash_patterns.get(model_key, 'solid')
                     marker_symbol = marker_symbols.get(model_key, 'circle')
-                    
+
                     fig.add_trace(
                         go.Scatter(
                             x=model_forecast.index,
@@ -177,7 +177,7 @@ def plot_forecast(sales_data, forecast_data, sku=None, selected_models=None, sho
                 'ets': 'dashdot',
                 'theta': 'longdash'
             }
-            
+
             marker_symbols = {
                 'arima': 'circle',
                 'sarima': 'square',
@@ -191,10 +191,10 @@ def plot_forecast(sales_data, forecast_data, sku=None, selected_models=None, sho
                 'ets': 'square-open',
                 'theta': 'diamond-open'
             }
-            
+
             dash_pattern = dash_patterns.get(model_key, 'solid')
             marker_symbol = marker_symbols.get(model_key, 'circle')
-            
+
             fig.add_trace(
                 go.Scatter(
                     x=forecast_values.index,
@@ -285,7 +285,7 @@ def plot_forecast(sales_data, forecast_data, sku=None, selected_models=None, sho
                                 'ets': 'dashdot',
                                 'theta': 'longdash'
                             }
-                            
+
                             marker_symbols = {
                                 'arima': 'circle',
                                 'sarima': 'square',
@@ -299,11 +299,11 @@ def plot_forecast(sales_data, forecast_data, sku=None, selected_models=None, sho
                                 'ets': 'square-open',
                                 'theta': 'diamond-open'
                             }
-                            
+
                             # For test predictions, use the same pattern but lighter
                             dash_pattern = dash_patterns.get(model_key, 'dot')
                             marker_symbol = marker_symbols.get(model_key, 'circle')
-                            
+
                             fig.add_trace(
                                 go.Scatter(
                                     x=test_predictions.index,
@@ -880,7 +880,7 @@ def plot_model_comparison(selected_sku=None, forecast_data=None, models_to_show=
 
     Parameters:
     -----------
-    selected_sku : str, optional
+    selected_sku: str, optional
         The SKU identifier to display in the chart title
     forecast_data : dict
         Dictionary containing model evaluation data with metrics for each model
@@ -1125,26 +1125,6 @@ def plot_model_comparison(selected_sku=None, forecast_data=None, models_to_show=
             font_family="Arial"
         ),
         margin=dict(l=50, r=100, t=80, b=100)
-    )
-
-    # Add explanation of metrics
-    fig.add_annotation(
-        x=0.02,
-        y=0.02,
-        xref="paper",
-        yref="paper",
-        text="<b>Lower values indicate better model performance</b>",
-        showarrow=False,
-        font=dict(
-            family="Arial",
-            size=10,
-            color="#666666"
-        ),
-        align="left",
-        bgcolor="rgba(255, 255, 255, 0.8)",
-        bordercolor="#c7c7c7",
-        borderwidth=1,
-        borderpad=4
     )
 
     return fig
@@ -1639,7 +1619,7 @@ def highlight_data_columns(row):
         'model': 'lightyellow',
         'best_model': 'lightcoral'
     }
-    
+
     # Style the row based on the column name
     styled_row = []
     for col, val in row.items():
@@ -1723,7 +1703,7 @@ if uploaded_file is not None:
             'best_model': 'model3'
         }
     }
-    
+
     model_comparison_plot = plot_model_comparison(selected_sku, model_comparison_results)
     st.plotly_chart(model_comparison_plot, use_container_width=True)
 
@@ -1780,7 +1760,7 @@ if uploaded_file is not None:
         'mape': [5, 7, 3, 4],
         'mae': [8, 9, 6, 5]
     })
-    
+
     # Use styling to highlight data column types with frozen columns till model name
     styled_df = all_sku_df.style.apply(highlight_data_columns, axis=None)
 

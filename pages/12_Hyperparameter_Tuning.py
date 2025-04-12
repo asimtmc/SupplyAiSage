@@ -1,8 +1,8 @@
 # Import streamlit first
 import streamlit as st
 
-# Page configuration is already set in app.py
-# Do not call st.set_page_config() here as it will cause errors
+# Page configuration
+st.set_page_config(page_title="Hyperparameter Tuning", page_icon=":wrench:", layout="wide")
 
 def render_parameter_lookup_table():
     """
