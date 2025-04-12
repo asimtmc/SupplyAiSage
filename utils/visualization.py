@@ -1662,146 +1662,146 @@ def create_demo_dashboard(title="Demand Forecasting Dashboard"):
                 st.error("Invalid date format. Please ensure your 'date' column is in a valid format (e.g., YYYY-MM-DD).")
                 st.stop()
 
-    # Check for required columns in sales data
-    required_columns = ['sku', 'date', 'quantity']
-    if not all(col in sales_data.columns for col in required_columns):
-        st.error(f"Sales data must contain columns: {', '.join(required_columns)}")
-        st.stop()
+        # Check for required columns in sales data
+        required_columns = ['sku', 'date', 'quantity']
+        if not all(col in sales_data.columns for col in required_columns):
+            st.error(f"Sales data must contain columns: {', '.join(required_columns)}")
+            st.stop()
 
-    # --- DATA EXPLORATION AND VISUALIZATION ---
-    # Select SKU for analysis
-    selected_sku = st.selectbox("Select SKU", sales_data['sku'].unique())
+        # --- DATA EXPLORATION AND VISUALIZATION ---
+        # Select SKU for analysis
+        selected_sku = st.selectbox("Select SKU", sales_data['sku'].unique())
 
-    # Filter sales data for the selected SKU
-    selected_sku_data = sales_data[sales_data['sku'] == selected_sku]
+        # Filter sales data for the selected SKU
+        selected_sku_data = sales_data[sales_data['sku'] == selected_sku]
 
-    # --- FORECASTING ---
-    # Placeholder for forecast results (replace with your forecasting logic)
-    forecast_results = {
-        selected_sku: {
-            'forecast': pd.Series([100, 110, 120, 130, 140], index=pd.date_range(start='2024-01-01', periods=5, freq='M')),
-            'lower_bound': pd.Series([90, 100, 110, 120, 130], index=pd.date_range(start='2024-01-01', periods=5, freq='M')),
-            'upper_bound': pd.Series([110, 120, 130, 140, 150], index=pd.date_range(start='2024-01-01', periods=5, freq='M')),
-            'model': 'ExampleModel'
+        # --- FORECASTING ---
+        # Placeholder for forecast results (replace with your forecasting logic)
+        forecast_results = {
+            selected_sku: {
+                'forecast': pd.Series([100, 110, 120, 130, 140], index=pd.date_range(start='2024-01-01', periods=5, freq='M')),
+                'lower_bound': pd.Series([90, 100, 110, 120, 130], index=pd.date_range(start='2024-01-01', periods=5, freq='M')),
+                'upper_bound': pd.Series([110, 120, 130, 140, 150], index=pd.date_range(start='2024-01-01', periods=5, freq='M')),
+                'model': 'ExampleModel'
+            }
         }
-    }
 
-    # --- VISUALIZATIONS ---
-    # Forecast plot
-    forecast_plot = plot_forecast(sales_data, forecast_results, sku=selected_sku)
-    st.plotly_chart(forecast_plot, use_container_width=True)
-
+        # --- VISUALIZATIONS ---
+        # Forecast plot
+        forecast_plot = plot_forecast(sales_data, forecast_results, sku=selected_sku)
+        st.plotly_chart(forecast_plot, use_container_width=True)
 
 
-    # --- MODEL COMPARISON ---
-    # Placeholder for model comparison results
-    model_comparison_results = {
-        'model_evaluation': {
-            'metrics': {
-                'model1': {'rmse': 10, 'mape': 5, 'mae': 8},
-                'model2': {'rmse': 12, 'mape': 7, 'mae': 9},
-                'model3': {'rmse': 8, 'mape': 3, 'mae': 6}
+
+        # --- MODEL COMPARISON ---
+        # Placeholder for model comparison results
+        model_comparison_results = {
+            'model_evaluation': {
+                'metrics': {
+                    'model1': {'rmse': 10, 'mape': 5, 'mae': 8},
+                    'model2': {'rmse': 12, 'mape': 7, 'mae': 9},
+                    'model3': {'rmse': 8, 'mape': 3, 'mae': 6}
+                },
+                'best_model': 'model3'
+            }
+        }
+
+        model_comparison_plot = plot_model_comparison(selected_sku, model_comparison_results)
+        st.plotly_chart(model_comparison_plot, use_container_width=True)
+
+        # --- ERROR ANALYSIS ---
+        # Placeholder for error analysis results
+        error_analysis_results = {
+            'test_set': pd.Series([100, 110, 120, 130, 140]),
+            'test_predictions': pd.Series([98, 105, 125, 135, 138])
+        }
+        error_analysis_plot = plot_forecast_error_distribution(selected_sku, error_analysis_results)
+        st.plotly_chart(error_analysis_plot, use_container_width=True)
+
+
+        # --- FORECAST ACCURACY ---
+        # Placeholder for forecast accuracy results
+        forecast_accuracy_results = {
+            selected_sku: {'forecast': pd.Series([100, 110, 120, 130, 140], index=pd.date_range(start='2024-01-01', periods=5, freq='M'))}
+        }
+        forecast_accuracy_plot = plot_forecast_accuracy(selected_sku_data, forecast_accuracy_results)
+        st.plotly_chart(forecast_accuracy_plot, use_container_width=True)
+
+
+        # --- INVENTORY MANAGEMENT ---
+        # Placeholder for inventory data (replace with your actual data)
+        inventory_data = pd.DataFrame({
+            'sku': ['A', 'B', 'C', 'D'],
+            'avg_monthly_sales': [100, 50, 200, 150],
+            'months_of_supply': [1, 2, 0.5, 3],
+            'demand_variability': [0.2, 0.5, 0.1, 0.3],
+            'growth_rate': [5, -2, 10, 0],
+            'risk_score': [20, 60, 10, 40],
+            'importance': [1000, 500, 2000, 1500]
+        })
+        inventory_health_plot = plot_inventory_health(sales_data, forecast_results)
+        st.plotly_chart(inventory_health_plot, use_container_width=True)
+
+        inventory_risk_matrix_plot = plot_inventory_risk_matrix(inventory_data)
+        st.plotly_chart(inventory_risk_matrix_plot, use_container_width=True)
+
+        # --- WHAT-IF ANALYSIS ---
+        base_scenario = {'production_plan': pd.DataFrame({'period': ['Jan 2024', 'Feb 2024', 'Mar 2024'], 'production_quantity': [100, 120, 110]})}
+        what_if_scenario = {'production_plan': pd.DataFrame({'period': ['Jan 2024', 'Feb 2024', 'Mar 2024'], 'production_quantity': [110, 130, 120]})}
+        what_if_comparison_plot = plot_what_if_comparison(base_scenario, what_if_scenario)
+        st.plotly_chart(what_if_comparison_plot, use_container_width=True)
+
+        # --- SKU SUMMARY ---
+        # Create a sample DataFrame for SKU summary
+        all_sku_df = pd.DataFrame({
+            'sku_code': ['SKU1', 'SKU2', 'SKU3', 'SKU4'],
+            'sku_name': ['Product A', 'Product B', 'Product C', 'Product D'],
+            'model': ['ARIMA', 'Prophet', 'SARIMA', 'LSTM'],
+            'best_model': ['True', 'False', 'False', 'True'],
+            'rmse': [10, 12, 8, 6],
+            'mape': [5, 7, 3, 4],
+            'mae': [8, 9, 6, 5]
+        })
+
+        # Use styling to highlight data column types with frozen columns till model name
+        styled_df = all_sku_df.style.apply(highlight_data_columns, axis=None)
+
+        # Add frozen panes - freeze the first 4 columns and the header row
+        styled_df = styled_df.set_sticky(axis="index", levels=[0])  # Freeze header row
+        styled_df = styled_df.set_sticky(axis="columns", levels=list(range(4)))  # Freeze first 4 columns
+
+        # Add enhanced styling for better visibility of frozen areas
+        styled_df = styled_df.set_table_styles(get_table_styles(), overwrite=True)
+
+        st.dataframe(
+            styled_df,
+            use_container_width=True,
+            height=600,  # Increased height for better visibility
+            column_config={
+                # Configure the info columns (SKU code, SKU name, model, best model)
+                "sku_code": st.column_config.TextColumn(
+                    "SKU Code",
+                    width="medium",
+                    help="Unique identifier for the SKU"
+                ),
+                "sku_name": st.column_config.TextColumn(
+                    "SKU Name",
+                    width="medium", 
+                    help="Name of the SKU"
+                ),
+                "model": st.column_config.TextColumn(
+                    "Model",
+                    width="medium",
+                    help="Forecasting model used"
+                ),
+                "best_model": st.column_config.TextColumn(
+                    "Best",
+                    width="small",
+                    help="Check mark indicates best performing model"
+                )
             },
-            'best_model': 'model3'
-        }
-    }
+            hide_index=True
+        )
 
-    model_comparison_plot = plot_model_comparison(selected_sku, model_comparison_results)
-    st.plotly_chart(model_comparison_plot, use_container_width=True)
-
-    # --- ERROR ANALYSIS ---
-    # Placeholder for error analysis results
-    error_analysis_results = {
-        'test_set': pd.Series([100, 110, 120, 130, 140]),
-        'test_predictions': pd.Series([98, 105, 125, 135, 138])
-    }
-    error_analysis_plot = plot_forecast_error_distribution(selected_sku, error_analysis_results)
-    st.plotly_chart(error_analysis_plot, use_container_width=True)
-
-
-    # --- FORECAST ACCURACY ---
-    # Placeholder for forecast accuracy results
-    forecast_accuracy_results = {
-        selected_sku: {'forecast': pd.Series([100, 110, 120, 130, 140], index=pd.date_range(start='2024-01-01', periods=5, freq='M'))}
-    }
-    forecast_accuracy_plot = plot_forecast_accuracy(selected_sku_data, forecast_accuracy_results)
-    st.plotly_chart(forecast_accuracy_plot, use_container_width=True)
-
-
-    # --- INVENTORY MANAGEMENT ---
-    # Placeholder for inventory data (replace with your actual data)
-    inventory_data = pd.DataFrame({
-        'sku': ['A', 'B', 'C', 'D'],
-        'avg_monthly_sales': [100, 50, 200, 150],
-        'months_of_supply': [1, 2, 0.5, 3],
-        'demand_variability': [0.2, 0.5, 0.1, 0.3],
-        'growth_rate': [5, -2, 10, 0],
-        'risk_score': [20, 60, 10, 40],
-        'importance': [1000, 500, 2000, 1500]
-    })
-    inventory_health_plot = plot_inventory_health(sales_data, forecast_results)
-    st.plotly_chart(inventory_health_plot, use_container_width=True)
-
-    inventory_risk_matrix_plot = plot_inventory_risk_matrix(inventory_data)
-    st.plotly_chart(inventory_risk_matrix_plot, use_container_width=True)
-
-    # --- WHAT-IF ANALYSIS ---
-    base_scenario = {'production_plan': pd.DataFrame({'period': ['Jan 2024', 'Feb 2024', 'Mar 2024'], 'production_quantity': [100, 120, 110]})}
-    what_if_scenario = {'production_plan': pd.DataFrame({'period': ['Jan 2024', 'Feb 2024', 'Mar 2024'], 'production_quantity': [110, 130, 120]})}
-    what_if_comparison_plot = plot_what_if_comparison(base_scenario, what_if_scenario)
-    st.plotly_chart(what_if_comparison_plot, use_container_width=True)
-
-    # --- SKU SUMMARY ---
-    # Create a sample DataFrame for SKU summary
-    all_sku_df = pd.DataFrame({
-        'sku_code': ['SKU1', 'SKU2', 'SKU3', 'SKU4'],
-        'sku_name': ['Product A', 'Product B', 'Product C', 'Product D'],
-        'model': ['ARIMA', 'Prophet', 'SARIMA', 'LSTM'],
-        'best_model': ['True', 'False', 'False', 'True'],
-        'rmse': [10, 12, 8, 6],
-        'mape': [5, 7, 3, 4],
-        'mae': [8, 9, 6, 5]
-    })
-
-    # Use styling to highlight data column types with frozen columns till model name
-    styled_df = all_sku_df.style.apply(highlight_data_columns, axis=None)
-
-    # Add frozen panes - freeze the first 4 columns and the header row
-    styled_df = styled_df.set_sticky(axis="index", levels=[0])  # Freeze header row
-    styled_df = styled_df.set_sticky(axis="columns", levels=list(range(4)))  # Freeze first 4 columns
-
-    # Add enhanced styling for better visibility of frozen areas
-    styled_df = styled_df.set_table_styles(get_table_styles(), overwrite=True)
-
-    st.dataframe(
-        styled_df,
-        use_container_width=True,
-        height=600,  # Increased height for better visibility
-        column_config={
-            # Configure the info columns (SKU code, SKU name, model, best model)
-            "sku_code": st.column_config.TextColumn(
-                "SKU Code",
-                width="medium",
-                help="Unique identifier for the SKU"
-            ),
-            "sku_name": st.column_config.TextColumn(
-                "SKU Name",
-                width="medium", 
-                help="Name of the SKU"
-            ),
-            "model": st.column_config.TextColumn(
-                "Model",
-                width="medium",
-                help="Forecasting model used"
-            ),
-            "best_model": st.column_config.TextColumn(
-                "Best",
-                width="small",
-                help="Check mark indicates best performing model"
-            )
-        },
-        hide_index=True
-    )
-
-else:
-    st.write("No CSV file uploaded.")
+    else:
+        st.write("No CSV file uploaded.")
