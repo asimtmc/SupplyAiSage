@@ -948,3 +948,69 @@ def save_model_parameters(sku, model_type, parameters, best_score=None, tuning_i
     finally:
         if session:
             session.close()
+
+def get_model_parameters(sku, model_type):
+    """
+    Retrieve optimized model parameters from the cache
+
+    Parameters:
+    -----------
+    sku : str
+        SKU identifier
+    model_type : str
+        Type of forecasting model (e.g., 'arima', 'prophet', 'xgboost')
+
+    Returns:
+    --------
+    dict or None
+        Dictionary with parameters or None if not found
+    """
+    try:
+        session = SessionFactory()
+
+        # Query the database
+        cache_entry = session.query(ModelParameterCache).filter(
+            ModelParameterCache.sku == sku,
+            ModelParameterCache.model_type == model_type
+        ).first()
+
+        if cache_entry:
+            # Convert parameters from JSON string to dict
+            import json
+
+            # Check if parameters is a string and try to parse it
+            if isinstance(cache_entry.parameters, str):
+                try:
+                    parameters = json.loads(cache_entry.parameters)
+                except json.JSONDecodeError as e:
+                    print(f"Error parsing parameters JSON for {sku}, {model_type}: {str(e)}")
+                    print(f"Raw parameters: {cache_entry.parameters}")
+                    parameters = cache_entry.parameters  # Keep as string if can't parse
+            else:
+                parameters = cache_entry.parameters
+
+            # Print debug info
+            print(f"Retrieved parameters for {sku}, {model_type}: {parameters}")
+
+            # Check for valid parameter structure
+            if isinstance(parameters, dict) or isinstance(parameters, str):
+                return {
+                    'parameters': parameters,
+                    'last_updated': cache_entry.last_updated,
+                    'best_score': cache_entry.best_score
+                }
+            else:
+                print(f"Invalid parameter structure for {sku}, {model_type}")
+                return None
+        else:
+            print(f"No parameters found for {sku}, {model_type}")
+            return None
+
+    except Exception as e:
+        import traceback
+        print(f"Error retrieving model parameters: {str(e)}")
+        traceback.print_exc()
+        return None
+    finally:
+        if session:
+            session.close()

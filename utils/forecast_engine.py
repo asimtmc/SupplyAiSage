@@ -345,34 +345,34 @@ def select_best_model(sku_data, forecast_periods=12):
             try:
                 # Prepare data for decomposition
                 ts_data = data.set_index('date')['quantity']
-                
+
                 # Use annual seasonality for longer time series
                 period = 12
-                
+
                 # Decompose the time series
                 decomposition = seasonal_decompose(
                     ts_data, 
                     model='additive',
                     period=period
                 )
-                
+
                 # Extract components
                 trend = decomposition.trend
                 seasonal = decomposition.seasonal
                 residual = decomposition.resid
-                
+
                 # Handle NaN values in components
                 trend = trend.fillna(method='bfill').fillna(method='ffill')
                 seasonal = seasonal.fillna(method='bfill').fillna(method='ffill')
                 residual = residual.fillna(method='bfill').fillna(method='ffill')
-                
+
                 # Fit ARIMA model to residuals for future prediction
                 residual_model = ARIMA(residual.dropna(), order=(1, 0, 1))
                 residual_fit = residual_model.fit()
-                
+
                 # Forecast residuals
                 residual_forecast = residual_fit.forecast(steps=forecast_periods)
-                
+
                 # Extract trend component's growth rate
                 trend_values = trend.values
                 # Use last n points to calculate trend slope
@@ -381,41 +381,41 @@ def select_best_model(sku_data, forecast_periods=12):
                 trend_indices = np.arange(len(trend_end))
                 trend_fit = np.polyfit(trend_indices, trend_end, 1)
                 trend_slope = trend_fit[0]
-                
+
                 # Get last trend value
                 last_trend = trend.iloc[-1]
-                
+
                 # Get seasonal pattern
                 seasonal_pattern = seasonal.values[-period:]
-                
+
                 # Generate forecasts by recombining components
                 forecast_values = []
                 for i in range(forecast_periods):
                     # Get seasonal component using modulo to repeat the pattern
                     seasonal_idx = i % len(seasonal_pattern)
                     seasonal_component = seasonal_pattern[seasonal_idx]
-                    
+
                     # Combine trend, seasonal, and residual forecasts
                     pred = last_trend + i * trend_slope + seasonal_component + residual_forecast[i]
                     forecast_values.append(max(0, pred))  # Ensure non-negative values
-                
+
                 forecast_values = np.array(forecast_values)
-                
+
                 # Create confidence intervals
                 forecast_std = np.std(data['quantity'])
                 z_value = 1.28  # Approximately 80% confidence interval
                 lower_bound = forecast_values - z_value * forecast_std
                 upper_bound = forecast_values + z_value * forecast_std
-                
+
             except Exception as e:
                 print(f"Decomposition model failed: {str(e)}")
                 # Fall back to Holt-Winters if decomposition fails
                 model_type = "holtwinters"
                 # Continue to Holt-Winters code below
-                
+
                 # Determine seasonal period based on data length
                 seasonal_periods = 12  # Monthly data, annual seasonality
-                
+
                 # Fit Holt-Winters model
                 model = ExponentialSmoothing(
                     data['quantity'],
@@ -425,23 +425,23 @@ def select_best_model(sku_data, forecast_periods=12):
                     damped=True                # Damped trend to avoid over-forecasting
                 )
                 results = model.fit(optimized=True, use_brute=False)
-                
+
                 # Generate forecasts
                 forecast_values = results.forecast(steps=forecast_periods).values
-                
+
                 # Create confidence intervals (80% by default)
                 forecast_std = np.std(data['quantity'])
                 z_value = 1.28  # Approximately 80% confidence interval
                 lower_bound = forecast_values - z_value * forecast_std
                 upper_bound = forecast_values + z_value * forecast_std
-                
+
         else:
             # For shorter data, use Holt-Winters
             model_type = "holtwinters"
             try:
                 # Determine seasonal period based on data length
                 seasonal_periods = 4   # Quarterly-like pattern for shorter data
-                
+
                 # Fit Holt-Winters model
                 model = ExponentialSmoothing(
                     data['quantity'],
@@ -450,7 +450,7 @@ def select_best_model(sku_data, forecast_periods=12):
                     seasonal_periods=seasonal_periods,
                     damped=True                # Damped trend to avoid over-forecasting
                 )
-                
+
                 # Use fixed parameters instead of optimization to avoid numerical issues
                 results = model.fit(
                     smoothing_level=0.5,      # More conservative smoothing level
@@ -459,19 +459,19 @@ def select_best_model(sku_data, forecast_periods=12):
                     damping_trend=0.9,        # Strong damping to prevent explosion
                     optimized=False           # Don't optimize to avoid numerical issues
                 )
-                
+
                 # Generate forecasts and handle potential NaN values
                 forecast_raw = results.forecast(steps=forecast_periods).values
-                
+
                 # Replace any NaN values with the mean of the data
                 data_mean = np.mean(data['quantity'])
                 forecast_values = np.where(np.isnan(forecast_raw), data_mean, forecast_raw)
-                
+
                 # Ensure forecasts are reasonable (within historical range)
                 data_max = np.max(data['quantity']) * 1.5  # Allow 50% growth
                 data_min = max(0, np.min(data['quantity']) * 0.5)  # Don't go below 0
                 forecast_values = np.clip(forecast_values, data_min, data_max)
-                
+
                 # Create confidence intervals (80% by default)
                 forecast_std = np.std(data['quantity'])
                 z_value = 1.28  # Approximately 80% confidence interval
@@ -631,7 +631,7 @@ def select_best_model(sku_data, forecast_periods=12):
 def create_lstm_model(sequence_length, units=50, dropout_rate=0.2, recurrent_dropout=0.0, include_exogenous=False, n_exog_features=0):
     """
     Create and compile an LSTM model for time series forecasting with improved regularization
-    
+
     Parameters:
     -----------
     sequence_length : int
@@ -646,7 +646,7 @@ def create_lstm_model(sequence_length, units=50, dropout_rate=0.2, recurrent_dro
         Whether to include exogenous features (default is False)
     n_exog_features : int, optional
         Number of exogenous features if include_exogenous is True (default is 0)
-        
+
     Returns:
     --------
     tensorflow.keras.models.Sequential or None
@@ -656,20 +656,20 @@ def create_lstm_model(sequence_length, units=50, dropout_rate=0.2, recurrent_dro
     if not globals().get('tensorflow_available', False):
         print("TensorFlow is not available. LSTM model creation skipped.")
         return None
-        
+
     # Set random seeds for reproducibility
     np.random.seed(42)
     tf.random.set_seed(42)
-    
+
     # Determine input shape based on whether exogenous variables are included
     if include_exogenous:
         input_shape = (sequence_length, 1 + n_exog_features)
     else:
         input_shape = (sequence_length, 1)
-    
+
     # Create model - using a simpler architecture for limited data
     model = Sequential()
-    
+
     # First LSTM layer with appropriate regularization
     model.add(LSTM(
         units=units, 
@@ -679,10 +679,10 @@ def create_lstm_model(sequence_length, units=50, dropout_rate=0.2, recurrent_dro
         recurrent_dropout=recurrent_dropout,
         kernel_regularizer=tf.keras.regularizers.l2(0.001)  # L2 regularization to prevent overfitting
     ))
-    
+
     # Additional dropout layer
     model.add(Dropout(dropout_rate))
-    
+
     # Second LSTM layer
     model.add(LSTM(
         units=max(10, units // 2),  # Smaller second layer
@@ -690,19 +690,19 @@ def create_lstm_model(sequence_length, units=50, dropout_rate=0.2, recurrent_dro
         recurrent_dropout=recurrent_dropout,
         kernel_regularizer=tf.keras.regularizers.l2(0.001)
     ))
-    
+
     # Final dropout layer
     model.add(Dropout(dropout_rate))
-    
+
     # Output layer
     model.add(Dense(units=1))
-    
+
     # Compile model
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
         loss='mean_squared_error'
     )
-    
+
     return model
 
 def prepare_lstm_data(data, sequence_length=12):
@@ -771,7 +771,7 @@ def train_lstm_model(data, test_size=0.2, sequence_length=12, epochs=50, include
         # Create a fingerprint of the data
         data_hash = hash(data.tobytes())
         cache_key = f"lstm_{data_hash}_{sequence_length}_{epochs}"
-        
+
         # Check if we have a cached model
         if cache_key in _model_cache:
             print(f"Using cached LSTM model: {cache_key}")
@@ -783,7 +783,7 @@ def train_lstm_model(data, test_size=0.2, sequence_length=12, epochs=50, include
     # Normalize data
     scaler = MinMaxScaler()
     data_scaled = scaler.fit_transform(data.reshape(-1, 1)).flatten()
-    
+
     # Handle exogenous data if provided
     n_exog_features = 0
     if include_exogenous and exog_data is not None:
@@ -816,9 +816,9 @@ def train_lstm_model(data, test_size=0.2, sequence_length=12, epochs=50, include
         recurrent_dropout = 0.1
     else:  # More abundant data
         units = 50
-        dropout_rate = 0.2
+        dropout_rate = 02
         recurrent_dropout = 0.0
-    
+
     # Reshape for LSTM [samples, time steps, features]
     if include_exogenous and exog_data is not None:
         # Combine time series data with exogenous features
@@ -855,7 +855,7 @@ def train_lstm_model(data, test_size=0.2, sequence_length=12, epochs=50, include
             patience=10,
             restore_best_weights=True
         )
-        
+
         # Learning rate reduction on plateau to improve convergence
         reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(
             monitor='val_loss',
@@ -863,7 +863,7 @@ def train_lstm_model(data, test_size=0.2, sequence_length=12, epochs=50, include
             patience=5,
             min_lr=0.0001
         )
-        
+
         fit_params['validation_data'] = (X_test, y_test)
         fit_params['callbacks'] = [early_stopping, reduce_lr]
 
@@ -893,7 +893,7 @@ def train_lstm_model(data, test_size=0.2, sequence_length=12, epochs=50, include
     if use_cache:
         cache_key = f"lstm_{hash(data.tobytes())}_{sequence_length}_{epochs}"
         _model_cache[cache_key] = (model, scaler, test_mape, test_rmse)
-        
+
     return model, scaler, test_mape, test_rmse
 
 def forecast_with_lstm(model, scaler, last_sequence, forecast_periods=12):
@@ -972,28 +972,28 @@ def create_ensemble_forecast(forecasts_dict, weights=None, method="weighted_aver
     """
     if not forecasts_dict:
         raise ValueError("No forecasts provided for ensemble creation")
-        
+
     # Get a list of all forecast Series
     forecasts_list = list(forecasts_dict.values())
     model_names = list(forecasts_dict.keys())
-    
+
     # Make sure all forecasts have the same index
     first_forecast = forecasts_list[0]
     date_index = first_forecast.index
-    
+
     # Ensure all forecasts have same length and dates
     for name, forecast in forecasts_dict.items():
         if len(forecast) != len(first_forecast) or not forecast.index.equals(first_forecast.index):
             raise ValueError(f"Forecast {name} has different length or dates than other forecasts")
-    
+
     # Create DataFrame from forecasts for easier manipulation
     forecasts_df = pd.DataFrame({name: forecast for name, forecast in forecasts_dict.items()})
-    
+
     # Apply selected ensemble method
     if method == "simple_average":
         # Simple average of all forecasts
         ensemble_forecast = forecasts_df.mean(axis=1)
-    
+
     elif method == "weighted_average":
         # Use weights if provided, otherwise equal weights
         if weights is None:
@@ -1003,32 +1003,32 @@ def create_ensemble_forecast(forecasts_dict, weights=None, method="weighted_aver
             # Normalize weights to sum to 1
             total_weight = sum(weights.values())
             weights = {name: weight / total_weight for name, weight in weights.items()}
-        
+
         # Calculate weighted average
         weighted_sum = pd.Series(0.0, index=date_index)
         for name, forecast in forecasts_dict.items():
             if name in weights:
                 weighted_sum += forecast * weights[name]
-        
+
         ensemble_forecast = weighted_sum
-    
+
     elif method == "median":
         # Use median of forecasts (robust to outliers)
         ensemble_forecast = forecasts_df.median(axis=1)
-    
+
     elif method == "stacking":
         # Stacking should be implemented with a meta-model trained on multiple model outputs
         # This is a simplified version using a weighted average based on model performance
         # In a real stacking implementation, you would train a meta-model on the validation set
         # using the predictions from base models as features
-        
+
         # For now, we'll use a simple weighted average based on inverse RMSE
         # This would be replaced with actual stacking implementation
         ensemble_forecast = forecasts_df.mean(axis=1)
-        
+
     else:
         raise ValueError(f"Unknown ensemble method: {method}")
-    
+
     return ensemble_forecast
 
 def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_periods=12, use_tuned_parameters=False):
@@ -1068,13 +1068,13 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
 
     # Print list of models being evaluated (for debugging)
     print(f"Evaluating models: {models_to_evaluate}")
-    
+
     # Get SKU identifier for parameter lookup if using tuned parameters
     sku_identifier = data['sku'].iloc[0] if 'sku' in data.columns else None
-    
+
     # Create a dictionary to store tuned parameters for each model type
     tuned_parameters = {}
-    
+
     # If using tuned parameters, try to load them for each model
     if use_tuned_parameters and sku_identifier:
         print(f"Attempting to use tuned parameters for SKU: {sku_identifier}")
@@ -1089,7 +1089,7 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                 param_model_type = "ets"
             elif model_type == "theta":
                 param_model_type = "theta"
-            
+
             # Try to get tuned parameters for this model type and SKU
             try:
                 model_params = get_model_parameters(sku_identifier, param_model_type)
@@ -1100,7 +1100,7 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                     print(f"No tuned parameters found for {model_type}, using defaults")
             except Exception as e:
                 print(f"Error loading tuned parameters for {model_type}: {str(e)}")
-    
+
     # Always use the last 6 months as test data regardless of test_size parameter
     if len(data) <= 6:
         # If we have 6 or fewer data points, use at least one for testing
@@ -1218,13 +1218,14 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                 # Check if we have tuned parameters for prophet
                 if use_tuned_parameters and 'prophet' in tuned_parameters:
                     params = tuned_parameters['prophet']
+                    # Convert parameters to correct types
                     cp_scale = float(params.get('changepoint_prior_scale', 0.05))
                     season_scale = float(params.get('seasonality_prior_scale', 0.1))
                     print(f"Using tuned Prophet parameters: changepoint_prior_scale={cp_scale}, seasonality_prior_scale={season_scale}")
                 else:
                     cp_scale = 0.05
                     season_scale = 0.1
-                
+
                 # Train Prophet model with default or tuned parameters
                 m = Prophet(
                     changepoint_prior_scale=cp_scale,
@@ -1340,7 +1341,7 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                 if len(all_models_test_pred) < 2:
                     print("Skipping ensemble - need at least 2 models to create ensemble")
                     continue
-                
+
                 # Create ensemble of test predictions
                 try:
                     # Get weights based on inverse RMSE (better models get higher weights)
@@ -1348,17 +1349,17 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                     for model, model_metrics in metrics.items():
                         if 'rmse' in model_metrics and not np.isnan(model_metrics['rmse']) and model_metrics['rmse'] > 0:
                             weights[model] = 1.0 / model_metrics['rmse']
-                    
+
                     # Create test ensemble forecast
                     y_pred_ensemble = create_ensemble_forecast(
                         all_models_test_pred, 
                         weights=weights,
                         method="weighted_average"
                     )
-                    
+
                     # Store ensemble test predictions
                     all_models_test_pred[model_type] = y_pred_ensemble
-                    
+
                     # Use ensemble for future forecasts too
                     if len(all_models_forecasts) >= 2:
                         future_ensemble = create_ensemble_forecast(
@@ -1367,14 +1368,14 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                             method="weighted_average"
                         )
                         all_models_forecasts[model_type] = future_ensemble
-                        
+
                     # Convert ensemble test predictions to array for metric calculation
                     y_pred = y_pred_ensemble.values
-                    
+
                 except Exception as e:
                     print(f"Ensemble creation failed: {str(e)}")
                     continue
-                
+
             elif model_type == "holtwinters":
                 # Check if we have enough data
                 if len(train_data) >= 12:
@@ -1393,7 +1394,7 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                             seasonal_periods=seasonal_periods,
                             damped=True                # Damped trend to avoid over-forecasting
                         )
-                        
+
                         # Use more stable optimization settings
                         model_fit = model.fit(
                             optimized=True,            
@@ -1403,7 +1404,7 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
 
                         # Generate test forecasts and validate results aren't NaN
                         y_pred = model_fit.forecast(steps=len(test_data))
-                        
+
                         # Check if we have valid forecasts (not NaN)
                         if np.isnan(y_pred).any():
                             print(f"Holtwinters generated NaN values for test predictions - trying simpler model")
@@ -1416,11 +1417,11 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                             )
                             model_fit = model.fit()
                             y_pred = model_fit.forecast(steps=len(test_data))
-                            
+
                             # If still NaN, raise exception to try fallback
                             if np.isnan(y_pred).any():
                                 raise ValueError("Unable to generate valid forecasts with Holtwinters")
-                        
+
                         # Convert to NumPy array for consistency
                         y_pred = y_pred.values
 
@@ -1435,13 +1436,13 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                             seasonal_periods=seasonal_periods,
                             damped='damped' in model_fit.params and model_fit.params['damped']
                         )
-                        
+
                         # Use the same successful fitting method
                         if 'method' in model_fit.mle_retvals:
                             method = model_fit.mle_retvals['method']
                         else:
                             method = 'SLSQP'
-                            
+
                         full_model_fit = full_model.fit(
                             optimized=True,
                             use_brute=True,
@@ -1450,7 +1451,7 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
 
                         # Generate future forecasts and validate
                         future_values = full_model_fit.forecast(steps=forecast_periods)
-                        
+
                         # Verify forecasts are valid numbers
                         if np.isnan(future_values).any():
                             print(f"Holtwinters generated NaN values for future forecasts - trying simpler model")
@@ -1463,7 +1464,7 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                             )
                             full_model_fit = full_model.fit()
                             future_values = full_model_fit.forecast(steps=forecast_periods)
-                            
+
                             # If still NaN, raise exception to try fallback
                             if np.isnan(future_values).any():
                                 raise ValueError("Unable to generate valid forecasts with Holtwinters")
@@ -1473,51 +1474,51 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                             all_models_forecasts[model_type] = pd.Series(future_values, index=future_dates)
                         else:
                             raise ValueError("Holtwinters produced NaN values")
-                            
+
                     except Exception as e:
                         print(f"Holt-Winters model failed: {str(e)}")
                         continue
                 else:
                     # Skip if not enough data
                     continue
-                    
+
             elif model_type == "decomposition":
                 # Check if we have enough data
                 if len(train_data) >= 12:  # Need at least a year of data for decomposition
                     try:
                         # Prepare data for decomposition
                         ts_data = train_data.set_index('date')['quantity']
-                        
+
                         # Determine frequency (period) based on data length
                         if len(ts_data) >= 24:
                             period = 12  # Annual seasonality
                         else:
                             period = min(4, len(ts_data) // 3)  # Shorter period for limited data
-                            
+
                         # Decompose the time series into trend, seasonal, and residual components
                         decomposition = seasonal_decompose(
                             ts_data, 
                             model='additive',  # Additive decomposition
                             period=period
                         )
-                        
+
                         # Extract components
                         trend = decomposition.trend
                         seasonal = decomposition.seasonal
                         residual = decomposition.resid
-                        
+
                         # Handle NaN values in components
                         trend = trend.fillna(method='bfill').fillna(method='ffill')
                         seasonal = seasonal.fillna(method='bfill').fillna(method='ffill')
                         residual = residual.fillna(method='bfill').fillna(method='ffill')
-                        
+
                         # Fit ARIMA model to residuals for future prediction
                         residual_model = ARIMA(residual.dropna(), order=(1, 0, 1))
                         residual_fit = residual_model.fit()
-                        
+
                         # Forecast residuals for test period
                         residual_forecast = residual_fit.forecast(steps=len(test_data))
-                        
+
                         # Extract trend component's growth rate (simple linear approximation)
                         trend_values = trend.values
                         if len(trend_values) > 1:
@@ -1529,61 +1530,61 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                             trend_slope = trend_fit[0]
                         else:
                             trend_slope = 0
-                        
+
                         # Get last trend value
                         last_trend = trend.iloc[-1]
-                        
+
                         # Generate trend forecast for test period
                         trend_forecast = np.array([last_trend + i * trend_slope for i in range(1, len(test_data) + 1)])
-                        
+
                         # Get seasonal pattern (using modulo arithmetic to repeat the pattern)
                         seasonal_pattern = seasonal.values[-period:]
-                        
+
                         # Generate test predictions by recombining components
                         y_pred = []
                         for i in range(len(test_data)):
                             # Get seasonal component using modulo to repeat the pattern
                             seasonal_idx = i % len(seasonal_pattern)
                             seasonal_component = seasonal_pattern[seasonal_idx]
-                            
+
                             # Combine trend, seasonal, and residual forecasts
                             pred = trend_forecast[i] + seasonal_component + residual_forecast[i]
                             y_pred.append(max(0, pred))  # Ensure non-negative values
-                        
+
                         # Store test predictions
                         all_models_test_pred[model_type] = pd.Series(y_pred, index=test_data['date'])
-                        
+
                         # Now generate future forecasts with the model
                         # Forecast residuals for future periods
                         future_residual_forecast = residual_fit.forecast(steps=forecast_periods)
-                        
+
                         # Generate trend forecast for future periods
                         future_trend_forecast = np.array([
                             last_trend + (len(test_data) + i) * trend_slope 
                             for i in range(1, forecast_periods + 1)
                         ])
-                        
+
                         # Generate future predictions by recombining components
                         future_values = []
                         for i in range(forecast_periods):
                             # Get seasonal component
                             seasonal_idx = (len(train_data) + i) % len(seasonal_pattern)
                             seasonal_component = seasonal_pattern[seasonal_idx]
-                            
+
                             # Combine trend, seasonal, and residual forecasts
                             pred = future_trend_forecast[i] + seasonal_component + future_residual_forecast[i]
                             future_values.append(max(0, pred))  # Ensure non-negative values
-                        
+
                         # Store future forecasts
                         all_models_forecasts[model_type] = pd.Series(future_values, index=future_dates)
-                        
+
                     except Exception as e:
                         print(f"Decomposition model failed: {str(e)}")
                         continue
                 else:
                     # Skip if not enough data
                     continue
-                    
+
             elif model_type == "auto_arima":
                 # Check if we have enough data
                 if len(train_data) >= 8:  # Need at least 8 data points for auto_arima
@@ -1592,26 +1593,26 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                         if auto_arima_available:
                             # Prepare data
                             ts_data = train_data['quantity'].values
-                            
+
                             # Check if we have tuned parameters for auto_arima
                             if use_tuned_parameters and 'auto_arima' in tuned_parameters:
                                 params = tuned_parameters['auto_arima']
                                 # Convert parameters to correct types
                                 d = int(params.get('d', 1)) if params.get('d') is not None else None
                                 seasonal = params.get('seasonal', 'true').lower() == 'true'
-                                
+
                                 if seasonal:
                                     m = int(params.get('m', 12 if len(train_data) >= 24 else 4))
                                 else:
                                     m = 1
-                                    
+
                                 stepwise = params.get('stepwise', 'true').lower() == 'true'
                                 max_p = int(params.get('max_p', 5))
                                 max_q = int(params.get('max_q', 5))
                                 max_order = int(params.get('max_order', 5))
-                                
+
                                 print(f"Using tuned auto_arima parameters: d={d}, seasonal={seasonal}, m={m}, stepwise={stepwise}, max_p={max_p}, max_q={max_q}")
-                                
+
                                 # Fit auto_arima model with tuned parameters
                                 model = auto_arima(
                                     ts_data,
@@ -1635,17 +1636,17 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                                     suppress_warnings=True,          # Suppress warnings for cleaner output
                                     error_action="ignore"            # Ignore errors in ARIMA estimation
                                 )
-                            
+
                             # Generate test forecasts
                             forecast_obj = model.predict(n_periods=len(test_data))
                             y_pred = forecast_obj
-                            
+
                             # Store test predictions
                             all_models_test_pred[model_type] = pd.Series(y_pred, index=test_data['date'])
-                            
+
                             # Train on all data for future forecast
                             full_data = data['quantity'].values
-                            
+
                             # Use the same parameters for the full model as we used for the training model
                             if use_tuned_parameters and 'auto_arima' in tuned_parameters:
                                 # Use the same tuned parameters
@@ -1671,52 +1672,52 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                                     suppress_warnings=True,
                                     error_action="ignore"
                                 )
-                            
+
                             # Generate future forecasts
                             future_values = full_model.predict(n_periods=forecast_periods)
-                            
+
                             # Store future forecasts
                             all_models_forecasts[model_type] = pd.Series(future_values, index=future_dates)
                         else:
                             # Fallback to ARIMA if auto_arima is not available
                             print("Auto ARIMA not available, falling back to standard ARIMA")
-                            
+
                             # Use standard ARIMA with fixed parameters
                             model = ARIMA(train_data['quantity'], order=(1, 1, 1))
                             model_fit = model.fit()
-                            
+
                             # Generate test forecasts
                             forecast_obj = model_fit.get_forecast(steps=len(test_data))
                             y_pred = forecast_obj.predicted_mean.values
-                            
+
                             # Store test predictions
                             all_models_test_pred[model_type] = pd.Series(y_pred, index=test_data['date'])
-                            
+
                             # Train on all data for future forecast
                             full_model = ARIMA(data['quantity'], order=(1, 1, 1))
                             full_model_fit = full_model.fit()
-                            
+
                             # Generate future forecasts
                             future_forecast = full_model_fit.get_forecast(steps=forecast_periods)
                             future_values = future_forecast.predicted_mean.values
-                            
+
                             # Store future forecasts
                             all_models_forecasts[model_type] = pd.Series(future_values, index=future_dates)
-                            
+
                     except Exception as e:
                         print(f"Auto ARIMA model failed: {str(e)}")
                         continue
                 else:
                     # Skip if not enough data
                     continue
-                    
+
             elif model_type == "ets":
                 # Check if we have enough data
                 if len(train_data) >= 8:  # Need reasonable amount of data for ETS
                     try:
                         # Prepare data
                         ts_data = train_data['quantity'].values
-                        
+
                         # Check if we have tuned parameters for ETS
                         if use_tuned_parameters and 'ets' in tuned_parameters:
                             params = tuned_parameters['ets']
@@ -1726,9 +1727,9 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                             seasonal_type = params.get('seasonal', 'add')
                             damped = params.get('damped_trend', 'true').lower() == 'true'
                             seasonal_periods_param = int(params.get('seasonal_periods', 12 if len(train_data) >= 24 else 4))
-                            
+
                             print(f"Using tuned ETS parameters: error={error_type}, trend={trend_type}, seasonal={seasonal_type}, damped={damped}, seasonal_periods={seasonal_periods_param}")
-                            
+
                             # Create and fit ETS model with tuned parameters
                             model = ETSModel(
                                 ts_data,
@@ -1749,22 +1750,22 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                                 seasonal_periods=12 if len(train_data) >= 24 else 4  # Seasonal periods
                             )
                         model_fit = model.fit(disp=False)
-                        
+
                         # Generate test forecasts
                         forecast_obj = model_fit.forecast(steps=len(test_data))
-                        
+
                         # Convert to array if needed
                         if hasattr(forecast_obj, 'values'):
                             y_pred = forecast_obj.values
                         else:
                             y_pred = forecast_obj
-                        
+
                         # Store test predictions
                         all_models_test_pred[model_type] = pd.Series(y_pred, index=test_data['date'])
-                        
+
                         # Train on all data for future forecast
                         full_data = data['quantity'].values
-                        
+
                         # Use the same parameters for the full model
                         if use_tuned_parameters and 'ets' in tuned_parameters:
                             # Use the same tuned parameters
@@ -1787,40 +1788,40 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                                 seasonal_periods=12 if len(data) >= 24 else 4
                             )
                         full_model_fit = full_model.fit(disp=False)
-                        
+
                         # Generate future forecasts
                         future_values = full_model_fit.forecast(steps=forecast_periods)
-                        
+
                         # Convert to array if needed
                         if hasattr(future_values, 'values'):
                             future_values = future_values.values
-                            
+
                         # Store future forecasts
                         all_models_forecasts[model_type] = pd.Series(future_values, index=future_dates)
-                        
+
                     except Exception as e:
                         print(f"ETS model failed: {str(e)}")
                         continue
                 else:
                     # Skip if not enough data
                     continue
-                    
+
             elif model_type == "theta":
                 # Check if we have enough data
                 if len(train_data) >= 8:  # Need reasonable amount of data for Theta
                     try:
                         # Prepare data
                         ts_data = train_data['quantity'].values
-                        
+
                         # Check if we have tuned parameters for Theta
                         if use_tuned_parameters and 'theta' in tuned_parameters:
                             params = tuned_parameters['theta']
                             # Convert parameters to correct types
                             deseasonalize_param = params.get('deseasonalize', 'true').lower() == 'true'
                             period_param = int(params.get('period', 12 if len(train_data) >= 24 else 4))
-                            
+
                             print(f"Using tuned Theta parameters: deseasonalize={deseasonalize_param}, period={period_param}")
-                            
+
                             # Create and fit Theta model with tuned parameters
                             model = ThetaModel(
                                 ts_data,
@@ -1835,17 +1836,17 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                                 period=12 if len(train_data) >= 24 else 4  # Seasonal period
                             )
                         model_fit = model.fit()
-                        
+
                         # Generate test forecasts
                         forecast_obj = model_fit.forecast(steps=len(test_data))
                         y_pred = forecast_obj.values
-                        
+
                         # Store test predictions
                         all_models_test_pred[model_type] = pd.Series(y_pred, index=test_data['date'])
-                        
+
                         # Train on all data for future forecast
                         full_data = data['quantity'].values
-                        
+
                         # Use the same parameters for the full model
                         if use_tuned_parameters and 'theta' in tuned_parameters:
                             # Use the same tuned parameters
@@ -1862,20 +1863,20 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                                 period=12 if len(data) >= 24 else 4
                             )
                         full_model_fit = full_model.fit()
-                        
+
                         # Generate future forecasts
                         future_values = full_model_fit.forecast(steps=forecast_periods).values
-                        
+
                         # Store future forecasts
                         all_models_forecasts[model_type] = pd.Series(future_values, index=future_dates)
-                        
+
                     except Exception as e:
                         print(f"Theta model failed: {str(e)}")
                         continue
                 else:
                     # Skip if not enough data
                     continue
-                    
+
             elif model_type == "moving_average":
                 # Moving average is simple and works with minimal data
                 try:
@@ -1883,28 +1884,28 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                     window = min(3, len(train_data) // 2)
                     if window < 1:
                         window = 1
-                    
+
                     # Calculate moving average for test period
                     # Use the last value of the rolling average from training data
                     ma_value = train_data['quantity'].rolling(window=window).mean().iloc[-1]
                     y_pred = np.array([ma_value] * len(test_data))
-                    
+
                     # Store test predictions
                     all_models_test_pred[model_type] = pd.Series(y_pred, index=test_data['date'])
-                    
+
                     # Use all data for future forecasts
                     full_ma_value = data['quantity'].rolling(window=window).mean().iloc[-1]
-                    
+
                     # Handle NaN values
                     if pd.isna(full_ma_value):
                         full_ma_value = data['quantity'].mean() if len(data) > 0 else 0
-                    
+
                     # Create forecasts
                     future_values = np.array([full_ma_value] * forecast_periods)
-                    
+
                     # Store future forecasts
                     all_models_forecasts[model_type] = pd.Series(future_values, index=future_dates)
-                    
+
                 except Exception as e:
                     print(f"Moving Average model failed: {str(e)}")
                     continue
@@ -2085,21 +2086,21 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                         # For ensemble, we need at least 2 other models to be available
                         available_models = {k: v for k, v in all_models_forecasts.items() 
                                           if k != model_lower and not v.isnull().all()}
-                        
+
                         if len(available_models) >= 2:
                             # Get weights based on RMSE if available
                             weights = {}
                             for model, model_metrics in metrics.items():
                                 if model in available_models and 'rmse' in model_metrics and not np.isnan(model_metrics['rmse']) and model_metrics['rmse'] > 0:
                                     weights[model] = 1.0 / model_metrics['rmse']
-                            
+
                             # Create ensemble forecast
                             future_ensemble = create_ensemble_forecast(
                                 available_models,
                                 weights=weights,
                                 method="weighted_average"
                             )
-                            
+
                             # Store forecast
                             all_models_forecasts[model_lower] = future_ensemble
                         else:
@@ -2108,35 +2109,35 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                             window = min(3, len(data) // 2)
                             ma_future = np.array([data['quantity'].rolling(window=window).mean().iloc[-1]] * forecast_periods)
                             all_models_forecasts[model_lower] = pd.Series(ma_future, index=future_dates)
-                            
+
                     elif model_lower == "decomposition":
                         # Create decomposition forecast if data is sufficient
                         if len(data) >= 12:  # Need at least a year of data
                             try:
                                 # Prepare data for decomposition
                                 ts_data = data.set_index('date')['quantity']
-                                
+
                                 # Determine frequency (period) based on data length
                                 if len(ts_data) >= 24:
                                     period = 12  # Annual seasonality
                                 else:
                                     period = min(4, len(ts_data) // 3)  # Shorter period for limited data
-                                    
+
                                 # Decompose the time series
                                 decomposition = seasonal_decompose(
                                     ts_data, 
                                     model='additive',
                                     period=period
                                 )
-                                
+
                                 # Extract components
                                 trend = decomposition.trend
                                 seasonal = decomposition.seasonal
-                                
+
                                 # Handle NaN values in components
                                 trend = trend.fillna(method='bfill').fillna(method='ffill')
                                 seasonal = seasonal.fillna(method='bfill').fillna(method='ffill')
-                                
+
                                 # Extract trend slope
                                 trend_values = trend.values
                                 if len(trend_values) > 1:
@@ -2148,27 +2149,27 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                                     trend_slope = trend_fit[0]
                                 else:
                                     trend_slope = 0
-                                
+
                                 # Get last trend value
                                 last_trend = trend.iloc[-1]
-                                
+
                                 # Get seasonal pattern
                                 seasonal_pattern = seasonal.values[-period:]
-                                
+
                                 # Generate future forecasts
                                 future_values = []
                                 for i in range(forecast_periods):
                                     # Get seasonal component
                                     seasonal_idx = i % len(seasonal_pattern)
                                     seasonal_component = seasonal_pattern[seasonal_idx]
-                                    
+
                                     # Combine trend and seasonal components
                                     pred = last_trend + i * trend_slope + seasonal_component
                                     future_values.append(max(0, pred))  # Ensure non-negative values
-                                
+
                                 # Store forecast
                                 all_models_forecasts[model_lower] = pd.Series(future_values, index=future_dates)
-                                
+
                             except Exception as e:
                                 print(f"Cannot create decomposition forecast: {str(e)}")
                                 # Add moving average as a fallback
@@ -2181,7 +2182,7 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                             window = min(3, len(data) // 2)
                             ma_future = np.array([data['quantity'].rolling(window=window).mean().iloc[-1]] * forecast_periods)
                             all_models_forecasts[model_lower] = pd.Series(ma_future, index=future_dates)
-                                
+
                     elif model_lower == "lstm":
                         # Train LSTM model if data is sufficient
                         if len(data) >= sequence_length + 2:
@@ -2231,10 +2232,10 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                             else:
                                 seasonal = False
                                 m = 1
-                                
+
                             # Train on all data for future forecast
                             full_data = data.set_index('date')['quantity']
-                            
+
                             # Use a simple stepwise auto_arima
                             auto_model = auto_arima(
                                 full_data, 
@@ -2248,10 +2249,10 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                                 error_action='ignore',
                                 max_order=5
                             )
-                            
+
                             # Generate future forecasts
                             future_values = auto_model.predict(n_periods=forecast_periods)
-                            
+
                             # Store future forecasts
                             all_models_forecasts[model_lower] = pd.Series(future_values, index=future_dates)
                         except Exception as e:
@@ -2262,17 +2263,17 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                                 window = 1
                             ma_future = np.array([data['quantity'].rolling(window=window).mean().iloc[-1] if len(data) > 0 else 0] * forecast_periods)
                             all_models_forecasts[model_lower] = pd.Series(ma_future, index=future_dates)
-                    
+
                     elif model_lower == "ets":
                         # Try ETS model
                         try:
                             # Check if data is sufficient
                             if len(data) < 12:
                                 raise ValueError("Not enough data for ETS model")
-                                
+
                             # Train on all data for future forecast
                             full_data = data['quantity'].values
-                            
+
                             # Create and fit ETS model
                             ets_model = ETSModel(
                                 full_data,
@@ -2282,16 +2283,16 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                                 seasonal_periods=12 if len(data) >= 24 else None,
                                 damped_trend=True
                             )
-                            
+
                             ets_fit = ets_model.fit(disp=False)
-                            
+
                             # Generate future forecasts
                             future_values = ets_fit.forecast(steps=forecast_periods)
-                            
+
                             # Convert to array if needed
                             if hasattr(future_values, 'values'):
                                 future_values = future_values.values
-                                
+
                             # Store future forecasts
                             all_models_forecasts[model_lower] = pd.Series(future_values, index=future_dates)
                         except Exception as e:
@@ -2302,33 +2303,33 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                                 window = 1
                             ma_future = np.array([data['quantity'].rolling(window=window).mean().iloc[-1] if len(data) > 0 else 0] * forecast_periods)
                             all_models_forecasts[model_lower] = pd.Series(ma_future, index=future_dates)
-                    
+
                     elif model_lower == "theta":
                         # Try Theta model
                         try:
                             # Check if data is sufficient
                             if len(data) < 8:
                                 raise ValueError("Not enough data for Theta model")
-                                
+
                             # Train on all data for future forecast
                             full_data = data['quantity'].values
-                            
+
                             # Create and fit Theta model
                             theta_model = ThetaModel(
                                 full_data,
                                 deseasonalize=True,
                                 period=12 if len(data) >= 24 else 4
                             )
-                            
+
                             theta_fit = theta_model.fit()
-                            
+
                             # Generate future forecasts
                             future_values = theta_fit.forecast(steps=forecast_periods)
-                            
+
                             # Convert to array if needed
                             if hasattr(future_values, 'values'):
                                 future_values = future_values.values
-                                
+
                             # Store future forecasts
                             all_models_forecasts[model_lower] = pd.Series(future_values, index=future_dates)
                         except Exception as e:
@@ -2339,7 +2340,7 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                                 window = 1
                             ma_future = np.array([data['quantity'].rolling(window=window).mean().iloc[-1] if len(data) > 0 else 0] * forecast_periods)
                             all_models_forecasts[model_lower] = pd.Series(ma_future, index=future_dates)
-                    
+
                     elif model_lower == "moving_average":
                         # Moving average is simple and should always work
                         try:
@@ -2347,17 +2348,17 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                             window = min(3, len(data) // 2) if len(data) > 0 else 1
                             if window < 1:
                                 window = 1
-                            
+
                             # Use all data for future forecasts
                             full_ma_value = data['quantity'].rolling(window=window).mean().iloc[-1] if len(data) > 0 else 0
-                            
+
                             # Handle NaN values
                             if pd.isna(full_ma_value):
                                 full_ma_value = data['quantity'].mean() if len(data) > 0 else 0
-                            
+
                             # Create forecasts
                             future_values = np.array([full_ma_value] * forecast_periods)
-                            
+
                             # Store future forecasts
                             all_models_forecasts[model_lower] = pd.Series(future_values, index=future_dates)
                         except Exception as e:
@@ -2366,7 +2367,7 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                             mean_value = data['quantity'].mean() if len(data) > 0 else 0
                             future_values = np.array([mean_value] * forecast_periods)
                             all_models_forecasts[model_lower] = pd.Series(future_values, index=future_dates)
-                    
+
                     elif model_lower == "holtwinters":
                         # Try Holt-Winters if data is sufficient
                         if len(data) >= 12:
@@ -2514,7 +2515,8 @@ def generate_forecasts(sales_data, cluster_info, forecast_periods=12, evaluate_m
                     sku_data,
                     models_to_evaluate=models_to_evaluate,
                     test_size=0.2,
-                    forecast_periods=forecast_periods
+                    forecast_periods=forecast_periods,
+                    use_tuned_parameters=use_tuned_parameters
                 )
 
                 # Use best model for forecasting

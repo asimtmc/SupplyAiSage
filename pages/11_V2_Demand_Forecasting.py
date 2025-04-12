@@ -203,12 +203,30 @@ with st.sidebar:
     if 'use_tuned_parameters' not in st.session_state:
         st.session_state.use_tuned_parameters = False
     
-    # Checkbox for using tuned parameters
-    st.session_state.use_tuned_parameters = st.checkbox(
-        "Use tuned parameters from Hyperparameter Tuning",
-        value=st.session_state.use_tuned_parameters,
-        help="Apply optimized model parameters from the Hyperparameter Tuning page. Will use default parameters if tuned parameters are not available for a specific SKU-model combination."
-    )
+    # Create columns for options and status
+    param_col1, param_col2 = st.columns([3, 1])
+    
+    with param_col1:
+        # Checkbox for using tuned parameters
+        prev_param_value = st.session_state.use_tuned_parameters
+        st.session_state.use_tuned_parameters = st.checkbox(
+            "Use tuned parameters from Hyperparameter Tuning",
+            value=st.session_state.use_tuned_parameters,
+            help="Apply optimized model parameters from the Hyperparameter Tuning page. Will use default parameters if tuned parameters are not available for a specific SKU-model combination."
+        )
+        
+        # If parameter setting changed, clear any cached forecasts to force refresh
+        if prev_param_value != st.session_state.use_tuned_parameters:
+            if 'v2_forecast_cache' in st.session_state:
+                st.session_state.v2_forecast_cache = {}
+                st.toast("Cleared forecast cache - please run forecast again with new parameter settings", icon="ℹ️")
+    
+    with param_col2:
+        # Show parameter status
+        if st.session_state.use_tuned_parameters:
+            st.success("Tuned parameters: ON")
+        else:
+            st.info("Using default parameters")
     
     # Add option to forecast all or selected SKUs
     st.subheader("Forecast Scope")
