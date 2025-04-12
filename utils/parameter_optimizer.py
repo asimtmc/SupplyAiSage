@@ -48,25 +48,49 @@ def cleanup_stale_tasks():
 
 def calculate_metrics(y_true, y_pred):
     """Calculate forecast error metrics"""
-    metrics = {}
+    try:
+        metrics = {}
 
-    # Mean Absolute Error
-    metrics['mae'] = mean_absolute_error(y_true, y_pred)
+        # Ensure numpy arrays
+        y_true = np.asarray(y_true)
+        y_pred = np.asarray(y_pred)
+        
+        # Check for invalid values
+        if np.isnan(y_true).any() or np.isnan(y_pred).any() or np.isinf(y_true).any() or np.isinf(y_pred).any():
+            logger.warning("Input data for metrics calculation contains NaN or Inf values")
+            return {
+                'mae': float('inf'),
+                'rmse': float('inf'),
+                'mape': float('inf'),
+                'weighted_error': float('inf')
+            }
 
-    # Root Mean Squared Error
-    metrics['rmse'] = np.sqrt(mean_squared_error(y_true, y_pred))
+        # Mean Absolute Error
+        metrics['mae'] = mean_absolute_error(y_true, y_pred)
 
-    # Mean Absolute Percentage Error, handling zeros
-    mask = y_true > 0
-    if mask.sum() > 0:
-        metrics['mape'] = np.mean(np.abs((y_true[mask] - y_pred[mask]) / y_true[mask])) * 100
-    else:
-        metrics['mape'] = np.nan
+        # Root Mean Squared Error
+        metrics['rmse'] = np.sqrt(mean_squared_error(y_true, y_pred))
 
-    # Custom weighted error (for intermittent demand)
-    metrics['weighted_error'] = metrics['rmse'] * 0.4 + metrics['mae'] * 0.3 + (metrics['mape'] * 0.01 if not np.isnan(metrics['mape']) else 0) * 0.3
+        # Mean Absolute Percentage Error, handling zeros
+        mask = y_true > 0
+        if mask.sum() > 0:
+            metrics['mape'] = np.mean(np.abs((y_true[mask] - y_pred[mask]) / y_true[mask])) * 100
+        else:
+            metrics['mape'] = np.nan
 
-    return metrics
+        # Custom weighted error (for intermittent demand)
+        mape_component = 0 if np.isnan(metrics['mape']) else metrics['mape'] * 0.01
+        metrics['weighted_error'] = metrics['rmse'] * 0.4 + metrics['mae'] * 0.3 + mape_component * 0.3
+
+        return metrics
+    except Exception as e:
+        logger.error(f"Error in calculate_metrics: {str(e)}")
+        return {
+            'mae': float('inf'),
+            'rmse': float('inf'),
+            'mape': float('inf'),
+            'weighted_error': float('inf')
+        }
 
 def objective_function_arima(params, train_data, val_data):
     """
@@ -261,11 +285,20 @@ def objective_function_ets(params, train_data, val_data):
 
         fitted_model = model.fit(optimized=True)
 
-        # Log the model parameters
-        params = fitted_model.params
-        param_str = ", ".join([f"{key}={value:.4f}" for key, value in params.items()])
-        logger.info(f"ETS fitted parameters: {param_str}")
-        logger.info(f"ETS model fit statistics - AIC: {fitted_model.aic:.2f}, BIC: {fitted_model.bic:.2f}")
+        # Log the model parameters - safely handle non-float parameter values
+        try:
+            params = fitted_model.params
+            param_items = []
+            for key, value in params.items():
+                if isinstance(value, (int, float)):
+                    param_items.append(f"{key}={value:.4f}")
+                else:
+                    param_items.append(f"{key}={value}")
+            param_str = ", ".join(param_items)
+            logger.info(f"ETS fitted parameters: {param_str}")
+            logger.info(f"ETS model fit statistics - AIC: {fitted_model.aic:.2f}, BIC: {fitted_model.bic:.2f}")
+        except Exception as e:
+            logger.warning(f"Could not format ETS parameters: {str(e)}")
 
         # Make predictions
         predictions = fitted_model.forecast(steps=len(val_data))
