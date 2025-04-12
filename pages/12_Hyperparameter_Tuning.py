@@ -18,18 +18,36 @@ def render_parameter_lookup_table():
     search_col1, search_col2 = st.columns([2, 2])
     
     with search_col1:
-        # Let user search by SKU - changed to multiselect
+        # Let user search by SKU - changed to multiselect with Select All option
         if 'sales_data' in st.session_state:
             all_skus = sorted(st.session_state.sales_data['sku'].unique().tolist())
-            selected_skus = st.multiselect("Select SKUs", options=all_skus, default=[all_skus[0]] if all_skus else [], key="lookup_sku_selector")
-            if not selected_skus and all_skus:
+            
+            # Add Select All checkbox for SKUs
+            select_all_skus = st.checkbox("Select All SKUs", key="select_all_skus")
+            
+            if select_all_skus:
+                default_skus = all_skus
+            else:
+                default_skus = [all_skus[0]] if all_skus else []
+                
+            selected_skus = st.multiselect(
+                "Select SKUs", 
+                options=all_skus, 
+                default=default_skus, 
+                key="lookup_sku_selector"
+            )
+            
+            # Update selection based on "Select All" checkbox state
+            if select_all_skus and selected_skus != all_skus:
+                selected_skus = all_skus
+            elif not selected_skus and all_skus:
                 selected_skus = [all_skus[0]]  # Default to first SKU if none selected
         else:
             st.warning("No sales data loaded. Please load data first.")
             return
     
     with search_col2:
-        # Let user select model type - changed to multiselect
+        # Let user select model type - changed to multiselect with Select All option
         model_options = {
             "auto_arima": "Auto ARIMA",
             "prophet": "Prophet",
@@ -37,12 +55,29 @@ def render_parameter_lookup_table():
             "theta": "Theta Method",
             "lstm": "LSTM Neural Network"
         }
-        selected_models = st.multiselect("Select Models", 
-                                     options=list(model_options.keys()),
-                                     default=["auto_arima"],
-                                     format_func=lambda x: model_options.get(x, x), 
-                                     key="lookup_model_selector")
-        if not selected_models:
+        
+        # Add Select All checkbox for models
+        select_all_models = st.checkbox("Select All Models", key="select_all_models")
+        
+        model_options_list = list(model_options.keys())
+        
+        if select_all_models:
+            default_models = model_options_list
+        else:
+            default_models = ["auto_arima"]
+            
+        selected_models = st.multiselect(
+            "Select Models", 
+            options=model_options_list,
+            default=default_models,
+            format_func=lambda x: model_options.get(x, x), 
+            key="lookup_model_selector"
+        )
+        
+        # Update selection based on "Select All" checkbox state
+        if select_all_models and selected_models != model_options_list:
+            selected_models = model_options_list
+        elif not selected_models:
             selected_models = ["auto_arima"]  # Default to ARIMA if none selected
     
     # Get parameters for all selected combinations
@@ -116,6 +151,7 @@ def render_parameter_lookup_table():
         import pandas as pd
         import io
         import xlsxwriter
+        from utils.visualization import get_table_styles
         
         params_df = pd.DataFrame(flat_params)
         
@@ -129,6 +165,35 @@ def render_parameter_lookup_table():
                 'parameter_value': 'Parameter value'
             })
         
+        # Add column configuration for better display
+        column_config = {
+            "SKU code": st.column_config.TextColumn(
+                "SKU Code", 
+                width="medium",
+                help="Unique identifier for the SKU"
+            ),
+            "SKU name": st.column_config.TextColumn(
+                "SKU Name", 
+                width="medium",
+                help="Name of the SKU"
+            ),
+            "Model name": st.column_config.TextColumn(
+                "Model", 
+                width="medium",
+                help="Forecasting model type"
+            ),
+            "Parameter name": st.column_config.TextColumn(
+                "Parameter Name", 
+                width="medium",
+                help="Name of the hyperparameter"
+            ),
+            "Parameter value": st.column_config.TextColumn(
+                "Value", 
+                width="medium",
+                help="Parameter value"
+            )
+        }
+        
         # Filter by selected SKUs if user has made selections
         if selected_skus:
             filtered_df = params_df[params_df['SKU code'].isin(selected_skus)]
@@ -138,7 +203,35 @@ def render_parameter_lookup_table():
                 filtered_df = filtered_df[filtered_df['Model name'].isin(model_display_names)]
             
             if len(filtered_df) > 0:
-                st.dataframe(filtered_df, use_container_width=True)
+                # Sort by SKU and Model for better organization
+                filtered_df = filtered_df.sort_values(['SKU code', 'Model name', 'Parameter name'])
+                
+                # Define a function to highlight rows based on model type
+                def highlight_models(df):
+                    styles = []
+                    for model in df['Model name']:
+                        if 'ARIMA' in model:
+                            styles.append('background-color: #f0f7ff')
+                        elif 'Prophet' in model:
+                            styles.append('background-color: #f0fff7')
+                        elif 'ETS' in model:
+                            styles.append('background-color: #fff7f0')
+                        elif 'Theta' in model:
+                            styles.append('background-color: #fff0f7')
+                        elif 'LSTM' in model:
+                            styles.append('background-color: #f7f0ff')
+                        else:
+                            styles.append('')
+                    return styles
+                
+                # Create styled dataframe with fixed header and first columns
+                st.dataframe(
+                    filtered_df.style.apply(highlight_models, axis=1),
+                    column_config=column_config,
+                    use_container_width=True,
+                    height=400,  # Fixed height for better visibility
+                    hide_index=True
+                )
                 
                 # Add Excel download option
                 excel_buffer = io.BytesIO()
@@ -170,6 +263,15 @@ def render_parameter_lookup_table():
                 
                 excel_buffer.seek(0)
                 
+                # Display metrics about the filtered data
+                metric_cols = st.columns(3)
+                with metric_cols[0]:
+                    st.metric("Total Parameters", len(filtered_df))
+                with metric_cols[1]:
+                    st.metric("SKUs", len(filtered_df['SKU code'].unique()))
+                with metric_cols[2]:
+                    st.metric("Models", len(filtered_df['Model name'].unique()))
+                
                 # Create download button
                 download_label = f"Download Parameters for {len(selected_skus)} SKU(s) as Excel"
                 st.download_button(
@@ -183,7 +285,26 @@ def render_parameter_lookup_table():
                 st.info(f"No parameters found for the selected SKUs and models.")
         else:
             # Show all parameters if no filtering
-            st.dataframe(params_df, use_container_width=True)
+            # Sort by SKU and Model for better organization
+            params_df = params_df.sort_values(['SKU code', 'Model name', 'Parameter name'])
+            
+            # Create styled dataframe with better display
+            st.dataframe(
+                params_df,
+                column_config=column_config,
+                use_container_width=True,
+                height=400,  # Fixed height for better visibility
+                hide_index=True
+            )
+            
+            # Display metrics about all data
+            metric_cols = st.columns(3)
+            with metric_cols[0]:
+                st.metric("Total Parameters", len(params_df))
+            with metric_cols[1]:
+                st.metric("SKUs", len(params_df['SKU code'].unique()))
+            with metric_cols[2]:
+                st.metric("Models", len(params_df['Model name'].unique()))
             
             # Add Excel download option for all parameters
             excel_buffer = io.BytesIO()
