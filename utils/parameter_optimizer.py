@@ -360,11 +360,13 @@ def objective_function_theta(params, train_data, val_data):
                 train_data,
                 period=period if deseasonalize else None,
                 deseasonalize=deseasonalize,
-                use_test=False  # Don't use test data
+                use_test=False,  # Don't use test data
+                method='auto',   # Auto select method
+                theta=theta_value  # Correctly set theta parameter in constructor
             )
             
-            # Fit and get forecasts
-            results = model.fit(theta=theta_value)
+            # Fit and get forecasts - don't pass theta to fit()
+            results = model.fit()
             predictions = results.forecast(steps=len(val_data))
             
             # Calculate accuracy metrics
