@@ -184,14 +184,7 @@ def render_parameter_lookup_table():
             st.warning("No parameter data available for the selected SKUs and models.")
             
         # Add a button to retune all selected combinations
-        if st.button("Retune All Selected Combinations", type="primary"):
-            st.session_state.parameter_tuning_in_progress = True
-            st.session_state.tuning_skus = selected_skus
-            st.session_state.tuning_models = selected_models
-            st.rerun()
-        
-        # Add option to retune all selected combinations
-        if st.button("Retune All Selected Combinations", type="primary"):
+        if st.button("Retune All Selected Combinations", type="primary", key="retune_button_1"):
             st.session_state.parameter_tuning_in_progress = True
             st.session_state.tuning_skus = selected_skus
             st.session_state.tuning_models = selected_models
