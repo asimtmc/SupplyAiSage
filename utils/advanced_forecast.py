@@ -6,9 +6,12 @@ import traceback
 
 # Import parameter optimizers
 from utils.parameter_optimizer import (
-    log_optimization_result, optimize_prophet_parameters, optimize_arima_parameters,
+    optimize_prophet_parameters, optimize_arima_parameters,
     optimize_ets_parameters, optimize_theta_parameters
 )
+
+# Use our enhanced optimizer's log function
+from utils.enhanced_parameter_optimizer import log_optimization_result
 
 # Import enhanced optimizers
 from utils.enhanced_parameter_optimizer import (
