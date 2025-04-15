@@ -1456,15 +1456,20 @@ if st.session_state.tuning_in_progress:
                                         print(f"ARIMA WARNING: Insufficient data for SKU {sku}, only {len(train_series)} points")
                                         optimization_result = {'parameters': {'p': 1, 'd': 1, 'q': 0}, 'score': float('inf')}
                                     else:
-                                        # Import ARIMA optimizer
-                                        from utils.parameter_optimizer import optimize_arima_parameters
-                                        print(f"Starting ARIMA optimization for {sku} with {n_trials} trials")
-                                        status_text.info(f"Running ARIMA parameter optimization with {n_trials} different parameters combinations...")
+                                        # Use enhanced ARIMA optimizer for improved validation
+                                        from utils.enhanced_parameter_optimizer import optimize_arima_parameters_enhanced
+                                        print(f"Starting ARIMA optimization for {sku} with enhanced validation")
+                                        status_text.info(f"Running ARIMA parameter optimization with robust validation...")
                                         
                                         # Run optimization with more detailed exception handling
                                         try:
-                                            optimization_result = optimize_arima_parameters(train_series, val_series, n_trials=n_trials)
+                                            optimization_result = optimize_arima_parameters_enhanced(train_series, val_series)
                                             print(f"ARIMA optimization result: {optimization_result}")
+                                            
+                                            # Add result verification
+                                            from utils.enhanced_parameter_optimizer import verify_optimization_result
+                                            optimization_result = verify_optimization_result(optimization_result, "arima", sku)
+                                            
                                         except Exception as e:
                                             print(f"ARIMA optimization error: {str(e)}")
                                             status_text.error(f"Error in ARIMA optimization: {str(e)}")
@@ -1481,18 +1486,42 @@ if st.session_state.tuning_in_progress:
                                         'y': val_data[value_col]
                                     })
                                     
-                                    # Import Prophet optimizer
-                                    from utils.parameter_optimizer import optimize_prophet_parameters
-                                    optimization_result = optimize_prophet_parameters(train_prophet, val_prophet, n_trials=n_trials)
+                                    # Use enhanced Prophet optimizer with improved validation
+                                    from utils.enhanced_parameter_optimizer import optimize_prophet_parameters_enhanced, verify_optimization_result
+                                    print(f"Starting Prophet optimization for {sku} with enhanced validation")
+                                    status_text.info(f"Running Prophet parameter optimization with robust validation...")
+                                    
+                                    try:
+                                        optimization_result = optimize_prophet_parameters_enhanced(train_prophet, val_prophet)
+                                        print(f"Prophet optimization result: {optimization_result}")
+                                        
+                                        # Verify the optimization result
+                                        optimization_result = verify_optimization_result(optimization_result, "prophet", sku)
+                                    except Exception as e:
+                                        print(f"Prophet optimization error: {str(e)}")
+                                        status_text.error(f"Error in Prophet optimization: {str(e)}")
+                                        optimization_result = {'parameters': {'changepoint_prior_scale': 0.05, 'seasonality_prior_scale': 10.0, 'seasonality_mode': 'additive'}, 'score': float('inf')}
                                     
                                 elif model_type == "ets":
                                     # Prepare data for ETS
                                     train_series = train_data.set_index(time_col)[value_col]
                                     val_series = val_data.set_index(time_col)[value_col]
                                     
-                                    # Import ETS optimizer
-                                    from utils.parameter_optimizer import optimize_ets_parameters
-                                    optimization_result = optimize_ets_parameters(train_series, val_series, n_trials=n_trials)
+                                    # Use enhanced ETS optimizer with improved validation
+                                    from utils.enhanced_parameter_optimizer import optimize_ets_parameters_enhanced, verify_optimization_result
+                                    print(f"Starting ETS optimization for {sku} with enhanced validation")
+                                    status_text.info(f"Running ETS parameter optimization with robust validation...")
+                                    
+                                    try:
+                                        optimization_result = optimize_ets_parameters_enhanced(train_series, val_series)
+                                        print(f"ETS optimization result: {optimization_result}")
+                                        
+                                        # Verify the optimization result
+                                        optimization_result = verify_optimization_result(optimization_result, "ets", sku)
+                                    except Exception as e:
+                                        print(f"ETS optimization error: {str(e)}")
+                                        status_text.error(f"Error in ETS optimization: {str(e)}")
+                                        optimization_result = {'parameters': {'trend': 'add', 'seasonal': None, 'seasonal_periods': 1, 'damped_trend': False}, 'score': float('inf')}
                                 
                                 elif model_type == "theta":
                                     # Prepare data for Theta method
@@ -1503,17 +1532,21 @@ if st.session_state.tuning_in_progress:
                                     print(f"Theta Train data: {len(train_series)} points, Range: {train_series.index.min()} to {train_series.index.max()}")
                                     print(f"Theta Val data: {len(val_series)} points, Range: {val_series.index.min()} to {val_series.index.max()}")
                                     
-                                    # Import Theta optimizer
-                                    from utils.parameter_optimizer import optimize_theta_parameters
-                                    status_text.info(f"Running Theta parameter optimization for {sku}...")
+                                    # Use enhanced Theta optimizer with improved validation
+                                    from utils.enhanced_parameter_optimizer import optimize_theta_parameters_enhanced, verify_optimization_result
+                                    print(f"Starting Theta optimization for {sku} with enhanced validation")
+                                    status_text.info(f"Running Theta parameter optimization with robust validation...")
                                     
                                     try:
-                                        optimization_result = optimize_theta_parameters(train_series, val_series, n_trials=n_trials)
+                                        optimization_result = optimize_theta_parameters_enhanced(train_series, val_series)
                                         print(f"Theta optimization result: {optimization_result}")
+                                        
+                                        # Verify the optimization result
+                                        optimization_result = verify_optimization_result(optimization_result, "theta", sku)
                                     except Exception as e:
                                         print(f"Theta optimization error: {str(e)}")
                                         status_text.error(f"Error in Theta optimization: {str(e)}")
-                                        optimization_result = {'parameters': {'theta': 2.0, 'deseasonalize': True}, 'score': float('inf')}
+                                        optimization_result = {'parameters': {'deseasonalize': True, 'period': 12, 'method': 'auto'}, 'score': float('inf')}
                                 
                                 else:
                                     # Default to ARIMA for other model types

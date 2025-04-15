@@ -1,509 +1,905 @@
 import pandas as pd
 import numpy as np
-import logging
-import traceback
-from datetime import datetime
+import os
+import time
+import json
 from sklearn.metrics import mean_absolute_error, mean_squared_error
+import logging
 
-# Import original optimizer for base functions
-from utils.parameter_optimizer import (
-    calculate_metrics, objective_function_arima, objective_function_prophet,
-    objective_function_ets, objective_function_theta
-)
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Import database functions for parameter caching
-from utils.database import save_model_parameters, get_model_parameters
+# Constants for parameter ranges and validation
+MIN_IMPROVEMENT_THRESHOLD = 0.10  # Require at least 10% improvement to accept new parameters
+MAX_WORSENING_ALLOWED = 0.05     # Allow at most 5% worsening for parameters with other benefits
+MAX_VALIDATION_ATTEMPTS = 3      # Number of validation attempts before falling back to defaults
 
-# Set up logging
-logger = logging.getLogger('enhanced_parameter_optimizer')
+# Caching for optimization results
+MODEL_PARAMETER_CACHE = {}
 
-def optimize_arima_parameters_enhanced(train_data, val_data, n_trials=30):
+def log_optimization_result(sku_id, model_type, parameters, metrics, baseline_metrics=None):
     """
-    Enhanced ARIMA parameters optimization with validation and sanity checks
-
+    Log optimization result to file for offline analysis.
+    
     Parameters:
     -----------
-    train_data : pandas.Series
-        Training data
-    val_data : pandas.Series
-        Validation data
-    n_trials : int, optional
-        Number of parameter combinations to try
-
-    Returns:
-    --------
-    dict
-        Optimized parameters and score
+    sku_id : str
+        SKU identifier
+    model_type : str
+        Model type (e.g., 'prophet', 'arima', 'ets', 'theta')
+    parameters : dict
+        Optimized parameters
+    metrics : dict
+        Performance metrics
+    baseline_metrics : dict, optional
+        Baseline metrics for comparison
     """
-    # Default parameters to use as a baseline
-    default_params = {'p': 1, 'd': 1, 'q': 0}  # Default to AR(1) with first differencing
-
-    # Initial validation
-    if len(train_data) < 5 or len(val_data) < 1:
-        logger.warning(f"Not enough data for ARIMA optimization: train={len(train_data)}, val={len(val_data)}")
-        return {'parameters': default_params, 'score': float('inf')}
-
-    # Ensure the data is clean (no NaN, Inf)
-    if train_data.isna().any() or np.isinf(train_data.values).any():
-        logger.warning("Training data contains NaN or Inf values, cleaning...")
-        train_data = train_data.replace([np.inf, -np.inf], np.nan).dropna()
-
-    if val_data.isna().any() or np.isinf(val_data.values).any():
-        logger.warning("Validation data contains NaN or Inf values, cleaning...")
-        val_data = val_data.replace([np.inf, -np.inf], np.nan).dropna()
-
-    # Check again after cleaning
-    if len(train_data) < 5 or len(val_data) < 1:
-        logger.warning(f"Not enough data after cleaning: train={len(train_data)}, val={len(val_data)}")
-        return {'parameters': default_params, 'score': float('inf')}
-    
-    # Get baseline score with default parameters
-    default_score = objective_function_arima(default_params, train_data, val_data)
-    
-    # If default parameters give infinity as score, try an even simpler model
-    if default_score == float('inf'):
-        simpler_default = {'p': 0, 'd': 1, 'q': 0}  # Simple random walk with drift
-        default_score = objective_function_arima(simpler_default, train_data, val_data)
-        
-        if default_score == float('inf'):
-            logger.warning("Even simpler ARIMA model failed. Data may be problematic.")
-            return {'parameters': default_params, 'score': float('inf')}
-        else:
-            default_params = simpler_default
-    
-    logger.info(f"Baseline ARIMA score with default parameters: {default_score:.4f}")
-    
-    # Initialize best parameters and score with defaults
-    best_params = default_params.copy()
-    best_score = default_score
-
-    # Grid of parameters to try - prioritize simpler models
-    p_values = [0, 1, 2]
-    d_values = [0, 1]
-    q_values = [0, 1, 2]
-
-    # Log optimization parameters
-    logger.info(f"ARIMA optimization starting with {len(p_values) * len(d_values) * len(q_values)} combinations")
-    logger.info(f"Training data: {len(train_data)} points, Validation data: {len(val_data)} points")
-
-    # Try stationarity test to guess good d value
     try:
-        from statsmodels.tsa.stattools import adfuller
-        result = adfuller(train_data)
-        if result[1] > 0.05:  # Not stationary
-            d_values = [1, 0]  # Prioritize d=1
-            logger.info(f"Data is not stationary (p-value={result[1]:.4f}), prioritizing d=1")
-        else:
-            d_values = [0, 1]  # Prioritize d=0
-            logger.info(f"Data is stationary (p-value={result[1]:.4f}), prioritizing d=0")
+        log_dir = "logs/optimization"
+        os.makedirs(log_dir, exist_ok=True)
+        
+        log_file = os.path.join(log_dir, f"{model_type}_optimization_log.jsonl")
+        
+        log_entry = {
+            "timestamp": time.time(),
+            "sku_id": sku_id,
+            "model_type": model_type,
+            "parameters": parameters,
+            "metrics": metrics
+        }
+        
+        if baseline_metrics:
+            log_entry["baseline_metrics"] = baseline_metrics
+            
+            # Calculate improvement percentages
+            if "mape" in metrics and "mape" in baseline_metrics:
+                log_entry["mape_improvement_pct"] = (
+                    (baseline_metrics["mape"] - metrics["mape"]) / baseline_metrics["mape"] * 100
+                    if baseline_metrics["mape"] > 0 else 0
+                )
+            
+            if "rmse" in metrics and "rmse" in baseline_metrics:
+                log_entry["rmse_improvement_pct"] = (
+                    (baseline_metrics["rmse"] - metrics["rmse"]) / baseline_metrics["rmse"] * 100
+                    if baseline_metrics["rmse"] > 0 else 0
+                )
+        
+        with open(log_file, "a") as f:
+            f.write(json.dumps(log_entry) + "\n")
+            
+        return True
     except Exception as e:
-        logger.warning(f"Stationarity test failed: {str(e)}")
+        logger.error(f"Error logging optimization result: {str(e)}")
+        return False
 
-    # Try combinations
-    tried_combinations = 0
-    successful_fits = 0
-
-    for p in p_values:
-        for d in d_values:
-            for q in q_values:
-                if p + d + q > 3:
-                    continue  # Skip overly complex models
-
-                tried_combinations += 1
-
-                # Log current attempt
-                logger.info(f"Trying ARIMA({p},{d},{q}) - combination {tried_combinations}")
-
-                params = {'p': p, 'd': d, 'q': q}
-                score = objective_function_arima(params, train_data, val_data)
-
-                # Only consider valid scores
-                if score != float('inf') and not np.isnan(score) and score < 1000:
-                    successful_fits += 1
-                    
-                    # Only use new parameters if they provide significant improvement (at least 5% better)
-                    if score < best_score * 0.95:
-                        best_score = score
-                        best_params = params
-                        logger.info(f"New best model: ARIMA({p},{d},{q}) with score {score:.4f}, improvement: {(default_score - score) / default_score * 100:.2f}%")
-
-    # Log optimization summary
-    logger.info(f"ARIMA optimization complete. Tried {tried_combinations} combinations, {successful_fits} successful fits")
-    
-    # Add sanity check - if optimization made things worse, revert to defaults
-    if best_score > default_score * 1.5:  # If more than 50% worse
-        logger.warning(f"Optimization resulted in worse score ({best_score:.4f} vs {default_score:.4f}). Reverting to default parameters.")
-        best_params = default_params
-        best_score = default_score
-
-    return {'parameters': best_params, 'score': best_score}
-
-
-def optimize_prophet_parameters_enhanced(train_data, val_data, n_trials=20):
+def validate_arima_parameters(params):
     """
-    Enhanced Prophet parameters optimization with validation and sanity checks
-
+    Validate ARIMA parameters, ensuring they're within reasonable ranges.
+    
     Parameters:
     -----------
-    train_data : pandas.DataFrame
-        Training data with 'ds' and 'y' columns
-    val_data : pandas.DataFrame
-        Validation data with 'ds' and 'y' columns
-    n_trials : int, optional
-        Number of parameter combinations to try
-
+    params : dict
+        Parameters to validate
+        
     Returns:
     --------
     dict
-        Optimized parameters and score
+        Validated parameters
     """
-    # Default parameters to use as a baseline
-    default_params = {
-        'changepoint_prior_scale': 0.05,
-        'seasonality_prior_scale': 10.0,
-        'seasonality_mode': 'additive'
-    }
+    valid_params = {}
     
-    # Get baseline score using default parameters
-    default_score = objective_function_prophet(default_params, train_data, val_data)
+    # Put reasonable limits on p, d, q values
+    valid_params['p'] = min(max(params.get('p', 1), 0), 5)
+    valid_params['d'] = min(max(params.get('d', 1), 0), 2)
+    valid_params['q'] = min(max(params.get('q', 1), 0), 5)
     
-    # If default parameters give infinity as score, there's an issue with the data
-    if default_score == float('inf'):
-        logger.warning("Default Prophet parameters resulted in infinite score. Data may be problematic.")
-        return {'parameters': default_params, 'score': default_score}
+    # Validate seasonal parameters
+    valid_params['seasonal'] = params.get('seasonal', False)
+    if valid_params['seasonal']:
+        valid_params['m'] = min(max(params.get('m', 12), 2), 365)
     
-    logger.info(f"Baseline Prophet score with default parameters: {default_score:.4f}")
+    return valid_params
+
+def validate_prophet_parameters(params):
+    """
+    Validate Prophet parameters, ensuring they're within reasonable ranges.
     
-    # Initialize best parameters and score with defaults
-    best_params = default_params.copy()
-    best_score = default_score
+    Parameters:
+    -----------
+    params : dict
+        Parameters to validate
+        
+    Returns:
+    --------
+    dict
+        Validated parameters
+    """
+    valid_params = {}
     
-    # Try to use Optuna if available
+    # Prior scales should be positive and not extreme
+    valid_params['changepoint_prior_scale'] = min(max(params.get('changepoint_prior_scale', 0.05), 0.001), 0.5)
+    valid_params['seasonality_prior_scale'] = min(max(params.get('seasonality_prior_scale', 10.0), 0.01), 100.0)
+    
+    # Seasonality mode should be valid
+    if 'seasonality_mode' in params and params['seasonality_mode'] in ['additive', 'multiplicative']:
+        valid_params['seasonality_mode'] = params['seasonality_mode']
+    else:
+        valid_params['seasonality_mode'] = 'additive'
+    
+    return valid_params
+
+def validate_ets_parameters(params):
+    """
+    Validate ETS parameters, ensuring they're valid options.
+    
+    Parameters:
+    -----------
+    params : dict
+        Parameters to validate
+        
+    Returns:
+    --------
+    dict
+        Validated parameters
+    """
+    valid_params = {}
+    
+    # Validate trend type
+    if 'trend' in params and params['trend'] in ['add', 'mul', None]:
+        valid_params['trend'] = params['trend']
+    else:
+        valid_params['trend'] = 'add'  # Default to additive trend
+    
+    # Validate seasonal type
+    if 'seasonal' in params and params['seasonal'] in ['add', 'mul', None]:
+        valid_params['seasonal'] = params['seasonal']
+    else:
+        valid_params['seasonal'] = None  # Default to no seasonality
+    
+    # Validate seasonal periods
+    if 'seasonal_periods' in params:
+        valid_params['seasonal_periods'] = min(max(params.get('seasonal_periods', 1), 1), 52)
+    else:
+        valid_params['seasonal_periods'] = 1
+    
+    # Validate damped trend
+    valid_params['damped_trend'] = params.get('damped_trend', False)
+    
+    return valid_params
+
+def validate_theta_parameters(params):
+    """
+    Validate Theta parameters, ensuring they're within reasonable ranges.
+    
+    Parameters:
+    -----------
+    params : dict
+        Parameters to validate
+        
+    Returns:
+    --------
+    dict
+        Validated parameters
+    """
+    valid_params = {}
+    
+    # Validate deseasonalize flag (should be boolean)
+    valid_params['deseasonalize'] = bool(params.get('deseasonalize', True))
+    
+    # Validate period (should be positive integer)
+    valid_params['period'] = min(max(int(params.get('period', 12)), 1), 52)
+    
+    # Method can be 'auto', 'additive', or 'multiplicative'
+    if 'method' in params and params['method'] in ['auto', 'additive', 'multiplicative']:
+        valid_params['method'] = params['method']
+    else:
+        valid_params['method'] = 'auto'
+    
+    return valid_params
+
+def calculate_performance_metrics(actual, predicted):
+    """
+    Calculate performance metrics for time series forecasting.
+    
+    Parameters:
+    -----------
+    actual : numpy.ndarray or pandas.Series
+        Actual values
+    predicted : numpy.ndarray or pandas.Series
+        Predicted values
+        
+    Returns:
+    --------
+    dict
+        Dictionary of performance metrics
+    """
+    # Ensure we have valid data
+    if len(actual) == 0 or len(predicted) == 0:
+        return {"mape": float('inf'), "rmse": float('inf')}
+    
+    # Handle NaN values
+    valid_indices = ~(np.isnan(actual) | np.isnan(predicted))
+    actual_valid = np.array(actual)[valid_indices]
+    predicted_valid = np.array(predicted)[valid_indices]
+    
+    # If no valid points remain, return infinite error
+    if len(actual_valid) == 0:
+        return {"mape": float('inf'), "rmse": float('inf')}
+    
+    # Calculate RMSE
+    rmse = mean_squared_error(actual_valid, predicted_valid, squared=False)
+    
+    # Calculate MAPE, handling zero values appropriately
+    # We use a small epsilon to avoid division by zero
+    epsilon = 1e-10
+    mape = np.mean(np.abs((actual_valid - predicted_valid) / (np.abs(actual_valid) + epsilon))) * 100
+    
+    return {"mape": mape, "rmse": rmse}
+
+def calculate_arima_baseline_metrics(train_series, val_series):
+    """
+    Calculate baseline metrics for ARIMA model using default parameters.
+    
+    Parameters:
+    -----------
+    train_series : pandas.Series
+        Training time series data
+    val_series : pandas.Series
+        Validation time series data
+    
+    Returns:
+    --------
+    dict
+        Baseline metrics
+    """
+    try:
+        # Import ARIMA modules here to avoid import loop
+        from statsmodels.tsa.stattools import adfuller
+        from statsmodels.tsa.arima.model import ARIMA
+        
+        # Default parameters for ARIMA
+        default_params = {'p': 1, 'd': 1, 'q': 0}
+        
+        # Fit ARIMA with default parameters
+        model = ARIMA(train_series, order=(default_params['p'], default_params['d'], default_params['q']))
+        model_fit = model.fit()
+        
+        # Generate forecast for validation period
+        forecast = model_fit.forecast(steps=len(val_series))
+        
+        # Calculate metrics
+        metrics = calculate_performance_metrics(val_series, forecast)
+        
+        return metrics
+    except Exception as e:
+        logger.error(f"Error calculating ARIMA baseline metrics: {str(e)}")
+        return {"mape": float('inf'), "rmse": float('inf')}
+
+def calculate_prophet_baseline_metrics(train_df, val_df):
+    """
+    Calculate baseline metrics for Prophet model using default parameters.
+    
+    Parameters:
+    -----------
+    train_df : pandas.DataFrame
+        Training data with 'ds' and 'y' columns
+    val_df : pandas.DataFrame
+        Validation data with 'ds' and 'y' columns
+    
+    Returns:
+    --------
+    dict
+        Baseline metrics
+    """
+    try:
+        # Import Prophet here to avoid import loop
+        from prophet import Prophet
+        
+        # Default parameters for Prophet
+        default_params = {'changepoint_prior_scale': 0.05, 'seasonality_prior_scale': 10.0, 'seasonality_mode': 'additive'}
+        
+        # Fit Prophet with default parameters
+        model = Prophet(
+            changepoint_prior_scale=default_params['changepoint_prior_scale'],
+            seasonality_prior_scale=default_params['seasonality_prior_scale'],
+            seasonality_mode=default_params['seasonality_mode']
+        )
+        model.fit(train_df)
+        
+        # Generate forecast for validation period
+        future = model.make_future_dataframe(periods=len(val_df), freq='D')
+        forecast = model.predict(future)
+        
+        # Extract forecast for validation period
+        pred_df = forecast.tail(len(val_df))
+        
+        # Calculate metrics
+        metrics = calculate_performance_metrics(val_df['y'], pred_df['yhat'])
+        
+        return metrics
+    except Exception as e:
+        logger.error(f"Error calculating Prophet baseline metrics: {str(e)}")
+        return {"mape": float('inf'), "rmse": float('inf')}
+
+def calculate_ets_baseline_metrics(train_series, val_series):
+    """
+    Calculate baseline metrics for ETS model using default parameters.
+    
+    Parameters:
+    -----------
+    train_series : pandas.Series
+        Training time series data
+    val_series : pandas.Series
+        Validation time series data
+    
+    Returns:
+    --------
+    dict
+        Baseline metrics
+    """
+    try:
+        # Import statsmodels here to avoid import loop
+        from statsmodels.tsa.exponential_smoothing.ets import ETSModel
+        
+        # Default parameters for ETS
+        default_params = {'trend': 'add', 'seasonal': None, 'seasonal_periods': 1, 'damped_trend': False}
+        
+        # Fit ETS with default parameters
+        model = ETSModel(
+            train_series,
+            trend=default_params['trend'],
+            seasonal=default_params['seasonal'],
+            seasonal_periods=default_params['seasonal_periods'],
+            damped_trend=default_params['damped_trend']
+        )
+        model_fit = model.fit(disp=False)
+        
+        # Generate forecast for validation period
+        forecast = model_fit.forecast(steps=len(val_series))
+        
+        # Calculate metrics
+        metrics = calculate_performance_metrics(val_series, forecast)
+        
+        return metrics
+    except Exception as e:
+        logger.error(f"Error calculating ETS baseline metrics: {str(e)}")
+        return {"mape": float('inf'), "rmse": float('inf')}
+
+def calculate_theta_baseline_metrics(train_series, val_series):
+    """
+    Calculate baseline metrics for Theta model using default parameters.
+    
+    Parameters:
+    -----------
+    train_series : pandas.Series
+        Training time series data
+    val_series : pandas.Series
+        Validation time series data
+    
+    Returns:
+    --------
+    dict
+        Baseline metrics
+    """
+    try:
+        # Import statsmodels here to avoid import loop
+        from statsmodels.tsa.forecasting.theta import ThetaModel
+        
+        # Default parameters for Theta
+        default_params = {'deseasonalize': True}
+        
+        # Fit Theta with default parameters
+        model = ThetaModel(
+            train_series,
+            deseasonalize=default_params['deseasonalize']
+        )
+        model_fit = model.fit()
+        
+        # Generate forecast for validation period
+        forecast = model_fit.forecast(steps=len(val_series))
+        
+        # Calculate metrics
+        metrics = calculate_performance_metrics(val_series, forecast)
+        
+        return metrics
+    except Exception as e:
+        logger.error(f"Error calculating Theta baseline metrics: {str(e)}")
+        return {"mape": float('inf'), "rmse": float('inf')}
+
+def optimize_arima_parameters_enhanced(train_series, val_series):
+    """
+    Optimize ARIMA parameters with robust validation.
+    
+    Parameters:
+    -----------
+    train_series : pandas.Series
+        Training time series data
+    val_series : pandas.Series
+        Validation time series data
+    
+    Returns:
+    --------
+    dict
+        Optimized parameters and metrics
+    """
     try:
         import optuna
-
+        from statsmodels.tsa.arima.model import ARIMA
+        
+        # Calculate baseline metrics with default parameters
+        baseline_metrics = calculate_arima_baseline_metrics(train_series, val_series)
+        logger.info(f"ARIMA baseline metrics: {baseline_metrics}")
+        
+        # Define objective function for Optuna
         def objective(trial):
-            params = {
-                'changepoint_prior_scale': trial.suggest_float('changepoint_prior_scale', 0.001, 0.5, log=True),
-                'seasonality_prior_scale': trial.suggest_float('seasonality_prior_scale', 0.01, 10, log=True),
-                'seasonality_mode': trial.suggest_categorical('seasonality_mode', ['additive', 'multiplicative'])
-            }
-            score = objective_function_prophet(params, train_data, val_data)
+            # Sample parameters from predefined ranges
+            p = trial.suggest_int('p', 0, 5)
+            d = trial.suggest_int('d', 0, 2)
+            q = trial.suggest_int('q', 0, 5)
             
-            # Verify the score is reasonable (not extreme or NaN)
-            if score != float('inf') and not np.isnan(score) and score < 1000:
-                return score
-            else:
-                # Return a high but not infinite score to allow optimization to continue
-                return 1000.0
-
+            # Have at least one non-zero term
+            if p == 0 and d == 0 and q == 0:
+                p = 1  # Force at least AR(1) if all zeros
+            
+            try:
+                # Fit ARIMA model
+                model = ARIMA(train_series, order=(p, d, q))
+                model_fit = model.fit()
+                
+                # Generate forecast for validation period
+                forecast = model_fit.forecast(steps=len(val_series))
+                
+                # Calculate metrics
+                metrics = calculate_performance_metrics(val_series, forecast)
+                
+                return metrics['mape']  # Optimize for MAPE
+            except Exception as e:
+                logger.warning(f"Error in ARIMA optimization: {str(e)}")
+                return float('inf')  # Penalize errors
+        
+        # Create and run Optuna study
         study = optuna.create_study(direction='minimize')
-        study.optimize(objective, n_trials=n_trials)
-
-        candidate_params = study.best_params
-        candidate_score = study.best_value
+        study.optimize(objective, n_trials=30)
         
-        # Only use the new parameters if they provide significant improvement (at least 10% better)
-        if candidate_score < best_score * 0.9 and candidate_score != float('inf') and not np.isnan(candidate_score):
-            best_params = candidate_params
-            best_score = candidate_score
-            logger.info(f"Found better Prophet parameters, improvement: {(default_score - candidate_score) / default_score * 100:.2f}%")
-
-    except ImportError:
-        # Fallback to grid search if Optuna is not available
-        # Grid of parameters to try
-        changepoint_prior_scales = [0.001, 0.01, 0.05, 0.1, 0.5]
-        seasonality_prior_scales = [0.01, 0.1, 1.0, 10.0]
-        seasonality_modes = ['additive', 'multiplicative']
-
-        # Try combinations
-        for cps in changepoint_prior_scales:
-            for sps in seasonality_prior_scales:
-                for sm in seasonality_modes:
-                    params = {
-                        'changepoint_prior_scale': cps,
-                        'seasonality_prior_scale': sps,
-                        'seasonality_mode': sm
-                    }
-                    score = objective_function_prophet(params, train_data, val_data)
-
-                    # Only consider valid scores
-                    if score != float('inf') and not np.isnan(score) and score < 1000:
-                        if score < best_score * 0.9:  # Must be at least 10% better
-                            best_score = score
-                            best_params = params
-                            logger.info(f"Found better Prophet parameters: {params} with score {score:.4f}")
-
-    # Add sanity check - if optimization made things significantly worse, revert to defaults
-    if best_score > default_score * 5:  # If more than 5 times worse
-        logger.warning(f"Optimization resulted in significantly worse score ({best_score:.4f} vs {default_score:.4f}). Reverting to default parameters.")
-        best_params = default_params
-        best_score = default_score
-
-    logger.info(f"Final Prophet parameters: {best_params} with score {best_score:.4f}")
-    return {'parameters': best_params, 'score': best_score}
-
-
-def optimize_ets_parameters_enhanced(train_data, val_data, n_trials=15):
-    """
-    Enhanced ETS parameters optimization with validation and sanity checks
-
-    Parameters:
-    -----------
-    train_data : pandas.Series
-        Training data
-    val_data : pandas.Series
-        Validation data
-    n_trials : int, optional
-        Number of parameter combinations to try
-
-    Returns:
-    --------
-    dict
-        Optimized parameters and score
-    """
-    # Default parameters to use as a baseline
-    default_params = {
-        'trend': 'add',
-        'seasonal': None,
-        'seasonal_periods': 1,
-        'damped_trend': False
-    }
-    
-    # Get baseline score using default parameters
-    default_score = objective_function_ets(default_params, train_data, val_data)
-    
-    # If default parameters give infinity as score, try a simpler model
-    if default_score == float('inf'):
-        simpler_default = {
-            'trend': None,
-            'seasonal': None,
-            'seasonal_periods': 1,
-            'damped_trend': False
+        # Get best parameters
+        best_params = study.best_params
+        
+        # Validate parameters
+        validated_params = validate_arima_parameters(best_params)
+        
+        # Evaluate with best parameters
+        try:
+            model = ARIMA(train_series, order=(validated_params['p'], validated_params['d'], validated_params['q']))
+            model_fit = model.fit()
+            forecast = model_fit.forecast(steps=len(val_series))
+            best_metrics = calculate_performance_metrics(val_series, forecast)
+        except Exception:
+            # If best parameters fail, fall back to default
+            validated_params = {'p': 1, 'd': 1, 'q': 0}
+            model = ARIMA(train_series, order=(validated_params['p'], validated_params['d'], validated_params['q']))
+            model_fit = model.fit()
+            forecast = model_fit.forecast(steps=len(val_series))
+            best_metrics = calculate_performance_metrics(val_series, forecast)
+        
+        return {
+            'parameters': validated_params,
+            'metrics': best_metrics,
+            'baseline_metrics': baseline_metrics
         }
-        default_score = objective_function_ets(simpler_default, train_data, val_data)
-        
-        if default_score == float('inf'):
-            logger.warning("Even simpler ETS model failed. Data may be problematic.")
-            return {'parameters': default_params, 'score': float('inf')}
-        else:
-            default_params = simpler_default
-    
-    logger.info(f"Baseline ETS score with default parameters: {default_score:.4f}")
-    
-    # Initialize best parameters and score with defaults
-    best_params = default_params.copy()
-    best_score = default_score
-    
-    # Grid of parameters to try
-    trend_types = ['add', 'mul', None]
-    seasonal_types = ['add', 'mul', None]
+    except Exception as e:
+        logger.error(f"Error in ARIMA optimization: {str(e)}")
+        # Return default parameters
+        return {
+            'parameters': {'p': 1, 'd': 1, 'q': 0},
+            'metrics': {'mape': float('inf'), 'rmse': float('inf')},
+            'baseline_metrics': {'mape': float('inf'), 'rmse': float('inf')}
+        }
 
-    # Determine possible seasonal periods
-    if len(train_data) >= 24:  # At least 2 years of monthly data
-        seasonal_periods_list = [4, 12]  # Quarterly and yearly
-    elif len(train_data) >= 14:  # At least 14 days of daily data
-        seasonal_periods_list = [7]  # Weekly
-    else:
-        seasonal_periods_list = [1]  # No seasonality
-
-    # Try combinations
-    tried_combinations = 0
-    successful_fits = 0
-    
-    for trend in trend_types:
-        for seasonal in seasonal_types:
-            for seasonal_periods in seasonal_periods_list:
-                for damped_trend in [True, False]:
-                    # Skip invalid combinations
-                    if seasonal is not None and seasonal_periods == 1:
-                        continue
-                    if trend is None and damped_trend:
-                        continue
-                    
-                    tried_combinations += 1
-
-                    params = {
-                        'trend': trend,
-                        'seasonal': seasonal,
-                        'seasonal_periods': seasonal_periods,
-                        'damped_trend': damped_trend
-                    }
-
-                    score = objective_function_ets(params, train_data, val_data)
-
-                    # Only consider valid scores
-                    if score != float('inf') and not np.isnan(score) and score < 1000:
-                        successful_fits += 1
-                        
-                        # Only use if significantly better (at least 5% improvement)
-                        if score < best_score * 0.95:
-                            best_score = score
-                            best_params = params
-                            logger.info(f"Found better ETS parameters: {params} with score {score:.4f}")
-
-    # Log optimization summary
-    logger.info(f"ETS optimization complete. Tried {tried_combinations} combinations, {successful_fits} successful fits")
-    
-    # Add sanity check - if optimization made things worse, revert to defaults
-    if best_score > default_score * 2:  # If more than 2 times worse
-        logger.warning(f"Optimization resulted in worse score ({best_score:.4f} vs {default_score:.4f}). Reverting to default parameters.")
-        best_params = default_params
-        best_score = default_score
-
-    return {'parameters': best_params, 'score': best_score}
-
-
-def optimize_theta_parameters_enhanced(train_data, val_data, n_trials=10):
+def optimize_prophet_parameters_enhanced(train_df, val_df):
     """
-    Enhanced Theta method parameters optimization with validation and sanity checks
-
+    Optimize Prophet parameters with robust validation.
+    
     Parameters:
     -----------
-    train_data : pandas.Series
-        Training data
-    val_data : pandas.Series
-        Validation data
-    n_trials : int, optional
-        Number of parameter combinations to try
-
+    train_df : pandas.DataFrame
+        Training data with 'ds' and 'y' columns
+    val_df : pandas.DataFrame
+        Validation data with 'ds' and 'y' columns
+    
     Returns:
     --------
     dict
-        Optimized parameters and score
+        Optimized parameters and metrics
     """
-    # Make sure data is clean
-    if train_data.isna().any() or np.isinf(train_data.values).any():
-        logger.warning("Training data contains NaN or Inf values, cleaning...")
-        train_data = train_data.replace([np.inf, -np.inf], np.nan).dropna()
-
-    if val_data.isna().any() or np.isinf(val_data.values).any():
-        logger.warning("Validation data contains NaN or Inf values, cleaning...")
-        val_data = val_data.replace([np.inf, -np.inf], np.nan).dropna()
-
-    # Check if we have enough data
-    if len(train_data) < 4:
-        logger.warning(f"Not enough data for Theta optimization: {len(train_data)} points")
-        return {'parameters': {'deseasonalize': True, 'period': 12, 'method': 'auto'}, 'score': float('inf')}
-
-    # Default parameters
-    default_params = {'deseasonalize': True, 'period': 12, 'method': 'auto'}
-    
-    # Get baseline score using default parameters
-    default_score = objective_function_theta(default_params, train_data, val_data)
-    
-    # If default parameters give infinity as score, try a simpler model
-    if default_score == float('inf'):
-        simpler_default = {'deseasonalize': False, 'period': 1, 'method': 'auto'}
-        default_score = objective_function_theta(simpler_default, train_data, val_data)
+    try:
+        import optuna
+        from prophet import Prophet
         
-        if default_score == float('inf'):
-            logger.warning("Even simpler Theta model failed. Data may be problematic.")
-            return {'parameters': default_params, 'score': float('inf')}
-        else:
-            default_params = simpler_default
-    
-    logger.info(f"Baseline Theta score with default parameters: {default_score:.4f}")
-    
-    # Initialize best parameters and score with defaults
-    best_params = default_params.copy()
-    best_score = default_score
+        # Calculate baseline metrics with default parameters
+        baseline_metrics = calculate_prophet_baseline_metrics(train_df, val_df)
+        logger.info(f"Prophet baseline metrics: {baseline_metrics}")
+        
+        # Define objective function for Optuna
+        def objective(trial):
+            # Sample parameters from predefined ranges
+            changepoint_prior_scale = trial.suggest_float('changepoint_prior_scale', 0.001, 0.5, log=True)
+            seasonality_prior_scale = trial.suggest_float('seasonality_prior_scale', 0.01, 100, log=True)
+            seasonality_mode = trial.suggest_categorical('seasonality_mode', ['additive', 'multiplicative'])
+            
+            try:
+                # Fit Prophet model
+                model = Prophet(
+                    changepoint_prior_scale=changepoint_prior_scale,
+                    seasonality_prior_scale=seasonality_prior_scale,
+                    seasonality_mode=seasonality_mode
+                )
+                model.fit(train_df)
+                
+                # Generate forecast for validation period
+                future = model.make_future_dataframe(periods=len(val_df), freq='D')
+                forecast = model.predict(future)
+                
+                # Extract forecast for validation period
+                pred_df = forecast.tail(len(val_df))
+                
+                # Calculate metrics
+                metrics = calculate_performance_metrics(val_df['y'], pred_df['yhat'])
+                
+                return metrics['mape']  # Optimize for MAPE
+            except Exception as e:
+                logger.warning(f"Error in Prophet optimization: {str(e)}")
+                return float('inf')  # Penalize errors
+        
+        # Create and run Optuna study
+        study = optuna.create_study(direction='minimize')
+        study.optimize(objective, n_trials=20)
+        
+        # Get best parameters
+        best_params = study.best_params
+        
+        # Validate parameters
+        validated_params = validate_prophet_parameters(best_params)
+        
+        # Evaluate with best parameters
+        try:
+            model = Prophet(
+                changepoint_prior_scale=validated_params['changepoint_prior_scale'],
+                seasonality_prior_scale=validated_params['seasonality_prior_scale'],
+                seasonality_mode=validated_params['seasonality_mode']
+            )
+            model.fit(train_df)
+            
+            future = model.make_future_dataframe(periods=len(val_df), freq='D')
+            forecast = model.predict(future)
+            
+            pred_df = forecast.tail(len(val_df))
+            best_metrics = calculate_performance_metrics(val_df['y'], pred_df['yhat'])
+        except Exception:
+            # If best parameters fail, fall back to default
+            validated_params = {'changepoint_prior_scale': 0.05, 'seasonality_prior_scale': 10.0, 'seasonality_mode': 'additive'}
+            model = Prophet(
+                changepoint_prior_scale=validated_params['changepoint_prior_scale'],
+                seasonality_prior_scale=validated_params['seasonality_prior_scale'],
+                seasonality_mode=validated_params['seasonality_mode']
+            )
+            model.fit(train_df)
+            
+            future = model.make_future_dataframe(periods=len(val_df), freq='D')
+            forecast = model.predict(future)
+            
+            pred_df = forecast.tail(len(val_df))
+            best_metrics = calculate_performance_metrics(val_df['y'], pred_df['yhat'])
+        
+        return {
+            'parameters': validated_params,
+            'metrics': best_metrics,
+            'baseline_metrics': baseline_metrics
+        }
+    except Exception as e:
+        logger.error(f"Error in Prophet optimization: {str(e)}")
+        # Return default parameters
+        return {
+            'parameters': {'changepoint_prior_scale': 0.05, 'seasonality_prior_scale': 10.0, 'seasonality_mode': 'additive'},
+            'metrics': {'mape': float('inf'), 'rmse': float('inf')},
+            'baseline_metrics': {'mape': float('inf'), 'rmse': float('inf')}
+        }
 
-    # Parameters to try - Note: statsmodels ThetaModel has a fixed theta=2
-    deseasonalize_options = [True, False]
-    method_options = ['auto', 'additive', 'multiplicative']
-    period_values = [4, 12] if len(train_data) >= 24 else [min(len(train_data) // 2, 12)]
-
-    # Log optimization parameters
-    logger.info(f"Theta optimization starting with {len(deseasonalize_options) * len(method_options) * len(period_values)} combinations")
-    logger.info(f"Training data: {len(train_data)} points, Validation data: {len(val_data)} points")
-
-    # Try combinations
-    tried_combinations = 0
-    successful_fits = 0
-
-    for deseasonalize in deseasonalize_options:
-        for method in method_options:
-            for period in period_values:
-                tried_combinations += 1
-
-                # Skip unnecessary combinations
-                if not deseasonalize and period != period_values[0]:
-                    continue
-
-                # Log current attempt
-                logger.info(f"Trying Theta model with deseasonalize={deseasonalize}, period={period}, method={method} - combination {tried_combinations}")
-
-                params = {
-                    'deseasonalize': deseasonalize,
-                    'period': period,
-                    'method': method
-                }
-
-                score = objective_function_theta(params, train_data, val_data)
-
-                # Only consider valid scores
-                if score != float('inf') and not np.isnan(score) and score < 1000:
-                    successful_fits += 1
-                    
-                    # Only use if significantly better (at least 5% improvement)
-                    if score < best_score * 0.95:
-                        best_score = score
-                        best_params = params
-                        logger.info(f"New best Theta model: deseasonalize={deseasonalize}, period={period}, method={method} with score {score:.4f}")
-
-    # Log optimization summary
-    logger.info(f"Theta optimization complete. Tried {tried_combinations} combinations, {successful_fits} successful fits")
-
-    # Add sanity check - if optimization made things worse, revert to defaults
-    if best_score > default_score * 2:  # If more than 2 times worse
-        logger.warning(f"Optimization resulted in worse score ({best_score:.4f} vs {default_score:.4f}). Reverting to default parameters.")
-        best_params = default_params
-        best_score = default_score
-
-    return {'parameters': best_params, 'score': best_score}
-
-
-# Helper function to verify optimization results
-def verify_optimization_result(result, model_type, sku_identifier=None):
+def optimize_ets_parameters_enhanced(train_series, val_series):
     """
-    Verify optimization results and ensure they are valid
-
+    Optimize ETS parameters with robust validation.
+    
     Parameters:
     -----------
-    result : dict
-        Optimization result with parameters and score
+    train_series : pandas.Series
+        Training time series data
+    val_series : pandas.Series
+        Validation time series data
+    
+    Returns:
+    --------
+    dict
+        Optimized parameters and metrics
+    """
+    try:
+        import optuna
+        from statsmodels.tsa.exponential_smoothing.ets import ETSModel
+        
+        # Calculate baseline metrics with default parameters
+        baseline_metrics = calculate_ets_baseline_metrics(train_series, val_series)
+        logger.info(f"ETS baseline metrics: {baseline_metrics}")
+        
+        # Define objective function for Optuna
+        def objective(trial):
+            # Sample parameters from predefined ranges
+            trend = trial.suggest_categorical('trend', ['add', 'mul', None])
+            if trend is not None:
+                damped_trend = trial.suggest_categorical('damped_trend', [True, False])
+            else:
+                damped_trend = False
+                
+            # For small datasets, be conservative with seasonality
+            if len(train_series) < 24:
+                seasonal = None
+                seasonal_periods = 1
+            else:
+                seasonal = trial.suggest_categorical('seasonal', ['add', 'mul', None])
+                if seasonal is not None:
+                    seasonal_periods = trial.suggest_int('seasonal_periods', 4, min(12, len(train_series) // 3))
+                else:
+                    seasonal_periods = 1
+            
+            try:
+                # Fit ETS model
+                model = ETSModel(
+                    train_series,
+                    trend=trend,
+                    seasonal=seasonal,
+                    seasonal_periods=seasonal_periods,
+                    damped_trend=damped_trend
+                )
+                model_fit = model.fit(disp=False)
+                
+                # Generate forecast for validation period
+                forecast = model_fit.forecast(steps=len(val_series))
+                
+                # Calculate metrics
+                metrics = calculate_performance_metrics(val_series, forecast)
+                
+                return metrics['mape']  # Optimize for MAPE
+            except Exception as e:
+                logger.warning(f"Error in ETS optimization: {str(e)}")
+                return float('inf')  # Penalize errors
+        
+        # Create and run Optuna study
+        study = optuna.create_study(direction='minimize')
+        study.optimize(objective, n_trials=20)
+        
+        # Get best parameters
+        best_params = study.best_params
+        
+        # Validate parameters
+        validated_params = validate_ets_parameters(best_params)
+        
+        # Evaluate with best parameters
+        try:
+            model = ETSModel(
+                train_series,
+                trend=validated_params['trend'],
+                seasonal=validated_params['seasonal'],
+                seasonal_periods=validated_params['seasonal_periods'],
+                damped_trend=validated_params['damped_trend']
+            )
+            model_fit = model.fit(disp=False)
+            forecast = model_fit.forecast(steps=len(val_series))
+            best_metrics = calculate_performance_metrics(val_series, forecast)
+        except Exception:
+            # If best parameters fail, fall back to default
+            validated_params = {'trend': 'add', 'seasonal': None, 'seasonal_periods': 1, 'damped_trend': False}
+            model = ETSModel(
+                train_series,
+                trend=validated_params['trend'],
+                seasonal=validated_params['seasonal'],
+                seasonal_periods=validated_params['seasonal_periods'],
+                damped_trend=validated_params['damped_trend']
+            )
+            model_fit = model.fit(disp=False)
+            forecast = model_fit.forecast(steps=len(val_series))
+            best_metrics = calculate_performance_metrics(val_series, forecast)
+        
+        return {
+            'parameters': validated_params,
+            'metrics': best_metrics,
+            'baseline_metrics': baseline_metrics
+        }
+    except Exception as e:
+        logger.error(f"Error in ETS optimization: {str(e)}")
+        # Return default parameters
+        return {
+            'parameters': {'trend': 'add', 'seasonal': None, 'seasonal_periods': 1, 'damped_trend': False},
+            'metrics': {'mape': float('inf'), 'rmse': float('inf')},
+            'baseline_metrics': {'mape': float('inf'), 'rmse': float('inf')}
+        }
+
+def optimize_theta_parameters_enhanced(train_series, val_series):
+    """
+    Optimize Theta parameters with robust validation.
+    
+    Parameters:
+    -----------
+    train_series : pandas.Series
+        Training time series data
+    val_series : pandas.Series
+        Validation time series data
+    
+    Returns:
+    --------
+    dict
+        Optimized parameters and metrics
+    """
+    try:
+        import optuna
+        from statsmodels.tsa.forecasting.theta import ThetaModel
+        
+        # Calculate baseline metrics with default parameters
+        baseline_metrics = calculate_theta_baseline_metrics(train_series, val_series)
+        logger.info(f"Theta baseline metrics: {baseline_metrics}")
+        
+        # Define objective function for Optuna
+        def objective(trial):
+            # Sample parameters from predefined ranges
+            deseasonalize = trial.suggest_categorical('deseasonalize', [True, False])
+            period = trial.suggest_int('period', 4, min(12, len(train_series) // 3)) if deseasonalize else 12
+            method = trial.suggest_categorical('method', ['auto', 'additive', 'multiplicative'])
+            
+            try:
+                # Fit Theta model
+                model = ThetaModel(
+                    train_series,
+                    deseasonalize=deseasonalize,
+                    period=period,
+                    method=method
+                )
+                model_fit = model.fit()
+                
+                # Generate forecast for validation period
+                forecast = model_fit.forecast(steps=len(val_series))
+                
+                # Calculate metrics
+                metrics = calculate_performance_metrics(val_series, forecast)
+                
+                return metrics['mape']  # Optimize for MAPE
+            except Exception as e:
+                logger.warning(f"Error in Theta optimization: {str(e)}")
+                return float('inf')  # Penalize errors
+        
+        # Create and run Optuna study
+        study = optuna.create_study(direction='minimize')
+        study.optimize(objective, n_trials=20)
+        
+        # Get best parameters
+        best_params = study.best_params
+        
+        # Validate parameters
+        validated_params = validate_theta_parameters(best_params)
+        
+        # Evaluate with best parameters
+        try:
+            model = ThetaModel(
+                train_series,
+                deseasonalize=validated_params['deseasonalize'],
+                period=validated_params['period'],
+                method=validated_params['method']
+            )
+            model_fit = model.fit()
+            forecast = model_fit.forecast(steps=len(val_series))
+            best_metrics = calculate_performance_metrics(val_series, forecast)
+        except Exception:
+            # If best parameters fail, fall back to default
+            validated_params = {'deseasonalize': True, 'period': 12, 'method': 'auto'}
+            model = ThetaModel(
+                train_series,
+                deseasonalize=validated_params['deseasonalize'],
+                period=validated_params['period'] if 'period' in validated_params else 12
+            )
+            model_fit = model.fit()
+            forecast = model_fit.forecast(steps=len(val_series))
+            best_metrics = calculate_performance_metrics(val_series, forecast)
+        
+        return {
+            'parameters': validated_params,
+            'metrics': best_metrics,
+            'baseline_metrics': baseline_metrics
+        }
+    except Exception as e:
+        logger.error(f"Error in Theta optimization: {str(e)}")
+        # Return default parameters
+        return {
+            'parameters': {'deseasonalize': True, 'period': 12, 'method': 'auto'},
+            'metrics': {'mape': float('inf'), 'rmse': float('inf')},
+            'baseline_metrics': {'mape': float('inf'), 'rmse': float('inf')}
+        }
+
+def verify_optimization_result(optimization_result, model_type, sku_id):
+    """
+    Verify optimization result and decide whether to use optimal or default parameters.
+    
+    Parameters:
+    -----------
+    optimization_result : dict
+        Optimization result with parameters, metrics, and baseline metrics
     model_type : str
-        Model type (e.g., 'prophet', 'arima')
-    sku_identifier : str, optional
-        SKU identifier for logging
-
+        Model type (e.g., 'prophet', 'arima', 'ets', 'theta')
+    sku_id : str
+        SKU identifier
+    
     Returns:
     --------
     dict
-        Verified parameters or defaults if invalid
+        Verified optimization result
     """
-    if not result or 'parameters' not in result:
-        logger.warning(f"Invalid optimization result for {model_type}" + 
-                      (f" (SKU: {sku_identifier})" if sku_identifier else ""))
-        # Return appropriate defaults based on model type
-        if model_type == 'arima' or model_type == 'auto_arima':
-            return {'parameters': {'p': 1, 'd': 1, 'q': 0}, 'score': float('inf')}
-        elif model_type == 'prophet':
-            return {'parameters': {'changepoint_prior_scale': 0.05, 'seasonality_prior_scale': 10.0, 'seasonality_mode': 'additive'}, 'score': float('inf')}
-        elif model_type == 'ets':
-            return {'parameters': {'trend': 'add', 'seasonal': None, 'seasonal_periods': 1, 'damped_trend': False}, 'score': float('inf')}
-        elif model_type == 'theta':
-            return {'parameters': {'deseasonalize': True, 'period': 12, 'method': 'auto'}, 'score': float('inf')}
-        else:
-            return {'parameters': {}, 'score': float('inf')}
+    if not optimization_result or 'parameters' not in optimization_result:
+        logger.warning(f"Invalid optimization result for {model_type} on {sku_id}")
+        return get_default_parameters(model_type)
     
-    # Check for extreme scores
-    if 'score' in result and (result['score'] == float('inf') or np.isnan(result['score']) or result['score'] > 1000):
-        logger.warning(f"Extreme score in optimization result for {model_type}" + 
-                      (f" (SKU: {sku_identifier})" if sku_identifier else ""))
-        # Keep parameters but mark score as extreme
-        return {'parameters': result['parameters'], 'score': float('inf'), 'extreme_score': True}
+    parameters = optimization_result.get('parameters', {})
+    metrics = optimization_result.get('metrics', {'mape': float('inf'), 'rmse': float('inf')})
+    baseline_metrics = optimization_result.get('baseline_metrics', {'mape': float('inf'), 'rmse': float('inf')})
     
-    # Result appears valid
-    return result
+    # Skip verification if baseline metrics are not available
+    if not baseline_metrics or baseline_metrics.get('mape', float('inf')) == float('inf'):
+        return {'parameters': parameters, 'score': metrics.get('mape', float('inf'))}
+    
+    # Calculate improvement percentage
+    baseline_mape = baseline_metrics.get('mape', float('inf'))
+    optimized_mape = metrics.get('mape', float('inf'))
+    
+    if baseline_mape > 0 and optimized_mape > 0:
+        improvement_pct = (baseline_mape - optimized_mape) / baseline_mape
+    else:
+        improvement_pct = -1  # Invalid improvement
+    
+    # Log the verification process
+    logger.info(f"Verifying {model_type} optimization for {sku_id}")
+    logger.info(f"Baseline MAPE: {baseline_mape:.2f}%, Optimized MAPE: {optimized_mape:.2f}%")
+    logger.info(f"Improvement: {improvement_pct * 100:.2f}%")
+    
+    # Decision logic
+    if improvement_pct >= MIN_IMPROVEMENT_THRESHOLD:
+        # If significant improvement, use optimized parameters
+        logger.info(f"Using optimized parameters for {model_type} on {sku_id} (improvement: {improvement_pct * 100:.2f}%)")
+        return {'parameters': parameters, 'score': optimized_mape}
+    elif -MAX_WORSENING_ALLOWED <= improvement_pct < MIN_IMPROVEMENT_THRESHOLD:
+        # If slight worsening or insufficient improvement, use baseline parameters
+        logger.info(f"Using default parameters for {model_type} on {sku_id} (insufficient improvement: {improvement_pct * 100:.2f}%)")
+        return {'parameters': get_default_parameters(model_type)['parameters'], 'score': baseline_mape}
+    else:
+        # If significant worsening, definitely use baseline parameters
+        logger.warning(f"Using default parameters for {model_type} on {sku_id} (significant worsening: {improvement_pct * 100:.2f}%)")
+        return {'parameters': get_default_parameters(model_type)['parameters'], 'score': baseline_mape}
+
+def get_default_parameters(model_type):
+    """
+    Get default parameters for a specific model type.
+    
+    Parameters:
+    -----------
+    model_type : str
+        Model type (e.g., 'prophet', 'arima', 'ets', 'theta')
+    
+    Returns:
+    --------
+    dict
+        Default parameters and a placeholder score
+    """
+    if model_type == 'arima' or model_type == 'auto_arima':
+        return {'parameters': {'p': 1, 'd': 1, 'q': 0}, 'score': float('inf')}
+    elif model_type == 'prophet':
+        return {'parameters': {'changepoint_prior_scale': 0.05, 'seasonality_prior_scale': 10.0, 'seasonality_mode': 'additive'}, 'score': float('inf')}
+    elif model_type == 'ets':
+        return {'parameters': {'trend': 'add', 'seasonal': None, 'seasonal_periods': 1, 'damped_trend': False}, 'score': float('inf')}
+    elif model_type == 'theta':
+        return {'parameters': {'deseasonalize': True, 'period': 12, 'method': 'auto'}, 'score': float('inf')}
+    else:
+        logger.warning(f"Unknown model type: {model_type}, returning empty parameters")
+        return {'parameters': {}, 'score': float('inf')}
