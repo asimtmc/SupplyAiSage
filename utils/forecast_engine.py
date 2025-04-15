@@ -1221,15 +1221,18 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                     # Convert parameters to correct types
                     cp_scale = float(params.get('changepoint_prior_scale', 0.05))
                     season_scale = float(params.get('seasonality_prior_scale', 0.1))
-                    print(f"Using tuned Prophet parameters: changepoint_prior_scale={cp_scale}, seasonality_prior_scale={season_scale}")
+                    season_mode = params.get('seasonality_mode', 'additive')
+                    print(f"Using tuned Prophet parameters: changepoint_prior_scale={cp_scale}, seasonality_prior_scale={season_scale}, seasonality_mode={season_mode}")
                 else:
                     cp_scale = 0.05
                     season_scale = 0.1
+                    season_mode = 'additive'
 
                 # Train Prophet model with default or tuned parameters
                 m = Prophet(
                     changepoint_prior_scale=cp_scale,
                     seasonality_prior_scale=season_scale,
+                    seasonality_mode=season_mode,
                     yearly_seasonality=True if len(train_data) >= 24 else False,
                     weekly_seasonality=False,
                     daily_seasonality=False
@@ -1256,6 +1259,7 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
                 full_m = Prophet(
                     changepoint_prior_scale=cp_scale,
                     seasonality_prior_scale=season_scale,
+                    seasonality_mode=season_mode,  # Apply seasonality mode parameter
                     yearly_seasonality=True if len(data) >= 24 else False,
                     weekly_seasonality=False,
                     daily_seasonality=False

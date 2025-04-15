@@ -408,6 +408,7 @@ import json
 from datetime import datetime, timedelta
 from utils.data_processor import process_sales_data
 from utils.parameter_optimizer import optimize_parameters_async, get_optimization_status, get_model_parameters
+from utils.advanced_forecast import optimize_parameters_with_validation, get_optimized_parameters
 from utils.database import get_model_parameters, save_model_parameters
 import streamlit.components.v1 as components
 from io import StringIO
