@@ -1882,8 +1882,8 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                 sku_models = list(tuning_results.get(selected_result_sku, {}).keys())
                 
                 if sku_models:
-                    # Create metric cards for this SKU's performance using flexbox layout with proper spacing
-                    st.markdown("<div style='display: flex; flex-wrap: wrap; gap: 20px; justify-content: flex-start; margin-bottom: 20px;'>", unsafe_allow_html=True)
+                    # Create metric cards for this SKU's performance using a horizontal flex layout
+                    st.markdown("<div style='display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 10px; justify-content: flex-start; margin-bottom: 15px;'>", unsafe_allow_html=True)
                     
                     # Generate sample data for demonstration that varies by SKU
                     np.random.seed(hash(selected_result_sku) % 10000)  # Use SKU as seed for consistent but varied values
@@ -1929,17 +1929,17 @@ if not st.session_state.tuning_in_progress and (st.session_state.tuning_results 
                             "lstm": "#e53e3e"
                         }.get(model_type, "#718096")
                         
-                        # Using a fixed card width to ensure proper horizontal arrangement
+                        # Using a smaller card width with flex-shrink:0 to maintain size in horizontal scroll
                         st.markdown(f"""
-                        <div style="width: 180px; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; text-align: center; background-color: #f8fafc; margin-bottom: 15px;">
-                            <div style="margin-bottom: 8px;">
-                                <span style="display: inline-block; background-color: {badge_color}; color: white; border-radius: 12px; padding: 2px 8px; font-size: 12px;">{badge}</span>
-                                <span style="font-weight: 500; margin-left: 6px;">{model_display}</span>
+                        <div style="flex: 0 0 130px; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px; text-align: center; background-color: #f8fafc;">
+                            <div style="margin-bottom: 5px;">
+                                <span style="display: inline-block; background-color: {badge_color}; color: white; border-radius: 12px; padding: 2px 6px; font-size: 11px;">{badge}</span>
+                                <span style="font-weight: 500; font-size: 12px; margin-left: 3px;">{model_display}</span>
                             </div>
-                            <div style="font-size: 24px; font-weight: 600; color: #2d3748;">
+                            <div style="font-size: 18px; font-weight: 600; color: #2d3748;">
                                 {score:.4f}
                             </div>
-                            <div style="font-size: 12px; color: #718096; margin-top: 4px;">
+                            <div style="font-size: 10px; color: #718096; margin-top: 2px;">
                                 MAPE Score
                             </div>
                         </div>
