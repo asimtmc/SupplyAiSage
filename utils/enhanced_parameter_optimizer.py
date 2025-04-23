@@ -18,6 +18,80 @@ MAX_VALIDATION_ATTEMPTS = 3      # Number of validation attempts before falling 
 # Caching for optimization results
 MODEL_PARAMETER_CACHE = {}
 
+def store_optimized_parameters(sku, model_type, parameters, score=None, mape=None, improvement=0, tuning_options=None):
+    """
+    Store optimized parameters in the database for future use.
+    
+    Parameters:
+    -----------
+    sku : str
+        SKU identifier
+    model_type : str
+        Model type (e.g., 'auto_arima', 'prophet', 'ets', 'theta')
+    parameters : dict
+        Optimized parameters
+    score : float, optional
+        Best score achieved (usually RMSE)
+    mape : float, optional
+        Mean Absolute Percentage Error
+    improvement : float, optional
+        Improvement percentage over default parameters
+    tuning_options : dict, optional
+        Options used for tuning
+        
+    Returns:
+    --------
+    bool
+        True if parameters were successfully stored, False otherwise
+    """
+    try:
+        from utils.database import save_model_parameters
+        
+        # Convert any non-serializable types
+        import json
+        import numpy as np
+        clean_params = {}
+        for k, v in parameters.items():
+            if isinstance(v, (np.int64, np.int32, np.float64, np.float32)):
+                clean_params[k] = float(v) if isinstance(v, (np.float64, np.float32)) else int(v)
+            else:
+                clean_params[k] = v
+        
+        # Create metadata to store with parameters
+        metadata = {
+            "timestamp": time.time(),
+            "last_updated": pd.Timestamp.now(),
+            "best_score": float(score) if score is not None else None,
+            "mape": float(mape) if mape is not None else None,
+            "improvement": float(improvement) if improvement is not None else 0,
+            "tuning_iterations": tuning_options.get("n_trials", 30) if tuning_options else 30,
+            "cross_validation": tuning_options.get("cross_validation", True) if tuning_options else True,
+            "optimization_metric": tuning_options.get("optimization_metric", "rmse") if tuning_options else "rmse"
+        }
+        
+        # Convert parameters to JSON string for storage
+        params_json = json.dumps(clean_params)
+        
+        # Store in database
+        tuning_iterations = metadata.get("tuning_iterations", 30)
+        if tuning_iterations is None:
+            tuning_iterations = 30
+        success = save_model_parameters(sku, model_type, clean_params, best_score=metadata.get("best_score"), tuning_iterations=tuning_iterations)
+        
+        # Also update local cache
+        if success:
+            key = f"{sku}_{model_type}"
+            MODEL_PARAMETER_CACHE[key] = {
+                "parameters": parameters,
+                "metadata": metadata
+            }
+            
+        return success
+        
+    except Exception as e:
+        logger.error(f"Error storing optimized parameters: {str(e)}")
+        return False
+
 def log_optimization_result(sku_id, model_type, parameters, metrics, baseline_metrics=None):
     """
     Log optimization result to file for offline analysis.

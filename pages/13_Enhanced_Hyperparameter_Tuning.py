@@ -147,7 +147,7 @@ def format_parameters(params, model_type):
 
 # Function to get parameter data from database
 def get_parameters_from_db():
-    """Mock function to retrieve parameters from database"""
+    """Retrieve parameters from database"""
     from utils.database import get_all_model_parameters, get_flat_model_parameters
     return get_flat_model_parameters()
 
@@ -176,7 +176,8 @@ if 'tuning_options' not in st.session_state:
 
 # Import necessary modules for hyperparameter tuning
 try:
-    from utils.parameter_optimizer import optimize_parameters_async, get_optimization_status, get_model_parameters
+    from utils.parameter_optimizer import optimize_parameters_async, get_optimization_status
+    from utils.database import get_model_parameters
     from utils.enhanced_parameter_optimizer import (
         optimize_arima_parameters_enhanced, 
         optimize_prophet_parameters_enhanced,
