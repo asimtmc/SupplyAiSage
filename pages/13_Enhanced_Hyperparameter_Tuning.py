@@ -707,16 +707,20 @@ with main_tabs[2]:  # Results Tab
                         metric_cols = st.columns(2)
                         
                         with metric_cols[0]:
-                            # RMSE Chart
+                            # RMSE Chart - More compact
                             rmse_fig = px.bar(
                                 metrics_df, 
                                 x='Model', 
                                 y='RMSE',
                                 color='Model',
                                 title=f"RMSE by Model for {metric_sku}",
-                                height=250
+                                height=200
                             )
-                            rmse_fig.update_layout(margin=dict(l=10, r=10, t=30, b=10))
+                            rmse_fig.update_layout(
+                                margin=dict(l=5, r=5, t=30, b=5),
+                                xaxis=dict(tickangle=-45),
+                                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                            )
                             st.plotly_chart(rmse_fig, use_container_width=True)
                             
                             # MAE Chart
@@ -727,22 +731,30 @@ with main_tabs[2]:  # Results Tab
                                     y='MAE',
                                     color='Model',
                                     title=f"MAE by Model for {metric_sku}",
-                                    height=250
+                                    height=200
                                 )
-                                mae_fig.update_layout(margin=dict(l=10, r=10, t=30, b=10))
+                                mae_fig.update_layout(
+                                    margin=dict(l=5, r=5, t=30, b=5),
+                                    xaxis=dict(tickangle=-45),
+                                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                                )
                                 st.plotly_chart(mae_fig, use_container_width=True)
                         
                         with metric_cols[1]:
-                            # MAPE Chart
+                            # MAPE Chart - More compact
                             mape_fig = px.bar(
                                 metrics_df,
                                 x='Model',
                                 y='MAPE',
                                 color='Model',
                                 title=f"MAPE by Model for {metric_sku}",
-                                height=250
+                                height=200
                             )
-                            mape_fig.update_layout(margin=dict(l=10, r=10, t=30, b=10))
+                            mape_fig.update_layout(
+                                margin=dict(l=5, r=5, t=30, b=5),
+                                xaxis=dict(tickangle=-45),
+                                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                            )
                             st.plotly_chart(mape_fig, use_container_width=True)
                             
                             # Improvement Chart
@@ -753,9 +765,13 @@ with main_tabs[2]:  # Results Tab
                                     y='Improvement',
                                     color='Model',
                                     title=f"% Improvement from Default Parameters",
-                                    height=250
+                                    height=200
                                 )
-                                imp_fig.update_layout(margin=dict(l=10, r=10, t=30, b=10))
+                                imp_fig.update_layout(
+                                    margin=dict(l=5, r=5, t=30, b=5),
+                                    xaxis=dict(tickangle=-45),
+                                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                                )
                                 st.plotly_chart(imp_fig, use_container_width=True)
                     else:
                         st.info(f"No metrics data available for {metric_sku}.")
@@ -864,13 +880,14 @@ with main_tabs[2]:  # Results Tab
                                 annotation_text="Forecast Start"
                             )
                             
-                            # Update layout
+                            # Update layout - more compact
                             fig.update_layout(
                                 title=f"Forecast Comparison for {impact_sku}",
                                 xaxis_title="Date",
                                 yaxis_title="Quantity",
-                                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
-                                margin=dict(l=10, r=10, t=50, b=30)
+                                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                                margin=dict(l=5, r=5, t=30, b=5),
+                                height=300
                             )
                             
                             st.plotly_chart(fig, use_container_width=True)
