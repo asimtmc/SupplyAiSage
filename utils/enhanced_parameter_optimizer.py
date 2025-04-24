@@ -658,7 +658,14 @@ def optimize_prophet_parameters_enhanced(train_df, val_df):
         Optimized parameters and metrics
     """
     try:
-        import optuna
+        # Check if optuna is available
+        try:
+            import optuna
+        except ImportError:
+            logger.error("Error in Prophet optimization: No module named 'optuna'")
+            # Fall back to basic parameter selection
+            return fallback_prophet_optimization(train_df, val_df)
+            
         from prophet import Prophet
         import pandas as pd
         import numpy as np
@@ -842,7 +849,14 @@ def optimize_ets_parameters_enhanced(train_series, val_series):
         Optimized parameters and metrics
     """
     try:
-        import optuna
+        # Check if optuna is available
+        try:
+            import optuna
+        except ImportError:
+            logger.error("Error in ETS optimization: No module named 'optuna'")
+            # Fall back to basic parameter selection
+            return fallback_ets_optimization(train_series, val_series)
+            
         from statsmodels.tsa.exponential_smoothing.ets import ETSModel
         import pandas as pd
         import numpy as np
@@ -1029,7 +1043,14 @@ def optimize_theta_parameters_enhanced(train_series, val_series):
         Optimized parameters and metrics
     """
     try:
-        import optuna
+        # Check if optuna is available
+        try:
+            import optuna
+        except ImportError:
+            logger.error("Error in Theta optimization: No module named 'optuna'")
+            # Fall back to basic parameter selection
+            return fallback_theta_optimization(train_series, val_series)
+            
         from statsmodels.tsa.forecasting.theta import ThetaModel
         import pandas as pd
         import numpy as np
