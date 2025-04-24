@@ -178,6 +178,9 @@ if 'tuning_options' not in st.session_state:
 try:
     from utils.parameter_optimizer import optimize_parameters_async, get_optimization_status
     from utils.database import get_model_parameters
+    
+    # Import optimizer functions with debugging
+    print("Importing enhanced parameter optimizer functions...")
     from utils.enhanced_parameter_optimizer import (
         optimize_arima_parameters_enhanced, 
         optimize_prophet_parameters_enhanced,
@@ -186,6 +189,16 @@ try:
         verify_optimization_result,
         store_optimized_parameters
     )
+    print("Successfully imported optimizer functions")
+    
+    # Make the imported functions available in the global scope
+    globals()['optimize_arima_parameters_enhanced'] = optimize_arima_parameters_enhanced
+    globals()['optimize_prophet_parameters_enhanced'] = optimize_prophet_parameters_enhanced
+    globals()['optimize_ets_parameters_enhanced'] = optimize_ets_parameters_enhanced
+    globals()['optimize_theta_parameters_enhanced'] = optimize_theta_parameters_enhanced
+    globals()['verify_optimization_result'] = verify_optimization_result
+    globals()['store_optimized_parameters'] = store_optimized_parameters
+    
     from utils.advanced_forecast import optimize_parameters_with_validation, get_optimized_parameters
     from utils.visualization import plot_forecast_comparison, plot_parameter_importance
     from utils.data_processor import get_sku_data, prepare_data_for_forecasting
@@ -507,6 +520,9 @@ with main_tabs[1]:  # Tuning Process Tab
                 st.session_state.tuning_logs = []
                 st.session_state.tuning_progress = 0
                 st.session_state.tuning_results = {}
+                
+                # Initialize the tuning process
+                run_hyperparameter_tuning()
                 st.rerun()
         
         with start_col2:
@@ -931,6 +947,9 @@ def run_hyperparameter_tuning():
     Run the hyperparameter tuning process using real data.
     This function processes each SKU and model type selected for tuning.
     """
+    # Add a debug print at the start
+    print("Starting hyperparameter tuning process")
+    
     if st.session_state.tuning_in_progress:
         # Check if we have all required data
         if not st.session_state.tuning_skus or not st.session_state.tuning_models:
@@ -1054,7 +1073,14 @@ def run_hyperparameter_tuning():
                     try:
                         # Run the appropriate optimization function based on model type
                         if model_type == "auto_arima":
+                            # Debug print to check if function exists
+                            print(f"Running ARIMA optimization for {sku}")
+                            
+                            # Directly use the functions from the imported module
                             # Use the enhanced ARIMA optimizer
+                            from utils.enhanced_parameter_optimizer import optimize_arima_parameters_enhanced, verify_optimization_result
+                            
+                            print(f"Direct import successful, optimizing parameters for {sku}")
                             optimization_result = optimize_arima_parameters_enhanced(train_series, val_series)
                             
                             # Verify the result
