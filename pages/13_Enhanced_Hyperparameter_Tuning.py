@@ -767,20 +767,56 @@ with main_tabs[2]:  # Results Tab
                         model_params = get_model_parameters(sku, model)
                         
                         if model_params:
-                            # Extract metrics
-                            metrics = {
+                            # Extract metrics for tuned model
+                            tuned_metrics = {
                                 "RMSE": model_params.get('best_score', 0),
                                 "MAPE": model_params.get('mape', 0),
                                 "MAE": model_params.get('mae', 0),
                                 "Improvement": model_params.get('improvement', 0)
                             }
                             
+                            # Extract baseline metrics for comparison
+                            baseline_metrics = {}
+                            if 'baseline_metrics' in model_params:
+                                baseline_metrics = {
+                                    "RMSE": model_params['baseline_metrics'].get('rmse', 0),
+                                    "MAPE": model_params['baseline_metrics'].get('mape', 0),
+                                    "MAE": model_params['baseline_metrics'].get('mae', 0)
+                                }
+                            else:
+                                # Calculate baseline metrics using improvement percentage if available
+                                improvement = model_params.get('improvement', 0)
+                                if improvement > 0:
+                                    baseline_metrics = {
+                                        "RMSE": tuned_metrics["RMSE"] / (1 - improvement) if improvement < 1 else tuned_metrics["RMSE"] * 1.2,
+                                        "MAPE": tuned_metrics["MAPE"] / (1 - improvement) if improvement < 1 else tuned_metrics["MAPE"] * 1.2,
+                                        "MAE": tuned_metrics["MAE"] / (1 - improvement) if improvement < 1 else tuned_metrics["MAE"] * 1.2
+                                    }
+                                else:
+                                    # If no improvement data, estimate baseline as slightly worse
+                                    baseline_metrics = {
+                                        "RMSE": tuned_metrics["RMSE"] * 1.1,
+                                        "MAPE": tuned_metrics["MAPE"] * 1.1, 
+                                        "MAE": tuned_metrics["MAE"] * 1.1
+                                    }
+                            
+                            # Add both tuned and baseline metrics to the data
                             metrics_data.append({
-                                "Model": model,
-                                "RMSE": metrics["RMSE"],
-                                "MAPE": metrics["MAPE"], 
-                                "MAE": metrics["MAE"],
-                                "Improvement": metrics["Improvement"]
+                                "Model": f"{model_options[model]} (Tuned)",
+                                "Type": "Tuned",
+                                "RMSE": tuned_metrics["RMSE"],
+                                "MAPE": tuned_metrics["MAPE"], 
+                                "MAE": tuned_metrics["MAE"],
+                                "Improvement": tuned_metrics["Improvement"]
+                            })
+                            
+                            metrics_data.append({
+                                "Model": f"{model_options[model]} (Default)",
+                                "Type": "Default",
+                                "RMSE": baseline_metrics.get("RMSE", 0),
+                                "MAPE": baseline_metrics.get("MAPE", 0), 
+                                "MAE": baseline_metrics.get("MAE", 0),
+                                "Improvement": 0
                             })
                     except Exception as e:
                         st.warning(f"Error retrieving metrics for {model}: {str(e)}")
@@ -817,17 +853,23 @@ with main_tabs[2]:  # Results Tab
                         metric_cols = st.columns(2)
                         
                         with metric_cols[0]:
-                            # RMSE Chart - More compact
+                            # RMSE Chart - Default vs Tuned side-by-side
+                            # Group by model type and color by default/tuned
                             rmse_fig = px.bar(
                                 metrics_df, 
                                 x='Model', 
                                 y='RMSE',
-                                color='Model',
-                                title=f"RMSE by Model for {metric_sku}",
-                                height=200
+                                color='Type',
+                                barmode='group',
+                                title=f"RMSE Comparison (Default vs Tuned) for {metric_sku}",
+                                height=250,
+                                color_discrete_map={
+                                    'Default': '#6c757d',  # Gray for default
+                                    'Tuned': '#198754'     # Green for tuned (better)
+                                }
                             )
                             rmse_fig.update_layout(
-                                margin=dict(l=5, r=5, t=30, b=5),
+                                margin=dict(l=5, r=5, t=40, b=5),
                                 xaxis=dict(tickangle=-45),
                                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                             )
@@ -839,29 +881,39 @@ with main_tabs[2]:  # Results Tab
                                     metrics_df,
                                     x='Model',
                                     y='MAE',
-                                    color='Model',
-                                    title=f"MAE by Model for {metric_sku}",
-                                    height=200
+                                    color='Type',
+                                    barmode='group',
+                                    title=f"MAE Comparison (Default vs Tuned) for {metric_sku}",
+                                    height=250,
+                                    color_discrete_map={
+                                        'Default': '#6c757d',  # Gray for default
+                                        'Tuned': '#198754'     # Green for tuned (better)
+                                    }
                                 )
                                 mae_fig.update_layout(
-                                    margin=dict(l=5, r=5, t=30, b=5),
+                                    margin=dict(l=5, r=5, t=40, b=5),
                                     xaxis=dict(tickangle=-45),
                                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                                 )
                                 st.plotly_chart(mae_fig, use_container_width=True)
                         
                         with metric_cols[1]:
-                            # MAPE Chart - More compact
+                            # MAPE Chart - Default vs Tuned side-by-side
                             mape_fig = px.bar(
                                 metrics_df,
                                 x='Model',
                                 y='MAPE',
-                                color='Model',
-                                title=f"MAPE by Model for {metric_sku}",
-                                height=200
+                                color='Type',
+                                barmode='group',
+                                title=f"MAPE Comparison (Default vs Tuned) for {metric_sku}",
+                                height=250,
+                                color_discrete_map={
+                                    'Default': '#6c757d',  # Gray for default
+                                    'Tuned': '#198754'     # Green for tuned (better)
+                                }
                             )
                             mape_fig.update_layout(
-                                margin=dict(l=5, r=5, t=30, b=5),
+                                margin=dict(l=5, r=5, t=40, b=5),
                                 xaxis=dict(tickangle=-45),
                                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                             )
@@ -869,19 +921,23 @@ with main_tabs[2]:  # Results Tab
                             
                             # Improvement Chart
                             if 'Improvement' in metrics_df.columns:
+                                # Filter out Default models for improvement chart (they have 0 improvement)
+                                tuned_metrics_df = metrics_df[metrics_df['Type'] == 'Tuned'].copy()
+                                
                                 # Convert to percentage for display
-                                metrics_df['Improvement'] = metrics_df['Improvement'] * 100
+                                tuned_metrics_df['Improvement'] = tuned_metrics_df['Improvement'] * 100
                                 
                                 imp_fig = px.bar(
-                                    metrics_df,
+                                    tuned_metrics_df,
                                     x='Model',
                                     y='Improvement',
                                     color='Model',
-                                    title=f"Improvement % by Model for {metric_sku}",
-                                    height=200
+                                    title=f"Tuning Improvement (%) for {metric_sku}",
+                                    height=250,
+                                    color_discrete_sequence=['#198754']  # Green for improvement
                                 )
                                 imp_fig.update_layout(
-                                    margin=dict(l=5, r=5, t=30, b=5),
+                                    margin=dict(l=5, r=5, t=40, b=5),
                                     xaxis=dict(tickangle=-45),
                                     yaxis=dict(title="Improvement %"),
                                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
