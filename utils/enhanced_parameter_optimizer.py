@@ -292,17 +292,31 @@ def calculate_performance_metrics(actual, predicted):
     if len(actual) == 0 or len(predicted) == 0:
         return {"mape": float('inf'), "rmse": float('inf')}
 
+    # Convert to numpy arrays and ensure same length
+    actual_array = np.array(actual)
+    predicted_array = np.array(predicted)
+    
+    # If arrays have different lengths, truncate to shorter length
+    min_len = min(len(actual_array), len(predicted_array))
+    actual_array = actual_array[:min_len]
+    predicted_array = predicted_array[:min_len]
+    
     # Handle NaN values
-    valid_indices = ~(np.isnan(actual) | np.isnan(predicted))
-    actual_valid = np.array(actual)[valid_indices]
-    predicted_valid = np.array(predicted)[valid_indices]
+    valid_indices = ~(np.isnan(actual_array) | np.isnan(predicted_array))
+    actual_valid = actual_array[valid_indices]
+    predicted_valid = predicted_array[valid_indices]
 
     # If no valid points remain, return infinite error
     if len(actual_valid) == 0:
         return {"mape": float('inf'), "rmse": float('inf')}
 
     # Calculate RMSE
-    rmse = mean_squared_error(actual_valid, predicted_valid, squared=False)
+    try:
+        # Try with squared parameter (newer scikit-learn versions)
+        rmse = mean_squared_error(actual_valid, predicted_valid, squared=False)
+    except TypeError:
+        # Fall back for older scikit-learn versions
+        rmse = np.sqrt(mean_squared_error(actual_valid, predicted_valid))
 
     # Calculate MAPE, handling zero values appropriately
     # We use a small epsilon to avoid division by zero
