@@ -924,10 +924,15 @@ with main_tabs[2]:  # Results Tab
                                 barmode='group',
                                 title=f"RMSE Comparison (Default vs Tuned) for {metric_sku}",
                                 height=250,
+                                text_auto='.1f',  # Add labels with 1 decimal place
                                 color_discrete_map={
                                     'Default': '#6c757d',  # Gray for default
                                     'Tuned': '#198754'     # Green for tuned (better)
                                 }
+                            )
+                            rmse_fig.update_traces(
+                                textposition='inside',  # Position labels inside bars
+                                textfont=dict(size=10)  # Smaller font size to avoid clutter
                             )
                             rmse_fig.update_layout(
                                 margin=dict(l=5, r=5, t=40, b=5),
@@ -946,10 +951,15 @@ with main_tabs[2]:  # Results Tab
                                     barmode='group',
                                     title=f"MAE Comparison (Default vs Tuned) for {metric_sku}",
                                     height=250,
+                                    text_auto='.1f',  # Add labels with 1 decimal place
                                     color_discrete_map={
                                         'Default': '#6c757d',  # Gray for default
                                         'Tuned': '#198754'     # Green for tuned (better)
                                     }
+                                )
+                                mae_fig.update_traces(
+                                    textposition='inside',  # Position labels inside bars
+                                    textfont=dict(size=10)  # Smaller font size to avoid clutter
                                 )
                                 mae_fig.update_layout(
                                     margin=dict(l=5, r=5, t=40, b=5),
@@ -968,10 +978,15 @@ with main_tabs[2]:  # Results Tab
                                 barmode='group',
                                 title=f"MAPE Comparison (Default vs Tuned) for {metric_sku}",
                                 height=250,
+                                text_auto='.2f',  # Add labels with 2 decimal places
                                 color_discrete_map={
                                     'Default': '#6c757d',  # Gray for default
                                     'Tuned': '#198754'     # Green for tuned (better)
                                 }
+                            )
+                            mape_fig.update_traces(
+                                textposition='inside',  # Position labels inside bars
+                                textfont=dict(size=10)  # Smaller font size to avoid clutter
                             )
                             mape_fig.update_layout(
                                 margin=dict(l=5, r=5, t=40, b=5),
@@ -995,7 +1010,13 @@ with main_tabs[2]:  # Results Tab
                                     color='Model',
                                     title=f"Tuning Improvement (%) for {metric_sku}",
                                     height=250,
+                                    text_auto='.1f',  # Add labels with 1 decimal place
                                     color_discrete_sequence=['#198754']  # Green for improvement
+                                )
+                                imp_fig.update_traces(
+                                    texttemplate='%{text}%',  # Add % symbol to labels
+                                    textposition='outside',   # Position labels outside to avoid clutter
+                                    textfont=dict(size=10)    # Smaller font size for labels
                                 )
                                 imp_fig.update_layout(
                                     margin=dict(l=5, r=5, t=40, b=5),
