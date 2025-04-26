@@ -138,8 +138,8 @@ def calculate_model_improvement(sku, model_type, sample_size=None):
                 'error': 'Error evaluating models'
             }
         
-        # Calculate improvement
-        if default_metrics['rmse'] > 0:
+        # Calculate improvement - handle None values
+        if default_metrics['rmse'] is not None and optimized_metrics['rmse'] is not None and default_metrics['rmse'] > 0:
             improvement = (default_metrics['rmse'] - optimized_metrics['rmse']) / default_metrics['rmse']
         else:
             improvement = 0.0
@@ -341,9 +341,16 @@ def calculate_metrics(actual, predicted):
         Dictionary with metrics
     """
     try:
+        # Check if inputs are None
+        if actual is None or predicted is None:
+            return {'rmse': None, 'mape': None, 'mae': None, 'error': 'Input data is None'}
+            
         # Convert inputs to numpy arrays if they aren't already
-        actual = np.array(actual, dtype=float)
-        predicted = np.array(predicted, dtype=float)
+        try:
+            actual = np.array(actual, dtype=float)
+            predicted = np.array(predicted, dtype=float)
+        except:
+            return {'rmse': None, 'mape': None, 'mae': None, 'error': 'Could not convert inputs to numpy arrays'}
         
         # Handle NaN values
         valid_mask = ~(np.isnan(actual) | np.isnan(predicted))
@@ -374,6 +381,14 @@ def calculate_metrics(actual, predicted):
             mape = np.mean(np.abs((actual[nonzero_idx] - predicted[nonzero_idx]) / actual[nonzero_idx])) * 100
         else:
             mape = None
+        
+        # Check for NaN or Infinity in results
+        if np.isnan(rmse) or np.isinf(rmse):
+            rmse = None
+        if mape is not None and (np.isnan(mape) or np.isinf(mape)):
+            mape = None
+        if np.isnan(mae) or np.isinf(mae):
+            mae = None
         
         return {'rmse': rmse, 'mape': mape, 'mae': mae}
     except Exception as e:
