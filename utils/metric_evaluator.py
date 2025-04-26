@@ -72,17 +72,30 @@ def calculate_model_improvement(sku, model_type, sample_size=None):
         # Sort by date and prepare for modeling
         sku_data = sku_data.sort_values('date')
         
+        # Check if we have enough data for a meaningful split
+        if len(sku_data) < 5:
+            logger.warning(f"Not enough data for {sku} (only {len(sku_data)} points)")
+            return {
+                'default_rmse': None,
+                'optimized_rmse': None,
+                'improvement': 0.0,
+                'error': 'Insufficient data for evaluation'
+            }
+            
         # Split into train/test sets - use 80% for training, 20% for testing
         train_size = int(len(sku_data) * 0.8)
+        if train_size < 3:
+            train_size = len(sku_data) - 2  # Ensure at least 2 points for testing
+            
         train_data = sku_data.iloc[:train_size]
         test_data = sku_data.iloc[train_size:]
         
-        if len(test_data) < 3:
+        if len(test_data) < 2:
             logger.warning(f"Not enough test data for {sku} (only {len(test_data)} points)")
-            # Use last 3 points for testing if available
-            if len(sku_data) > 3:
-                train_data = sku_data.iloc[:-3]
-                test_data = sku_data.iloc[-3:]
+            # Use last 2 points for testing if available
+            if len(sku_data) > 2:
+                train_data = sku_data.iloc[:-2]
+                test_data = sku_data.iloc[-2:]
             else:
                 # Not enough data to properly evaluate
                 return {
@@ -169,12 +182,29 @@ def evaluate_model(model_type, train_data, test_data, parameters):
         Dictionary with evaluation metrics
     """
     try:
+        # Check if data is valid
+        if train_data is None or test_data is None or len(train_data) == 0 or len(test_data) == 0:
+            logger.error(f"Invalid data for {model_type} evaluation")
+            return {'rmse': None, 'mape': None, 'mae': None, 'error': 'Invalid data'}
+            
+        # Make sure date and quantity columns exist
+        required_columns = ['date', 'quantity']
+        for col in required_columns:
+            if col not in train_data.columns or col not in test_data.columns:
+                logger.error(f"Missing {col} column in data for {model_type} evaluation")
+                return {'rmse': None, 'mape': None, 'mae': None, 'error': f'Missing {col} column'}
+                
         # Import forecast modules based on model type
         if model_type in ['arima', 'auto_arima']:
             # Use statsmodels ARIMA
             from statsmodels.tsa.arima.model import ARIMA
             
-            # Prepare data
+            # Prepare data - ensure quantity is numeric
+            train_data['quantity'] = pd.to_numeric(train_data['quantity'], errors='coerce')
+            train_data = train_data.dropna(subset=['quantity'])
+            if len(train_data) == 0:
+                return {'rmse': None, 'mape': None, 'mae': None, 'error': 'No valid numeric data in training set'}
+                
             train_series = pd.Series(train_data['quantity'].values, index=pd.DatetimeIndex(train_data['date']))
             
             # Fit model with given parameters
@@ -307,28 +337,45 @@ def calculate_metrics(actual, predicted):
     dict
         Dictionary with metrics
     """
-    # Ensure arrays are same length
-    min_len = min(len(actual), len(predicted))
-    actual = actual[:min_len]
-    predicted = predicted[:min_len]
-    
-    # Handle negative predictions
-    predicted = np.maximum(predicted, 0)
-    
-    # Calculate RMSE
-    rmse = np.sqrt(np.mean((actual - predicted) ** 2))
-    
-    # Calculate MAE
-    mae = np.mean(np.abs(actual - predicted))
-    
-    # Calculate MAPE - avoid division by zero
-    nonzero_idx = actual != 0
-    if np.sum(nonzero_idx) > 0:
-        mape = np.mean(np.abs((actual[nonzero_idx] - predicted[nonzero_idx]) / actual[nonzero_idx])) * 100
-    else:
-        mape = None
-    
-    return {'rmse': rmse, 'mape': mape, 'mae': mae}
+    try:
+        # Convert inputs to numpy arrays if they aren't already
+        actual = np.array(actual, dtype=float)
+        predicted = np.array(predicted, dtype=float)
+        
+        # Handle NaN values
+        valid_mask = ~(np.isnan(actual) | np.isnan(predicted))
+        actual = actual[valid_mask]
+        predicted = predicted[valid_mask]
+        
+        # If no valid data points remain, return None for all metrics
+        if len(actual) == 0 or len(predicted) == 0:
+            return {'rmse': None, 'mape': None, 'mae': None, 'error': 'No valid data points after filtering NaNs'}
+        
+        # Ensure arrays are same length
+        min_len = min(len(actual), len(predicted))
+        actual = actual[:min_len]
+        predicted = predicted[:min_len]
+        
+        # Handle negative predictions
+        predicted = np.maximum(predicted, 0)
+        
+        # Calculate RMSE
+        rmse = np.sqrt(np.mean((actual - predicted) ** 2))
+        
+        # Calculate MAE
+        mae = np.mean(np.abs(actual - predicted))
+        
+        # Calculate MAPE - avoid division by zero
+        nonzero_idx = actual != 0
+        if np.sum(nonzero_idx) > 0:
+            mape = np.mean(np.abs((actual[nonzero_idx] - predicted[nonzero_idx]) / actual[nonzero_idx])) * 100
+        else:
+            mape = None
+        
+        return {'rmse': rmse, 'mape': mape, 'mae': mae}
+    except Exception as e:
+        logger.error(f"Error calculating metrics: {str(e)}")
+        return {'rmse': None, 'mape': None, 'mae': None, 'error': str(e)}
 
 def get_all_model_improvements(skus=None, models=None):
     """
