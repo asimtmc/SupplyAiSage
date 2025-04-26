@@ -55,16 +55,19 @@ def calculate_model_improvement(sku, model_type, sample_size=None):
     """
     try:
         # Get data for this SKU
+        import streamlit as st
         from utils.data_loader import load_data_from_database
         
-        # Load sales data
-        data = load_data_from_database()
-        if 'sales_data' not in data or data['sales_data'] is None:
+        # Load sales data into session state
+        load_success = load_data_from_database()
+        
+        # Check if data was loaded successfully
+        if not load_success or not hasattr(st.session_state, 'sales_data') or st.session_state.sales_data is None:
             logger.error(f"No sales data available for {sku}")
             return None
         
         # Filter data for this SKU
-        sku_data = data['sales_data'][data['sales_data']['sku'] == sku]
+        sku_data = st.session_state.sales_data[st.session_state.sales_data['sku'] == sku]
         if sku_data.empty:
             logger.error(f"No data found for SKU {sku}")
             return None
