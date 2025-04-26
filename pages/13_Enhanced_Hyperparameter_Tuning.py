@@ -220,6 +220,21 @@ def run_hyperparameter_tuning():
                             improvement=optimization_result.get('improvement', 0),
                             tuning_options=st.session_state.tuning_options
                         )
+                        
+                        # Log whether parameters were successfully saved
+                        if store_result:
+                            log_entry = {
+                                'time': datetime.now().strftime("%H:%M:%S"),
+                                'message': f"Successfully saved optimized parameters for {model_type} on {sku} to database",
+                                'level': 'success'
+                            }
+                        else:
+                            log_entry = {
+                                'time': datetime.now().strftime("%H:%M:%S"),
+                                'message': f"Failed to save optimized parameters for {model_type} on {sku} to database",
+                                'level': 'warning'
+                            }
+                        st.session_state.tuning_logs.append(log_entry)
 
                         # Store results in session state for display
                         if 'tuning_results' not in st.session_state:
@@ -261,6 +276,9 @@ def run_hyperparameter_tuning():
 
         # Mark tuning as complete
         st.session_state.tuning_in_progress = False
+        
+        # Force page rerun to show results
+        st.rerun()
 
 # Page configuration with wide layout
 st.set_page_config(page_title="Enhanced Hyperparameter Tuning", page_icon="🔧", layout="wide")

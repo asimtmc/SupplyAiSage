@@ -597,7 +597,7 @@ def optimize_arima_parameters_enhanced(train_series, val_series):
             try:
                 # Fit ARIMA model with a timeout
                 model = ARIMA(train_series, order=(p, d, q), enforce_stationarity=False, enforce_invertibility=False)
-                model_fit = model.fit(method='css-mle', maxiter=50, disp=0)  # Limit iterations
+                model_fit = model.fit(disp=0)  # Remove maxiter parameter which is causing errors
 
                 # Generate forecast for validation period
                 forecast = model_fit.forecast(steps=len(val_series))
@@ -631,7 +631,7 @@ def optimize_arima_parameters_enhanced(train_series, val_series):
         # Evaluate with best parameters
         try:
             model = ARIMA(train_series, order=(validated_params['p'], validated_params['d'], validated_params['q']))
-            model_fit = model.fit(method='css-mle', maxiter=50, disp=0)
+            model_fit = model.fit(disp=0)
             forecast = model_fit.forecast(steps=len(val_series))
             best_metrics = calculate_performance_metrics(val_series, forecast)
 
