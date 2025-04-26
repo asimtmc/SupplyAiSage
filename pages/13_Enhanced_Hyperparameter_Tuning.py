@@ -803,82 +803,53 @@ with main_tabs[2]:  # Results Tab
         with result_tabs[1]:  # Metric Visualization
             st.markdown("### Performance Metrics")
 
-            # Function to get actual metrics data from the database 
+            # Function to get actual metrics data from the database and calculations
             def get_metrics_data(sku, models):
-                """Get metrics for the specified SKU and models"""
+                """Get real metrics for the specified SKU and models by comparing optimized vs default parameters"""
                 metrics_data = []
                 
-                # Debug print
-                st.write(f"Retrieving metrics for SKU: {sku}, Models: {list(models)}")
-
-                for model in models:
-                    try:
-                        # Get actual metrics from the database
-                        model_params = get_model_parameters(sku, model)
-                        
-                        # Debug print 
-                        if model_params:
-                            st.write(f"Found parameters for {model}: {model_params.keys()}")
-                        
-                        if model_params and model_params.get('best_score') is not None:
-                            # Extract RMSE (best_score)
-                            rmse = model_params.get('best_score', 0)
+                # Import metric evaluator
+                from utils.metric_evaluator import calculate_model_improvement, get_default_parameters
+                
+                # Show progress indicator
+                with st.spinner(f"Calculating real metrics for {sku}..."):
+                    for model in models:
+                        try:
+                            # Calculate real improvement metrics by comparing optimized vs default parameters
+                            improvement_metrics = calculate_model_improvement(sku, model)
                             
-                            # Set defaults for metrics and calculate varying improvements
-                            mape = 0
-                            mae = 0
+                            # If no metrics were returned, skip this model
+                            if not improvement_metrics or improvement_metrics.get('error'):
+                                st.info(f"Could not calculate metrics for {model} on {sku}: {improvement_metrics.get('error') if improvement_metrics else 'Unknown error'}")
+                                continue
                             
-                            # Extract parameters from JSON if possible
-                            params_json = None
-                            if 'parameters' in model_params and model_params['parameters']:
-                                params_json = model_params['parameters']
+                            # Extract metrics from the calculation
+                            optimized_rmse = improvement_metrics.get('optimized_rmse')
+                            default_rmse = improvement_metrics.get('default_rmse')
+                            optimized_mape = improvement_metrics.get('optimized_mape')
+                            default_mape = improvement_metrics.get('default_mape')
+                            optimized_mae = improvement_metrics.get('optimized_mae')
+                            default_mae = improvement_metrics.get('default_mae')
+                            improvement = improvement_metrics.get('improvement', 0)
                             
-                            # Calculate varying improvement based on model type and RMSE
-                            # This ensures each model has a different improvement value
-                            base_improvement = 0.05  # Start with 5% base improvement
+                            # If RMSE is None or 0, skip this model
+                            if not optimized_rmse or not default_rmse:
+                                st.info(f"Invalid metrics for {model} on {sku}")
+                                continue
                             
-                            # Add variation based on model type
-                            model_factor = {
-                                'auto_arima': 0.08,
-                                'prophet': 0.12,
-                                'ets': 0.06,
-                                'theta': 0.10
-                            }.get(model, 0.07)
-                            
-                            # Add variation based on RMSE - higher RMSE generally means more room for improvement
-                            rmse_factor = min(0.05, rmse * 0.002)  # Cap at 5%
-                            
-                            # Generate a semi-random improvement between 6-18%
-                            import random
-                            random.seed(hash(f"{sku}_{model}"))  # Seed with SKU and model for consistency
-                            random_factor = random.uniform(-0.03, 0.03)  # ±3% random variation
-                            
-                            # Combine factors for final improvement percentage
-                            improvement = base_improvement + model_factor + rmse_factor + random_factor
-                            improvement = max(0.02, min(0.20, improvement))  # Ensure between 2-20%
-                            
-                            # Calculate a reasonable MAPE value if not available
-                            # MAPE is typically in the range of 5-30% for reasonable forecasts
-                            if rmse > 0:
-                                mape = min(rmse * 0.01, 0.3)  # Convert RMSE to a reasonable MAPE percentage
-                            
-                            # Calculate a reasonable MAE based on RMSE
-                            # MAE is typically lower than RMSE but proportional
-                            mae = rmse * 0.8
-                            
-                            # Now create the metrics
+                            # Create metrics for the optimized model
                             tuned_metrics = {
-                                "RMSE": rmse,
-                                "MAPE": mape,
-                                "MAE": mae,
+                                "RMSE": optimized_rmse,
+                                "MAPE": optimized_mape if optimized_mape is not None else 0,
+                                "MAE": optimized_mae if optimized_mae is not None else 0,
                                 "Improvement": improvement
                             }
-
-                            # Calculate baseline metrics (default vs tuned comparison)
+                            
+                            # Create metrics for the default model
                             baseline_metrics = {
-                                "RMSE": rmse * 1.1,  # Baseline is 10% worse
-                                "MAPE": mape * 1.1, 
-                                "MAE": mae * 1.1
+                                "RMSE": default_rmse,
+                                "MAPE": default_mape if default_mape is not None else 0,
+                                "MAE": default_mae if default_mae is not None else 0
                             }
 
                             # Model display names dictionary
