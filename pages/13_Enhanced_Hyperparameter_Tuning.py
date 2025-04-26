@@ -614,21 +614,40 @@ with main_tabs[1]:  # Tuning Process Tab
         start_col1, start_col2 = st.columns([3, 1])
 
         with start_col1:
-            if st.button("Start Hyperparameter Tuning", disabled=start_disabled, use_container_width=True, type="primary"):
+            start_button = st.button(
+                "Start Hyperparameter Tuning", 
+                disabled=start_disabled, 
+                use_container_width=True, 
+                type="primary", 
+                key="start_tuning_button"
+            )
+
+            if start_button:
+                # Clear previous logs and reset progress
+                st.session_state.tuning_logs = []
+                st.session_state.tuning_progress = 0
+                st.session_state.tuning_results = {}
+
+                # Add initial log entry
+                log_entry = {
+                    'time': datetime.now().strftime("%H:%M:%S"),
+                    'message': f"Starting hyperparameter tuning for {len(selected_skus)} SKUs and {len(selected_models)} models",
+                    'level': 'info'
+                }
+                st.session_state.tuning_logs.append(log_entry)
+
                 # Store selected SKUs and models
                 st.session_state.tuning_skus = selected_skus
                 st.session_state.tuning_models = selected_models
                 st.session_state.tuning_in_progress = True
-                st.session_state.tuning_logs = []
-                st.session_state.tuning_progress = 0
-                st.session_state.tuning_results = {}
 
                 # Just set the flag - tuning will run after the page renders
                 st.rerun()
 
         with start_col2:
             if st.session_state.tuning_in_progress:
-                if st.button("Stop Tuning", use_container_width=True):
+                stop_button = st.button("Stop Tuning", use_container_width=True, key="stop_tuning_button")
+                if stop_button:
                     st.session_state.tuning_in_progress = False
                     log_entry = {
                         'time': datetime.now().strftime("%H:%M:%S"),

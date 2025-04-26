@@ -295,12 +295,12 @@ def calculate_performance_metrics(actual, predicted):
     # Convert to numpy arrays and ensure same length
     actual_array = np.array(actual)
     predicted_array = np.array(predicted)
-    
+
     # If arrays have different lengths, truncate to shorter length
     min_len = min(len(actual_array), len(predicted_array))
     actual_array = actual_array[:min_len]
     predicted_array = predicted_array[:min_len]
-    
+
     # Handle NaN values
     valid_indices = ~(np.isnan(actual_array) | np.isnan(predicted_array))
     actual_valid = actual_array[valid_indices]
@@ -622,6 +622,7 @@ def optimize_arima_parameters_enhanced(train_series, val_series):
                 best_params = default_params
         except Exception as e:
             logger.error(f"Optuna optimization failed: {str(e)}")
+            log_to_streamlit(f"Optuna optimization failed: {str(e)}", level='error')
             best_params = default_params
 
         # Validate parameters
@@ -649,6 +650,7 @@ def optimize_arima_parameters_enhanced(train_series, val_series):
                 best_metrics = calculate_performance_metrics(val_series, forecast)
             except Exception as e:
                 logger.error(f"Default parameters also failed: {str(e)}")
+                log_to_streamlit(f"Default parameters also failed: {str(e)}", level='error')
                 best_metrics = {'mape': 30.0, 'rmse': 45.0}  # Reasonable fallback values
 
         return {
@@ -658,6 +660,7 @@ def optimize_arima_parameters_enhanced(train_series, val_series):
         }
     except Exception as e:
         logger.error(f"Error in ARIMA optimization: {str(e)}")
+        log_to_streamlit(f"Error in ARIMA optimization: {str(e)}", level='error')
         # Return default parameters with reasonable metrics instead of infinity
         return {
             'parameters': {'p': 1, 'd': 1, 'q': 0},
@@ -792,6 +795,7 @@ def optimize_prophet_parameters_enhanced(train_df, val_df):
                 best_params = default_params
         except Exception as e:
             logger.error(f"Optuna optimization failed: {str(e)}")
+            log_to_streamlit(f"Optuna optimization failed: {str(e)}", level='error')
             best_params = default_params
 
         # Validate parameters
@@ -840,6 +844,7 @@ def optimize_prophet_parameters_enhanced(train_df, val_df):
                     best_metrics = {'mape': 28.0, 'rmse': 42.0}
             except Exception as e2:
                 logger.error(f"Default parameters also failed: {str(e2)}")
+                log_to_streamlit(f"Default parameters also failed: {str(e2)}", level='error')
                 best_metrics = {'mape': 28.0, 'rmse': 42.0}  # Reasonable fallback values
 
         return {
@@ -849,6 +854,7 @@ def optimize_prophet_parameters_enhanced(train_df, val_df):
         }
     except Exception as e:
         logger.error(f"Error in Prophet optimization: {str(e)}")
+        log_to_streamlit(f"Error in Prophet optimization: {str(e)}", level='error')
         # Return default parameters with reasonable metrics
         return {
             'parameters': {'changepoint_prior_scale': 0.05, 'seasonality_prior_scale': 10.0, 'seasonality_mode': 'additive'},
@@ -992,6 +998,7 @@ def optimize_ets_parameters_enhanced(train_series, val_series):
                 best_params = default_params
         except Exception as e:
             logger.error(f"Optuna optimization failed: {str(e)}")
+            log_to_streamlit(f"Optuna optimization failed: {str(e)}", level='error')
             best_params = default_params
 
         # Validate parameters
@@ -1034,6 +1041,7 @@ def optimize_ets_parameters_enhanced(train_series, val_series):
                     best_metrics = {'mape': 25.0, 'rmse': 38.0}
             except Exception as e2:
                 logger.error(f"Default parameters also failed: {str(e2)}")
+                log_to_streamlit(f"Default parameters also failed: {str(e2)}", level='error')
                 best_metrics = {'mape': 25.0, 'rmse': 38.0}  # Reasonable fallback values
 
         return {
@@ -1043,6 +1051,7 @@ def optimize_ets_parameters_enhanced(train_series, val_series):
         }
     except Exception as e:
         logger.error(f"Error in ETS optimization: {str(e)}")
+        log_to_streamlit(f"Error in ETS optimization: {str(e)}", level='error')
         # Return default parameters with reasonable metrics
         return {
             'parameters': {'trend': 'add', 'seasonal': None, 'seasonal_periods': 1, 'damped_trend': False},
@@ -1179,6 +1188,7 @@ def optimize_theta_parameters_enhanced(train_series, val_series):
                 best_params = default_params
         except Exception as e:
             logger.error(f"Optuna optimization failed: {str(e)}")
+            log_to_streamlit(f"Optuna optimization failed: {str(e)}", level='error')
             best_params = default_params
 
         # Validate parameters
@@ -1219,6 +1229,7 @@ def optimize_theta_parameters_enhanced(train_series, val_series):
                     best_metrics = {'mape': 23.0, 'rmse': 35.0}
             except Exception as e2:
                 logger.error(f"Default parameters also failed: {str(e2)}")
+                log_to_streamlit(f"Default parameters also failed: {str(e2)}", level='error')
                 best_metrics = {'mape': 23.0, 'rmse': 35.0}  # Reasonable fallback values
 
         return {
@@ -1228,6 +1239,7 @@ def optimize_theta_parameters_enhanced(train_series, val_series):
         }
     except Exception as e:
         logger.error(f"Error in Theta optimization: {str(e)}")
+        log_to_streamlit(f"Error in Theta optimization: {str(e)}", level='error')
         # Return default parameters with reasonable metrics
         return {
             'parameters': {'deseasonalize': True, 'period': 12, 'method': 'auto'},
@@ -1396,3 +1408,7 @@ def get_default_parameters(model_type):
     else:
         logger.warning(f"Unknown model type: {model_type}, returning empty parameters")
         return {'parameters': {}, 'score': float('inf')}
+
+def log_to_streamlit(message, level='info'):
+    """Placeholder function for Streamlit logging."""
+    print(f"[{level.upper()}] {message}")
