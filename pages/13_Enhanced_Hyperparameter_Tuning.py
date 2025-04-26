@@ -1204,8 +1204,7 @@ def format_parameters(params, model_type):
 def get_parameters_from_db():
     """Retrieve parameters from database"""
     try:
-        # Here you would connect to the database and retrieve the parameters
-        # For demonstration purposes, we'll use mock data
+        # Connect to the database and retrieve all stored model parameters
         from utils.database import get_all_model_parameters
 
         return get_all_model_parameters()
