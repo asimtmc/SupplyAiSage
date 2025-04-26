@@ -878,8 +878,8 @@ with main_tabs[2]:  # Results Tab
                                 "MAE": baseline_metrics.get("MAE", 0),
                                 "Improvement": 0
                             })
-                    except Exception as e:
-                        st.warning(f"Error retrieving metrics for {model}: {str(e)}")
+                        except Exception as e:
+                            st.warning(f"Error retrieving metrics for {model}: {str(e)}")
 
                 return pd.DataFrame(metrics_data)
 
