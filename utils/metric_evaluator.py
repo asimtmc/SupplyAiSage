@@ -58,7 +58,7 @@ def calculate_model_improvement(sku, model_type, sample_size=None):
         from utils.data_loader import load_data_from_database
         
         # Load sales data
-        data = load_data_from_database(data_types=['sales_data'], return_data=True)
+        data = load_data_from_database()
         if 'sales_data' not in data or data['sales_data'] is None:
             logger.error(f"No sales data available for {sku}")
             return None
