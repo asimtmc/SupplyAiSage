@@ -963,8 +963,20 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
 
                 # For each model, create a row in the table
                 for model in models_to_include:
-                    # Mark if this is the best model
-                    is_best_model = (model == forecast_data_for_sku['model'])
+                    # Find the model with lowest MAPE for this SKU
+                    best_mape_model = None
+                    lowest_mape = float('inf')
+                    
+                    # Check all models for this SKU and find the one with lowest MAPE
+                    if 'model_evaluation' in forecast_data_for_sku and 'metrics' in forecast_data_for_sku['model_evaluation']:
+                        for model_name, metrics in forecast_data_for_sku['model_evaluation']['metrics'].items():
+                            if 'mape' in metrics and not np.isnan(metrics['mape']):
+                                if metrics['mape'] < lowest_mape:
+                                    lowest_mape = metrics['mape']
+                                    best_mape_model = model_name
+                    
+                    # Mark if this is the best model (lowest MAPE)
+                    is_best_model = (best_mape_model is not None and model.lower() == best_mape_model)
 
                     # Create base row info
                     row = {
@@ -1105,7 +1117,7 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
                 - **Metrics**: Performance indicators (MAPE & MAE) shown with green background
                 - **Actual Values**: Historical sales shown with blue background
                 - **Forecast Values**: Predicted sales shown with yellow background
-                - **✓**: Indicates the best performing model for each SKU
+                - **✓**: Indicates the model with the lowest MAPE (%) for each SKU
                 - **MAPE (%)**: Mean Absolute Percentage Error - lower is better
                 - **MAE**: Mean Absolute Error - lower is better
                 """
@@ -1137,7 +1149,7 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
                         "best_model": st.column_config.TextColumn(
                             "Best",
                             width="small",
-                            help="Check mark indicates best performing model"
+                            help="Check mark indicates model with lowest MAPE (%)"
                         )
                     },
                     hide_index=True
