@@ -137,6 +137,42 @@ The system automatically identifies SKUs with frequent zero values (>40%) and ap
 which is optimized for intermittent demand. For regular demand patterns, standard forecasting models are used.
 """)
 
+# Add information about Croston method in an expander
+with st.expander("About Croston Method for Intermittent Demand", expanded=True):
+    col1, col2 = st.columns([3, 2])
+    
+    with col1:
+        st.markdown("""
+        ### What is Intermittent Demand?
+        
+        Intermittent demand is characterized by:
+        - Frequent periods with zero demand
+        - Irregular demand occurrences
+        - High variability in demand sizes
+        
+        This pattern is common in:
+        - Spare parts
+        - Slow-moving inventory
+        - Seasonal or highly specialized products
+        
+        **In this application:** SKUs with >40% zero values in their history are automatically classified as intermittent.
+        """)
+    
+    with col2:
+        st.markdown("""
+        ### How Croston's Method Works
+        
+        Croston's method specifically handles intermittent demand by:
+        
+        1. Separating demand into two parts:
+           - Demand size (when demand occurs)
+           - Time interval between demands
+        
+        2. Forecasting each part separately using exponential smoothing
+        
+        3. Final forecast = Expected demand size ÷ Expected demand interval
+        """)
+
 # Initialize session state variables for this page
 if 'v2_forecast_periods' not in st.session_state:
     st.session_state.v2_forecast_periods = 12  # default 12 months
@@ -770,6 +806,39 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
         forecast_data = st.session_state.v2_forecasts[selected_sku]
 
         # Tab section for forecast views
+        # Check if this SKU has intermittent demand (display before the tabs)
+        if forecast_data is not None:
+            # Get the history data
+            sku_history = forecast_data['history']
+            
+            # Calculate percentage of zero values
+            zero_percentage = (sku_history == 0).mean() * 100
+            is_intermittent = zero_percentage > 40
+            
+            # Create a container with info about the demand pattern
+            demand_pattern_col1, demand_pattern_col2 = st.columns([3, 1])
+            
+            with demand_pattern_col1:
+                if is_intermittent:
+                    st.info(f"**Intermittent Demand Pattern Detected**: This SKU has {zero_percentage:.1f}% zero values in its history. The Croston method is recommended for forecasting.")
+                else:
+                    st.success(f"**Regular Demand Pattern**: This SKU has only {zero_percentage:.1f}% zero values in its history. Standard forecasting methods are appropriate.")
+            
+            with demand_pattern_col2:
+                # Display a badge for the demand type
+                if is_intermittent:
+                    st.markdown("""
+                    <div style="background-color:#E8F5E9; padding:8px; border-radius:5px; text-align:center;">
+                        <span style="font-weight:bold; color:#2E7D32;">INTERMITTENT DEMAND</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.markdown("""
+                    <div style="background-color:#E3F2FD; padding:8px; border-radius:5px; text-align:center;">
+                        <span style="font-weight:bold; color:#1565C0;">REGULAR DEMAND</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+        
         forecast_tabs = st.tabs(["Forecast Chart", "Model Comparison", "Forecast Metrics"])
 
         with forecast_tabs[0]:
