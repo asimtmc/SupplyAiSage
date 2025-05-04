@@ -124,6 +124,66 @@ with tab1:
                 # Calculate aggregate accuracy metrics
                 st.subheader("Accuracy Metrics")
                 
+                # Add MAPE and MAE for each model and SKU
+                st.subheader("Model Accuracy by SKU")
+                
+                # Calculate accuracy metrics for each model/SKU combination
+                model_metrics = []
+                
+                for sku, forecast_data in st.session_state.forecasts.items():
+                    sku_actuals = actuals_data[actuals_data['sku'] == sku]
+                    if len(sku_actuals) == 0:
+                        continue
+                    
+                    model_type = forecast_data.get('model', 'unknown')
+                    forecast = forecast_data['forecast']
+                    
+                    # Find overlapping dates
+                    actual_dates = set(sku_actuals['date'])
+                    forecast_dates = set(forecast.index)
+                    common_dates = actual_dates.intersection(forecast_dates)
+                    
+                    if not common_dates:
+                        continue
+                    
+                    # Calculate MAPE and MAE
+                    total_error = 0
+                    total_abs_error = 0
+                    total_abs_pct_error = 0
+                    count = 0
+                    
+                    for date in common_dates:
+                        actual = sku_actuals[sku_actuals['date'] == date]['quantity'].iloc[0]
+                        predicted = forecast.get(date, 0)
+                        
+                        if actual > 0:  # Avoid division by zero
+                            error = predicted - actual
+                            abs_error = abs(error)
+                            abs_pct_error = abs_error / actual
+                            
+                            total_error += error
+                            total_abs_error += abs_error
+                            total_abs_pct_error += abs_pct_error
+                            count += 1
+                    
+                    if count > 0:
+                        mae = total_abs_error / count
+                        mape = (total_abs_pct_error / count) * 100
+                        
+                        model_metrics.append({
+                            'SKU': sku,
+                            'Model': model_type,
+                            'MAPE (%)': f"{mape:.2f}%",
+                            'MAE': f"{mae:.2f}"
+                        })
+                
+                if model_metrics:
+                    # Convert to DataFrame and display
+                    metrics_df = pd.DataFrame(model_metrics)
+                    st.dataframe(metrics_df, use_container_width=True)
+                else:
+                    st.info("No data available to calculate model metrics")
+                
                 # Function to calculate MAPE
                 def calculate_mape(actuals, forecasts):
                     mape_sum = 0
