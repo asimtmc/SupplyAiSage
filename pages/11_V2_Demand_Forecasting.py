@@ -973,6 +973,20 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
                         'model': model.upper(),
                         'best_model': '✓' if is_best_model else ''
                     }
+                    
+                    # Add MAPE and MAE metrics if available
+                    if ('model_evaluation' in forecast_data_for_sku and 
+                        'metrics' in forecast_data_for_sku['model_evaluation'] and 
+                        model.lower() in forecast_data_for_sku['model_evaluation']['metrics']):
+                        metrics = forecast_data_for_sku['model_evaluation']['metrics'][model.lower()]
+                        
+                        # Add MAPE with proper handling of NaN values
+                        if 'mape' in metrics:
+                            row['MAPE (%)'] = f"{metrics['mape']:.2f}%" if not np.isnan(metrics['mape']) else "N/A"
+                        
+                        # Add MAE 
+                        if 'mae' in metrics:
+                            row['MAE'] = f"{metrics['mae']:.2f}" if not np.isnan(metrics['mae']) else "N/A"
 
                     # Get model forecast data
                     if model.lower() == forecast_data_for_sku['model']:
@@ -1042,7 +1056,10 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
                 # Identify column groups for styling
                 all_cols = all_sku_df.columns.tolist()
                 info_cols = ['sku_code', 'sku_name', 'model', 'best_model']
-
+                
+                # Add metrics columns for styling
+                metrics_cols = ['MAPE (%)', 'MAE']
+                
                 # Since we removed prefixes, we need a different way to identify historical vs forecast columns
                 # Use the fact that historical columns come from historical_cols and forecast columns from forecast_date_cols
                 actual_cols = historical_cols
@@ -1056,6 +1073,10 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
                     # Apply background colors to different column types
                     for col in info_cols:
                         styles[col] = 'background-color: #F5F5F5; font-weight: 500'  # Light gray for info columns
+                        
+                    for col in metrics_cols:
+                        if col in df.columns:
+                            styles[col] = 'background-color: #E8F5E9; font-weight: 500'  # Light green for metrics columns
 
                     for col in actual_cols:
                         styles[col] = 'background-color: #E3F2FD'  # Lighter blue for actual values
@@ -1081,9 +1102,12 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
                 # Add column group headers using expander
                 forecast_explanation = """
                 - **SKU Info**: Basic product information
+                - **Metrics**: Performance indicators (MAPE & MAE) shown with green background
                 - **Actual Values**: Historical sales shown with blue background
                 - **Forecast Values**: Predicted sales shown with yellow background
                 - **✓**: Indicates the best performing model for each SKU
+                - **MAPE (%)**: Mean Absolute Percentage Error - lower is better
+                - **MAE**: Mean Absolute Error - lower is better
                 """
                 with st.expander("Understanding the Table", expanded=False):
                     st.markdown(forecast_explanation)
@@ -1141,6 +1165,12 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
                         'bg_color': '#F5F5F5',
                         'border': 1
                     })
+                    
+                    metrics_format = workbook.add_format({
+                        'bg_color': '#E8F5E9',
+                        'border': 1,
+                        'num_format': '0.00'
+                    })
 
                     actual_format = workbook.add_format({
                         'bg_color': '#E3F2FD',
@@ -1163,6 +1193,8 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
                         col_idx = all_sku_df.columns.get_loc(col)
                         if col in info_cols:
                             worksheet.set_column(col_idx, col_idx, 15, info_format)
+                        elif col in metrics_cols:
+                            worksheet.set_column(col_idx, col_idx, 12, metrics_format)
                         elif col in actual_cols:
                             worksheet.set_column(col_idx, col_idx, 12, actual_format)
                         elif col in forecast_cols:
