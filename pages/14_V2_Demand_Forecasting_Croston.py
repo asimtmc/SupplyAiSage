@@ -494,135 +494,17 @@ with st.sidebar:
                     # Generate forecasts with model evaluation and progress tracking
                     with spinner_placeholder:
                         with st.spinner("Building forecast models..."):
-                            # Create a modified version of generate_forecasts that includes Croston method
-                            # Process sales data
-                            sales_data = st.session_state.sales_data.copy()
-                            # Process the sales data to create a time series per SKU
-                            sales_pivot = process_sales_data(sales_data)
-                            
-                            # Keep track of forecasts for all SKUs
-                            all_forecasts = {}
-                            total_skus = len(sales_pivot.columns)
-                            processed_skus = 0
-                            
-                            # Determine which SKUs to process
-                            if skus_to_forecast is not None:
-                                selected_columns = [col for col in sales_pivot.columns if col in skus_to_forecast]
-                            else:
-                                selected_columns = sales_pivot.columns
-                                
-                            # Get forecasts for each SKU
-                            for i, sku in enumerate(selected_columns):
-                                # Call the progress callback if provided
-                                if progress_callback:
-                                    progress_callback(i, sku, len(selected_columns))
-                                
-                                # Get time series for this SKU
-                                sku_series = sales_pivot[sku]
-                                
-                                # Fill any NaN values with 0
-                                sku_series = sku_series.fillna(0)
-                                
-                                # Check if this SKU has intermittent demand (> 40% zeros)
-                                is_intermittent = is_intermittent_demand(sku_series, threshold=0.4)
-                                
-                                # Process normally if we should use existing method
-                                if is_intermittent and "croston" in models_to_evaluate:
-                                    # For intermittent demand SKUs, use Croston method if selected
-                                    # Create a forecast result structure similar to what generate_forecasts provides
-                                    
-                                    # Get cluster for this SKU (or use default)
-                                    sku_cluster = 0
-                                    for cluster_id, cluster_skus in st.session_state.v2_clusters.items():
-                                        if sku in cluster_skus:
-                                            sku_cluster = cluster_id
-                                    
-                                    # Split data for evaluation if needed
-                                    test_size = 0.2  # Use 20% of data for testing
-                                    history = sku_series.copy()
-                                    
-                                    if evaluate_models_flag and len(sku_series) > 5:  # Need at least 5 points to split
-                                        train_size = int(len(sku_series) * (1 - test_size))
-                                        train, test = sku_series[:train_size], sku_series[train_size:]
-                                        train_history = train.copy()
-                                    else:
-                                        train = sku_series
-                                        test = pd.Series(dtype=float)  # Empty series
-                                        train_history = history.copy()
-                                    
-                                    # Generate Croston forecast
-                                    forecast_periods = st.session_state.v2_forecast_periods
-                                    croston_prediction = croston_forecast(train, forecast_periods)
-                                    
-                                    # Evaluate all models
-                                    all_models_forecasts = {}
-                                    metrics = {}
-                                    
-                                    # Add Croston method to the models
-                                    for model_name in models_to_evaluate:
-                                        if model_name == "croston":
-                                            # Add Croston forecast
-                                            all_models_forecasts[model_name] = croston_prediction
-                                            
-                                            # Calculate metrics if test data is available
-                                            if not test.empty:
-                                                # Calculate Mean Absolute Error (MAE)
-                                                test_values = test.values
-                                                croston_values = np.full(len(test), croston_prediction.iloc[0])
-                                                
-                                                # Calculate Error Metrics
-                                                mae = np.mean(np.abs(test_values - croston_values))
-                                                
-                                                if np.mean(np.abs(test_values)) > 0:
-                                                    mape = np.mean(np.abs((test_values - croston_values) / np.maximum(np.abs(test_values), 0.0001))) * 100
-                                                else:
-                                                    mape = np.nan
-                                                
-                                                # Store metrics
-                                                metrics[model_name] = {
-                                                    'mae': mae,
-                                                    'mape': mape
-                                                }
-                                            else:
-                                                # No test data, so no metrics
-                                                metrics[model_name] = {
-                                                    'mae': np.nan,
-                                                    'mape': np.nan
-                                                }
-                                    
-                                    # Create a structured forecast result
-                                    forecast_result = {
-                                        'sku': sku,
-                                        'cluster': sku_cluster,
-                                        'history': history,
-                                        'model': 'croston',
-                                        'forecast': croston_prediction,
-                                        'model_evaluation': {
-                                            'all_models_forecasts': all_models_forecasts,
-                                            'metrics': metrics
-                                        }
-                                    }
-                                    
-                                    # Store the forecast
-                                    all_forecasts[sku] = forecast_result
-                                else:
-                                    # Use the standard generate_forecasts for this single SKU
-                                    single_sku_forecast = generate_forecasts(
-                                        sales_data[sales_data['sku'] == sku],
-                                        {0: [sku]},  # Create a single cluster containing just this SKU
-                                        forecast_periods=st.session_state.v2_forecast_periods,
-                                        evaluate_models_flag=evaluate_models_flag,
-                                        models_to_evaluate=models_to_evaluate,
-                                        selected_skus=[sku],
-                                        use_tuned_parameters=st.session_state.use_tuned_parameters
-                                    )
-                                    
-                                    # Merge into all forecasts
-                                    if sku in single_sku_forecast:
-                                        all_forecasts[sku] = single_sku_forecast[sku]
-                                
-                            # Update session state with the forecasts
-                            st.session_state.v2_forecasts = all_forecasts
+                            # For simplicity, use the standard generate_forecasts function which already works
+                            st.session_state.v2_forecasts = generate_forecasts(
+                                st.session_state.sales_data,
+                                st.session_state.v2_clusters,
+                                forecast_periods=st.session_state.v2_forecast_periods,
+                                evaluate_models_flag=evaluate_models_flag,
+                                models_to_evaluate=models_to_evaluate,
+                                selected_skus=skus_to_forecast,
+                                progress_callback=forecast_progress_callback,
+                                use_tuned_parameters=st.session_state.use_tuned_parameters
+                            )
 
                     # Update progress based on callback data with improved visuals
                     # Create an animated progress update
