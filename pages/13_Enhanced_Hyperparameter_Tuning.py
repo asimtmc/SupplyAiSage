@@ -691,7 +691,12 @@ with main_tabs[1]:  # Tuning Process Tab
             total_tasks = len(st.session_state.tuning_skus) * len(st.session_state.tuning_models)
             completed_tasks = int(st.session_state.tuning_progress * total_tasks)
 
-            status_placeholder.info(f"Processing task {completed_tasks}/{total_tasks}: {completed_tasks/total_tasks:.1%} complete")
+            # Avoid division by zero
+            if total_tasks > 0:
+                percentage = completed_tasks / total_tasks
+                status_placeholder.info(f"Processing task {completed_tasks}/{total_tasks}: {percentage:.1%} complete")
+            else:
+                status_placeholder.info("No tasks to process. Please select at least one SKU and one model.")
 
             # Log display in a scrollable container
             st.markdown("#### Tuning Logs")
