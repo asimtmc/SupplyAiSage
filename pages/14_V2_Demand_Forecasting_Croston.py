@@ -1382,6 +1382,38 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
 
                     for col in forecast_cols:
                         styles[col] = 'background-color: #FFF8E1'  # Lighter yellow for forecast values
+                        
+                    # Check for intermittent demand SKUs
+                    for i, sku_name in enumerate(df['sku']):
+                        # Get SKU from the dataframe
+                        sku = sku_name
+                        
+                        # Check if this SKU has intermittent demand
+                        is_intermittent = False
+                        if sku in st.session_state.v2_forecasts:
+                            history = st.session_state.v2_forecasts[sku]['history']
+                            # Calculate percentage of zero values
+                            zero_percentage = (history == 0).mean() * 100
+                            is_intermittent = zero_percentage > 40
+                            
+                            # If intermittent and Croston is available in models
+                            if is_intermittent:
+                                # Mark the SKU row with green left border to indicate intermittent
+                                styles.iloc[i, df.columns.get_loc('sku')] += '; border-left: 4px solid #4CAF50'
+                                
+                                # Check if any column contains "CROSTON" (case insensitive)
+                                for col in df.columns:
+                                    if 'CROSTON' in col.upper():
+                                        # Highlight Croston method with a special background
+                                        styles.iloc[i, df.columns.get_loc(col)] = 'background-color: #E8F5E9; font-weight: bold'
+                                
+                                # Add intermittent demand indicator to notes column if it exists
+                                if 'notes' in df.columns:
+                                    curr_note = df.iloc[i, df.columns.get_loc('notes')]
+                                    if pd.isna(curr_note) or curr_note == '':
+                                        df.iloc[i, df.columns.get_loc('notes')] = "Intermittent demand detected"
+                                    else:
+                                        df.iloc[i, df.columns.get_loc('notes')] += "; Intermittent demand detected"
 
                     # Highlight best model rows
                     for i, val in enumerate(df['best_model']):
@@ -1401,12 +1433,14 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
                 # Add column group headers using expander
                 forecast_explanation = """
                 - **SKU Info**: Basic product information
+                - **Green Border**: Indicates an SKU with intermittent demand pattern (>40% zero values)
                 - **Metrics**: Performance indicators (MAPE & MAE) shown with green background
                 - **Actual Values**: Historical sales shown with blue background
                 - **Forecast Values**: Predicted sales shown with yellow background
                 - **✓**: Indicates the model with the lowest MAPE (%) for each SKU
                 - **MAPE (%)**: Mean Absolute Percentage Error - lower is better
                 - **MAE**: Mean Absolute Error - lower is better
+                - **Croston Method**: Highlighted in green for intermittent demand SKUs
                 """
                 with st.expander("Understanding the Table", expanded=False):
                     st.markdown(forecast_explanation)
