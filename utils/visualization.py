@@ -44,6 +44,10 @@ def plot_forecast(sales_data, forecast_data, sku=None, selected_models=None, sho
     sku_data = sales_data[sales_data['sku'] == sku].copy()
     sku_data = sku_data.sort_values('date')
 
+    # Ensure we use complete historical data (not just from 2023)
+    # Make sure the data is sorted by date
+    sku_data = sku_data.sort_values('date')
+    
     # Add historical data
     fig.add_trace(
         go.Scatter(
