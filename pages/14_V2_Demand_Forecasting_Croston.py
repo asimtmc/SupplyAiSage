@@ -1597,18 +1597,23 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
                         )
                         fig_residual.update_layout(template="plotly_white")
                         
-                        # Display the plots in a 2x2 grid
+                        # Display the plots in a 1x4 vertical stack
                         st.write("### Decomposed Time Series Components")
                         
-                        col1, col2 = st.columns(2)
+                        # Set smaller height for each chart
+                        chart_height = 250
                         
-                        with col1:
-                            st.plotly_chart(fig_observed, use_container_width=True)
-                            st.plotly_chart(fig_seasonal, use_container_width=True)
-                            
-                        with col2:
-                            st.plotly_chart(fig_trend, use_container_width=True)
-                            st.plotly_chart(fig_residual, use_container_width=True)
+                        # Update layout for each chart to reduce height
+                        fig_observed.update_layout(height=chart_height)
+                        fig_trend.update_layout(height=chart_height)
+                        fig_seasonal.update_layout(height=chart_height)
+                        fig_residual.update_layout(height=chart_height)
+                        
+                        # Display charts in a single column, in specified order
+                        st.plotly_chart(fig_observed, use_container_width=True)
+                        st.plotly_chart(fig_trend, use_container_width=True)
+                        st.plotly_chart(fig_seasonal, use_container_width=True)
+                        st.plotly_chart(fig_residual, use_container_width=True)
                         
                         # Add interpretation guidelines
                         with st.expander("How to Interpret These Charts", expanded=False):
