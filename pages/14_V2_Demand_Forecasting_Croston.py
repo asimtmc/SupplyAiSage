@@ -14,7 +14,8 @@ from utils.parameter_optimizer import get_model_parameters
 from sklearn.model_selection import train_test_split
 from statsmodels.tsa.statespace.exponential_smoothing import ExponentialSmoothing
 
-# Implement Croston Method for intermittent demand forecasting
+# Implement Improved Croston Methods for intermittent demand forecasting
+
 def croston_forecast(time_series, forecast_periods, alpha=0.1):
     """
     Croston's method for intermittent demand forecasting.
@@ -37,7 +38,7 @@ def croston_forecast(time_series, forecast_periods, alpha=0.1):
     y = time_series.values
     
     # Initialize variables
-    y_i = y[0]  # Demand size
+    y_i = max(y[0], 0.01)  # Demand size (avoid zero)
     q = 1       # Interval between demands
     p = 1       # Position in interval
     
@@ -60,8 +61,28 @@ def croston_forecast(time_series, forecast_periods, alpha=0.1):
         # The forecast is demand size / interval
         forecasts.append(y_i / q)
     
-    # Create future forecasts (same value for all future periods)
-    future_forecasts = [y_i / q] * forecast_periods
+    # Check if data has a trend
+    try:
+        indices = np.arange(len(y))
+        trend_model = np.polyfit(indices, y, 1)
+        trend_slope = trend_model[0]
+        has_trend = abs(trend_slope) > 0.05 * np.mean(y)
+    except:
+        has_trend = False
+    
+    # Create future forecasts with possible trend adjustment
+    future_forecasts = []
+    base_forecast = y_i / q
+    
+    if has_trend and trend_slope > 0:
+        # If we have a positive trend, apply a small progressive increase
+        for i in range(forecast_periods):
+            # Apply a damped trend effect (smaller than the actual trend to be conservative)
+            adjusted_forecast = base_forecast * (1 + 0.01 * (i + 1))
+            future_forecasts.append(adjusted_forecast)
+    else:
+        # Without trend, use the traditional constant forecast
+        future_forecasts = [base_forecast] * forecast_periods
     
     # Create a pandas Series with the original index plus future dates
     # Get the last date in the original time series
@@ -80,6 +101,195 @@ def croston_forecast(time_series, forecast_periods, alpha=0.1):
     # Combine historical and future forecasts
     all_forecasts = pd.Series(forecasts + future_forecasts, 
                               index=list(time_series.index) + list(future_dates))
+    
+    # Return only the future part
+    return all_forecasts.iloc[-forecast_periods:]
+
+def sba_forecast(time_series, forecast_periods, alpha=0.1):
+    """
+    Syntetos-Boylan Approximation (SBA) method for intermittent demand forecasting.
+    This is an improved version of Croston's method with bias correction.
+    
+    Parameters:
+    -----------
+    time_series : pandas.Series
+        Time series of demand values (can contain zeros).
+    forecast_periods : int
+        Number of periods to forecast.
+    alpha : float, optional (default=0.1)
+        Smoothing parameter for both demand size and interval.
+        
+    Returns:
+    --------
+    pandas.Series
+        Forecasted values for the specified number of periods.
+    """
+    # Convert to numpy array for easier operations
+    y = time_series.values
+    
+    # Initialize variables
+    y_i = max(y[0], 0.01)  # Demand size (avoid zero)
+    q = 1       # Interval between demands
+    p = 1       # Position in interval
+    
+    # Calculate forecast for the historical period
+    forecasts = []
+    demand_sizes = []
+    intervals = []
+    
+    for i in range(len(y)):
+        # If demand occurs
+        if y[i] > 0:
+            # Update demand size estimate
+            y_i = alpha * y[i] + (1 - alpha) * y_i
+            # Update interval estimate
+            q = alpha * p + (1 - alpha) * q
+            # Reset position
+            p = 1
+        else:
+            # Increment position
+            p += 1
+        
+        # Store values for future forecasting
+        demand_sizes.append(y_i)
+        intervals.append(q)
+        
+        # Apply SBA bias correction: (1 - α/2) * (demand size / interval)
+        correction_factor = (1 - alpha/2)
+        forecasts.append(correction_factor * y_i / q)
+    
+    # Create future dates
+    last_date = time_series.index[-1]
+    freq = pd.infer_freq(time_series.index)
+    if freq is None:
+        freq = 'MS'  # Default to month start
+        
+    future_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), 
+                                periods=forecast_periods, 
+                                freq=freq)
+    
+    # Generate more dynamic forecasts based on recent trend
+    future_forecasts = []
+    
+    # Get trend from last periods of data
+    window_size = min(12, len(time_series))
+    recent_trend = np.polyfit(range(window_size), 
+                             demand_sizes[-window_size:], 1)[0] if window_size > 1 else 0
+    
+    # Normalize trend to be a small percentage change
+    trend_factor = min(max(1 + recent_trend * 0.05, 0.95), 1.05)
+    
+    last_forecast = (1 - alpha/2) * demand_sizes[-1] / intervals[-1]
+    
+    for i in range(forecast_periods):
+        # Apply a slight trend adjustment for each future period
+        forecast_value = last_forecast * (trend_factor ** (i+1))
+        future_forecasts.append(forecast_value)
+    
+    # Combine historical and future forecasts
+    all_forecasts = pd.Series(forecasts + future_forecasts, 
+                             index=list(time_series.index) + list(future_dates))
+    
+    # Return only the future part
+    return all_forecasts.iloc[-forecast_periods:]
+
+def tsb_forecast(time_series, forecast_periods, alpha_d=0.1, alpha_z=0.1):
+    """
+    Teunter-Syntetos-Babai (TSB) method for intermittent demand forecasting.
+    This method separately estimates demand size and probability of demand occurrence.
+    
+    Parameters:
+    -----------
+    time_series : pandas.Series
+        Time series of demand values (can contain zeros).
+    forecast_periods : int
+        Number of periods to forecast.
+    alpha_d : float, optional (default=0.1)
+        Smoothing parameter for demand size.
+    alpha_z : float, optional (default=0.1)
+        Smoothing parameter for demand occurrence probability.
+        
+    Returns:
+    --------
+    pandas.Series
+        Forecasted values for the specified number of periods.
+    """
+    # Convert to numpy array for easier operations
+    y = time_series.values
+    
+    # Initialize variables
+    z = 1.0 if y[0] > 0 else 0.0   # Demand occurrence indicator (1 = demand, 0 = no demand)
+    p = max(0.5, z)                # Initial probability of demand
+    d = max(y[0], 0.01)            # Initial demand size (avoid zero)
+    
+    # Arrays to store results
+    demand_probs = []
+    demand_sizes = []
+    forecasts = []
+    
+    # Process historical data
+    for i in range(len(y)):
+        # Update demand occurrence indicator
+        z = 1.0 if y[i] > 0 else 0.0
+        
+        # Update probability of demand
+        p = alpha_z * z + (1 - alpha_z) * p
+        
+        # Update demand size only when demand occurs
+        if y[i] > 0:
+            d = alpha_d * y[i] + (1 - alpha_d) * d
+        
+        # Store values
+        demand_probs.append(p)
+        demand_sizes.append(d)
+        
+        # Forecast = probability * demand size
+        forecasts.append(p * d)
+    
+    # Create future dates
+    last_date = time_series.index[-1]
+    freq = pd.infer_freq(time_series.index)
+    if freq is None:
+        freq = 'MS'  # Default to month start
+        
+    future_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), 
+                                periods=forecast_periods, 
+                                freq=freq)
+    
+    # Generate more dynamic forecasts
+    future_forecasts = []
+    
+    # Get trends from last periods of data
+    window_size = min(12, len(time_series))
+    
+    if window_size > 2:
+        # Calculate trends for probability and demand size
+        prob_trend = np.polyfit(range(window_size), demand_probs[-window_size:], 1)[0]
+        size_trend = np.polyfit(range(window_size), demand_sizes[-window_size:], 1)[0]
+        
+        # Normalize trends to be small percentage changes
+        prob_factor = min(max(1 + prob_trend * 0.1, 0.95), 1.05) 
+        size_factor = min(max(1 + size_trend * 0.1, 0.95), 1.05)
+    else:
+        prob_factor = 1.0
+        size_factor = 1.0
+    
+    # Last values from historical data
+    last_prob = demand_probs[-1]
+    last_size = demand_sizes[-1]
+    
+    # Create future forecasts with trend adjustments
+    for i in range(forecast_periods):
+        # Apply trends while keeping values in reasonable bounds
+        next_prob = min(max(last_prob * (prob_factor ** (i+1)), 0.05), 0.95)
+        next_size = max(last_size * (size_factor ** (i+1)), 0.01)
+        
+        # Forecast = probability * demand size
+        future_forecasts.append(next_prob * next_size)
+    
+    # Combine historical and future forecasts
+    all_forecasts = pd.Series(forecasts + future_forecasts, 
+                             index=list(time_series.index) + list(future_dates))
     
     # Return only the future part
     return all_forecasts.iloc[-forecast_periods:]
@@ -169,8 +379,8 @@ The system automatically identifies SKUs with frequent zero values based on a co
 the Croston method, which is optimized for intermittent demand. For regular demand patterns, standard forecasting models are used.
 """)
 
-# Add information about Croston method in an expander
-with st.expander("About Croston Method for Intermittent Demand", expanded=True):
+# Add information about Intermittent Demand methods in an expander
+with st.expander("About Advanced Intermittent Demand Forecasting", expanded=True):
     col1, col2 = st.columns([3, 2])
     
     with col1:
@@ -192,17 +402,24 @@ with st.expander("About Croston Method for Intermittent Demand", expanded=True):
     
     with col2:
         st.markdown("""
-        ### How Croston's Method Works
+        ### Advanced Methods Available
         
-        Croston's method specifically handles intermittent demand by:
+        This module offers three specialized methods:
         
-        1. Separating demand into two parts:
-           - Demand size (when demand occurs)
-           - Time interval between demands
+        1. **Croston's Method**
+           - Separates demand size and intervals
+           - Uses exponential smoothing for each part
+           - Forecast = Size ÷ Interval
         
-        2. Forecasting each part separately using exponential smoothing
-        
-        3. Final forecast = Expected demand size ÷ Expected demand interval
+        2. **SBA (Syntetos-Boylan)**
+           - Improved Croston with bias correction
+           - Applies (1-α/2) adjustment factor
+           - More accurate for longer forecasts
+           
+        3. **TSB (Teunter-Syntetos-Babai)**
+           - Tracks demand probability directly
+           - Adapts quickly to changing patterns
+           - Handles trend in probability and size
         """)
 
 # Initialize session state variables for this page
@@ -399,9 +616,17 @@ with st.sidebar:
     if st.checkbox("Moving Average", value=True):
         models_to_evaluate.append("moving_average")
         
-    # Croston method (specific to this page)
-    if st.checkbox("Croston Method", value=True, help="Specialized method for intermittent demand patterns (products with frequent zero values)"):
+    # Intermittent demand methods (specific to this page)
+    st.markdown("#### Intermittent Demand Methods:")
+    
+    if st.checkbox("Croston Method", value=True, help="Basic specialized method for intermittent demand patterns (products with frequent zero values)"):
         models_to_evaluate.append("croston")
+        
+    if st.checkbox("SBA Method", value=True, help="Syntetos-Boylan Approximation - Improved Croston method with bias correction"):
+        models_to_evaluate.append("sba")
+        
+    if st.checkbox("TSB Method", value=True, help="Teunter-Syntetos-Babai - Advanced method that separately tracks demand occurrence probability"):
+        models_to_evaluate.append("tsb")
 
     # Store selected models for visualization
     st.session_state.v2_selected_models = models_to_evaluate

@@ -322,20 +322,157 @@ def select_best_model(sku_data, forecast_periods=12):
         upper_bound = [forecast * 1.3] * forecast_periods
 
     elif intermittent:
-        # For intermittent demand, use simple methods
-        model_type = "croston"
-        # Simple implementation of Croston-like logic
-        non_zero_values = data['quantity'][data['quantity'] > 0]
-        if len(non_zero_values) > 0:
-            avg_non_zero = non_zero_values.mean()
-            non_zero_prob = len(non_zero_values) / len(data)
-            forecast = avg_non_zero * non_zero_prob
+        # For intermittent demand, check if we should use one of the advanced methods
+        # Create a time series from the data
+        time_series = data.set_index('date')['quantity']
+        
+        # Determine which model to use for intermittent demand based on model_name parameter
+        model_to_use = "croston"  # Default to basic Croston
+        if model_name == "sba":
+            model_to_use = "sba"
+        elif model_name == "tsb":
+            model_to_use = "tsb"
+        
+        # We need to handle the intermittent forecasting methods
+        # We can't import from the pages module directly due to naming restrictions
+        # Instead, we'll check if these functions have been imported into this module
+        croston_methods_available = False
+        
+        # Check if the functions exist in the global scope
+        if 'croston_forecast' in globals() and 'sba_forecast' in globals() and 'tsb_forecast' in globals():
+            croston_methods_available = True
         else:
-            forecast = data['quantity'].mean()
-
-        forecast_values = [forecast] * forecast_periods
-        lower_bound = [max(0, forecast * 0.6)] * forecast_periods
-        upper_bound = [forecast * 1.4] * forecast_periods
+            # Try to dynamically import (less reliable)
+            try:
+                # Import sys for modifying the path
+                import sys
+                import importlib.util
+                
+                # Add the current directory to path if needed
+                if '.' not in sys.path:
+                    sys.path.append('.')
+                
+                # Import the module dynamically
+                spec = importlib.util.spec_from_file_location("croston_module", "pages/14_V2_Demand_Forecasting_Croston.py")
+                croston_module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(croston_module)
+                
+                # Get the functions from the module
+                globals()['croston_forecast'] = croston_module.croston_forecast
+                globals()['sba_forecast'] = croston_module.sba_forecast
+                globals()['tsb_forecast'] = croston_module.tsb_forecast
+                
+                croston_methods_available = True
+            except Exception as e:
+                print(f"Failed to import Croston methods: {str(e)}")
+                croston_methods_available = False
+        
+        # Default to simple Croston-like logic if specialized methods aren't available
+        if not croston_methods_available or model_to_use == "croston":
+            model_type = "croston"
+            
+            # Import specialized method if available
+            if croston_methods_available and model_to_use == "croston":
+                try:
+                    # Use the specialized Croston method from the page
+                    forecast_series = croston_forecast(time_series, forecast_periods, alpha=0.1)
+                    # Convert to list of values
+                    forecast_values = forecast_series.values.tolist()
+                    # Set confidence bounds
+                    forecast_mean = np.mean(forecast_values)
+                    lower_bound = [max(0, val * 0.7) for val in forecast_values]
+                    upper_bound = [val * 1.3 for val in forecast_values]
+                    # Success! We've used the specialized method
+                    specialized_method_used = True
+                except Exception as e:
+                    print(f"Error using specialized Croston method: {str(e)}")
+                    specialized_method_used = False
+            else:
+                specialized_method_used = False
+                
+            # Fall back to simple implementation if specialized method failed or not requested
+            if not specialized_method_used:
+                # Simple implementation of Croston-like logic
+                non_zero_values = data['quantity'][data['quantity'] > 0]
+                if len(non_zero_values) > 0:
+                    avg_non_zero = non_zero_values.mean()
+                    non_zero_prob = len(non_zero_values) / len(data)
+                    forecast = avg_non_zero * non_zero_prob
+                else:
+                    forecast = data['quantity'].mean()
+                
+                forecast_values = [forecast] * forecast_periods
+                lower_bound = [max(0, forecast * 0.6)] * forecast_periods
+                upper_bound = [forecast * 1.4] * forecast_periods
+        
+        # Use Syntetos-Boylan Approximation method
+        elif model_to_use == "sba":
+            model_type = "sba"
+            try:
+                # Use the SBA method
+                forecast_series = sba_forecast(time_series, forecast_periods, alpha=0.1)
+                # Convert to list of values
+                forecast_values = forecast_series.values.tolist()
+                # Set confidence bounds - slightly narrower as SBA is more accurate
+                forecast_mean = np.mean(forecast_values)
+                lower_bound = [max(0, val * 0.75) for val in forecast_values]
+                upper_bound = [val * 1.25 for val in forecast_values]
+            except Exception as e:
+                print(f"Error using SBA method: {str(e)}")
+                # Fall back to simple method if SBA fails
+                non_zero_values = data['quantity'][data['quantity'] > 0]
+                if len(non_zero_values) > 0:
+                    avg_non_zero = non_zero_values.mean()
+                    non_zero_prob = len(non_zero_values) / len(data)
+                    forecast = avg_non_zero * non_zero_prob
+                else:
+                    forecast = data['quantity'].mean()
+                
+                forecast_values = [forecast] * forecast_periods
+                lower_bound = [max(0, forecast * 0.6)] * forecast_periods
+                upper_bound = [forecast * 1.4] * forecast_periods
+        
+        # Use Teunter-Syntetos-Babai method
+        elif model_to_use == "tsb":
+            model_type = "tsb"
+            try:
+                # Use the TSB method with recommended parameters
+                forecast_series = tsb_forecast(time_series, forecast_periods, alpha_d=0.1, alpha_z=0.15)
+                # Convert to list of values
+                forecast_values = forecast_series.values.tolist()
+                # Set confidence bounds - slightly narrower as TSB is more accurate
+                forecast_mean = np.mean(forecast_values)
+                lower_bound = [max(0, val * 0.75) for val in forecast_values]
+                upper_bound = [val * 1.25 for val in forecast_values]
+            except Exception as e:
+                print(f"Error using TSB method: {str(e)}")
+                # Fall back to simple method if TSB fails
+                non_zero_values = data['quantity'][data['quantity'] > 0]
+                if len(non_zero_values) > 0:
+                    avg_non_zero = non_zero_values.mean()
+                    non_zero_prob = len(non_zero_values) / len(data)
+                    forecast = avg_non_zero * non_zero_prob
+                else:
+                    forecast = data['quantity'].mean()
+                
+                forecast_values = [forecast] * forecast_periods
+                lower_bound = [max(0, forecast * 0.6)] * forecast_periods
+                upper_bound = [forecast * 1.4] * forecast_periods
+        
+        # Fall back to default Croston if method not recognized
+        else:
+            model_type = "croston"
+            non_zero_values = data['quantity'][data['quantity'] > 0]
+            if len(non_zero_values) > 0:
+                avg_non_zero = non_zero_values.mean()
+                non_zero_prob = len(non_zero_values) / len(data)
+                forecast = avg_non_zero * non_zero_prob
+            else:
+                forecast = data['quantity'].mean()
+            
+            forecast_values = [forecast] * forecast_periods
+            lower_bound = [max(0, forecast * 0.6)] * forecast_periods
+            upper_bound = [forecast * 1.4] * forecast_periods
 
     elif seasonality:
         # For seasonal data, either use Holt-Winters or decomposition based on data length
