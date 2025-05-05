@@ -406,8 +406,20 @@ with st.sidebar:
         # Check if we have cached results for these parameters
         cached_results_available = cache_key in st.session_state.v2_forecast_cache
 
-        # Show different button text if cached results are available
-        button_text = f"{forecast_button_text} (Cached)" if cached_results_available else forecast_button_text
+        # Add option to use cached forecast or force fresh run
+        use_cache = True
+        if cached_results_available:
+            # Add timestamp information
+            cache_timestamp = st.session_state.v2_forecast_cache[cache_key].get('timestamp', 'Unknown time')
+            cache_info = st.info(f"💾 A cached forecast from {cache_timestamp} is available with these parameters.")
+            use_cache = st.checkbox("Use cached forecast (faster)", value=True, 
+                                    help="Uncheck to force a fresh forecast calculation")
+            
+        # Set button text based on cache status and user preference
+        if cached_results_available and use_cache:
+            button_text = "Load Cached Forecast Results"
+        else:
+            button_text = forecast_button_text
 
         run_forecast_clicked = st.button(
             button_text, 
@@ -416,8 +428,8 @@ with st.sidebar:
         )
 
         if run_forecast_clicked:
-            # If we have cached results, use them
-            if cached_results_available:
+            # If we have cached results and user wants to use them
+            if cached_results_available and use_cache:
                 st.toast("Using cached forecast results", icon="✅")
                 st.session_state.v2_forecasts = st.session_state.v2_forecast_cache[cache_key]['forecasts']
                 st.session_state.v2_clusters = st.session_state.v2_forecast_cache[cache_key]['clusters']
@@ -1290,7 +1302,19 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
                         styles[col] = 'background-color: #FFF8E1'  # Lighter yellow for forecast values
                         
                     # Check for intermittent demand SKUs
-                    for i, sku_name in enumerate(df['sku']):
+                    # Determine which column contains SKU information
+                    sku_column = None
+                    possible_sku_cols = ['sku', 'SKU', 'sku_code', 'SKU_code']
+                    for col in possible_sku_cols:
+                        if col in df.columns:
+                            sku_column = col
+                            break
+                    
+                    # If no SKU column is found, we can't apply SKU-specific styling
+                    if sku_column is None:
+                        return styles
+                            
+                    for i, sku_name in enumerate(df[sku_column]):
                         # Get SKU from the dataframe
                         sku = sku_name
                         
@@ -1329,7 +1353,8 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
                             # If intermittent and Croston is available in models
                             if is_intermittent:
                                 # Mark the SKU row with green left border to indicate intermittent
-                                styles.iloc[i, df.columns.get_loc('sku')] += '; border-left: 4px solid #4CAF50'
+                                # Use the same sku_column we identified above
+                                styles.iloc[i, df.columns.get_loc(sku_column)] += '; border-left: 4px solid #4CAF50'
                                 
                                 # Check if any column contains "CROSTON" (case insensitive)
                                 for col in df.columns:
@@ -1346,10 +1371,19 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
                                         df.iloc[i, df.columns.get_loc('notes')] += "; Intermittent demand detected"
 
                     # Highlight best model rows
-                    for i, val in enumerate(df['best_model']):
-                        if val == '✓':
-                            for col in df.columns:
-                                styles.iloc[i, df.columns.get_loc(col)] += '; font-weight: bold'
+                    # Ensure the best_model column exists
+                    best_model_col = None
+                    for col in ['best_model', 'Best Model', 'best']:
+                        if col in df.columns:
+                            best_model_col = col
+                            break
+                    
+                    # Skip this step if there's no best model column
+                    if best_model_col is not None:
+                        for i, val in enumerate(df[best_model_col]):
+                            if val == '✓':
+                                for col in df.columns:
+                                    styles.iloc[i, df.columns.get_loc(col)] += '; font-weight: bold'
 
                     # Add text alignment
                     for col in all_cols:
