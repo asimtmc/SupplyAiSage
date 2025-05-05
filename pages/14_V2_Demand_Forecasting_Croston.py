@@ -690,12 +690,36 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
         # Tab section for forecast views
         # Check if this SKU has intermittent demand (display before the tabs)
         if forecast_data is not None:
-            # Get the history data
-            sku_history = forecast_data['history']
+            # Check if we can get the history data (using a safer approach)
+            # Get the time series using the appropriate source from the forecast data
+            if 'train_set' in forecast_data:
+                # Use train set combined with test set if available
+                sku_history = pd.concat([forecast_data['train_set'], forecast_data.get('test_set', pd.Series())])
+            elif 'history' in forecast_data:
+                # Direct history field if available
+                sku_history = forecast_data['history']
+            else:
+                # Get sales data for this SKU
+                sku_data = st.session_state.sales_data[st.session_state.sales_data['sku'] == selected_sku]
+                if not sku_data.empty:
+                    # Process to get time series
+                    sku_data_pivot = sku_data.pivot_table(
+                        index='date', 
+                        values='quantity', 
+                        aggfunc='sum'
+                    )
+                    sku_history = sku_data_pivot['quantity']
+                else:
+                    # Empty series as fallback
+                    sku_history = pd.Series()
             
-            # Calculate percentage of zero values
-            zero_percentage = (sku_history == 0).mean() * 100
-            is_intermittent = zero_percentage > 40
+            # Calculate percentage of zero values (only if we have data)
+            if not sku_history.empty:
+                zero_percentage = (sku_history == 0).mean() * 100
+                is_intermittent = zero_percentage > 40
+            else:
+                zero_percentage = 0
+                is_intermittent = False
             
             # Create a container with info about the demand pattern
             demand_pattern_col1, demand_pattern_col2 = st.columns([3, 1])
@@ -1273,10 +1297,34 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
                         # Check if this SKU has intermittent demand
                         is_intermittent = False
                         if sku in st.session_state.v2_forecasts:
-                            history = st.session_state.v2_forecasts[sku]['history']
-                            # Calculate percentage of zero values
-                            zero_percentage = (history == 0).mean() * 100
-                            is_intermittent = zero_percentage > 40
+                            forecast_data = st.session_state.v2_forecasts[sku]
+                            
+                            # Get the history data using the same approach as above
+                            if 'train_set' in forecast_data:
+                                # Use train set combined with test set if available
+                                history = pd.concat([forecast_data['train_set'], forecast_data.get('test_set', pd.Series())])
+                            elif 'history' in forecast_data:
+                                # Direct history field if available
+                                history = forecast_data['history']
+                            else:
+                                # Get history from sales data
+                                sku_data = st.session_state.sales_data[st.session_state.sales_data['sku'] == sku]
+                                if not sku_data.empty:
+                                    # Process to get time series
+                                    sku_data_pivot = sku_data.pivot_table(
+                                        index='date', 
+                                        values='quantity', 
+                                        aggfunc='sum'
+                                    )
+                                    history = sku_data_pivot['quantity']
+                                else:
+                                    # Empty series as fallback
+                                    history = pd.Series()
+                            
+                            # Calculate percentage of zero values (only if we have data)
+                            if not history.empty:
+                                zero_percentage = (history == 0).mean() * 100
+                                is_intermittent = zero_percentage > 40
                             
                             # If intermittent and Croston is available in models
                             if is_intermittent:
