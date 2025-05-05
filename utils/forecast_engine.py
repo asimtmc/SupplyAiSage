@@ -2109,25 +2109,42 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
 
             # Ensure predictions are non-negative
             y_pred = np.maximum(0, y_pred)
-
-            # Calculate RMSE
-            rmse = math.sqrt(mean_squared_error(y_true, y_pred))
-
-            # Calculate MAPE, handling zero values
-            mask = y_true > 0
-            if mask.sum() > 0:
-                mape = np.mean(np.abs((y_true[mask] - y_pred[mask]) / y_true[mask])) * 100
+            
+            # Check if this is an intermittent demand pattern
+            zero_ratio = (test_data['quantity'] == 0).mean()
+            is_intermittent = zero_ratio > 0.3
+            
+            # Check if this is a Croston-based model
+            is_croston_based = model_type.lower() in ['croston', 'sba', 'tsb']
+            
+            # Use specialized metrics for intermittent demand or Croston-based models
+            if is_intermittent or is_croston_based:
+                # Use specialized metrics for intermittent demand
+                metrics_result = calculate_intermittent_metrics(y_true, y_pred)
+                rmse = metrics_result['rmse']
+                mape = metrics_result['mape']
+                mae = metrics_result['mae']
             else:
-                mape = np.nan
-
-            # Calculate MAE
-            mae = mean_absolute_error(y_true, y_pred)
+                # Use standard metrics for regular demand patterns
+                # Calculate RMSE
+                rmse = math.sqrt(mean_squared_error(y_true, y_pred))
+                
+                # Calculate MAPE, handling zero values
+                mask = y_true > 0
+                if mask.sum() > 0:
+                    mape = np.mean(np.abs((y_true[mask] - y_pred[mask]) / y_true[mask])) * 100
+                else:
+                    mape = np.nan
+                
+                # Calculate MAE
+                mae = mean_absolute_error(y_true, y_pred)
 
             # Store metrics
             metrics[model_type] = {
                 'rmse': rmse,
                 'mape': mape,
-                'mae': mae
+                'mae': mae,
+                'is_intermittent': is_intermittent
             }
 
         except Exception as e:
@@ -2176,15 +2193,27 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
 
         # Avoid errors if we have no test data
         if len(y_true) > 0:
-            rmse = math.sqrt(mean_squared_error(y_true, ma_pred))
-            mae = mean_absolute_error(y_true, ma_pred)
-
-            # Calculate MAPE, handling zero values
-            mask = y_true > 0
-            if mask.sum() > 0:
-                mape = np.mean(np.abs((y_true[mask] - ma_pred[mask]) / y_true[mask])) * 100
+            # Check if this is an intermittent demand pattern
+            intermittent = is_intermittent_demand(test_data, threshold=0.4)
+            
+            if intermittent:
+                # Use specialized metrics for intermittent demand
+                print("Using specialized intermittent metrics for moving average model")
+                result_metrics = calculate_intermittent_metrics(y_true, ma_pred)
+                rmse = result_metrics['rmse']
+                mape = result_metrics['mape']
+                mae = result_metrics['mae']
             else:
-                mape = np.nan
+                # Standard metrics calculation
+                rmse = math.sqrt(mean_squared_error(y_true, ma_pred))
+                mae = mean_absolute_error(y_true, ma_pred)
+
+                # Calculate MAPE, handling zero values
+                mask = y_true > 0
+                if mask.sum() > 0:
+                    mape = np.mean(np.abs((y_true[mask] - ma_pred[mask]) / y_true[mask])) * 100
+                else:
+                    mape = np.nan
         else:
             rmse = np.nan
             mae = np.nan
@@ -2193,7 +2222,8 @@ def evaluate_models(sku_data, models_to_evaluate=None, test_size=0.2, forecast_p
         metrics["moving_average"] = {
             'rmse': rmse,
             'mape': mape,
-            'mae': mae
+            'mae': mae,
+            'is_intermittent': intermittent if len(y_true) > 0 else False
         }
 
     # Always calculate forecasts for ALL selected models (no fallback values)
