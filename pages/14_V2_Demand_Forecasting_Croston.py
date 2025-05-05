@@ -1179,6 +1179,12 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
 
                 # Create table of model evaluation metrics
                 metrics_data = []
+                # First get models from all_models_forecasts to make sure we don't miss any
+                all_forecast_models = []
+                if 'all_models_forecasts' in forecast_data['model_evaluation']:
+                    all_forecast_models = list(forecast_data['model_evaluation']['all_models_forecasts'].keys())
+                
+                # Add models that have metrics
                 for model_name, metrics in forecast_data['model_evaluation']['metrics'].items():
                     metrics_data.append({
                         'Model': model_name.upper(),
@@ -1187,10 +1193,36 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
                         'MAE': round(metrics['mae'], 2),
                         'Best Model': '✓' if model_name == forecast_data['model_evaluation']['best_model'] else ''
                     })
+                
+                # Add any models that have forecasts but no metrics (like Croston if it's missing)
+                metrics_model_names = [m['Model'].lower() for m in metrics_data]
+                for model_name in all_forecast_models:
+                    if model_name.lower() not in metrics_model_names:
+                        # Include the model with placeholder metrics to ensure it appears in the table
+                        metrics_data.append({
+                            'Model': model_name.upper(),
+                            'RMSE': "N/A",
+                            'MAPE (%)': "N/A",
+                            'MAE': "N/A",
+                            'Best Model': '✓' if model_name == forecast_data['model_evaluation']['best_model'] else ''
+                        })
 
                 # Create DataFrame and display
                 metrics_df = pd.DataFrame(metrics_data)
-                st.dataframe(metrics_df.sort_values('RMSE'), use_container_width=True, height=350)
+                
+                # Custom sorting that handles "N/A" values
+                # First convert the RMSE column to numeric where possible
+                # Create a helper column for sorting
+                metrics_df['RMSE_sort'] = pd.to_numeric(metrics_df['RMSE'], errors='coerce')
+                
+                # Sort by the helper column (NaN values will be at the end)
+                metrics_df = metrics_df.sort_values('RMSE_sort')
+                
+                # Drop the helper column before display
+                metrics_df = metrics_df.drop(columns=['RMSE_sort'])
+                
+                # Display the sorted metrics
+                st.dataframe(metrics_df, use_container_width=True, height=350)
 
                 # Add explanation about metrics
                 st.markdown("""
@@ -1202,6 +1234,10 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
 
                 # Add explanation about model selection
                 st.info("The system selected the model with the lowest RMSE as the best model for forecasting this SKU.")
+                
+                # Add a note about N/A values in the metrics
+                if any(m == "N/A" for m in metrics_df['RMSE']):
+                    st.info("**Note:** 'N/A' metrics indicate specialized models like Croston which are evaluated differently. For intermittent demand patterns, Croston forecasts are often more reliable despite lacking conventional error metrics.")
 
     # Forecast export
     st.header("Export Forecasts")
