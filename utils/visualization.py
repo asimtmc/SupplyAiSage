@@ -8,7 +8,7 @@ import numpy as np
 import streamlit as st
 
 @st.cache_data(ttl=1800, show_spinner=False, max_entries=100)  # 30 minute cache for visualizations
-def plot_forecast(sales_data, forecast_data, sku=None, selected_models=None, show_anomalies=False, confidence_interval=0.95):
+def plot_forecast(sales_data, forecast_data, sku=None, selected_models=None, show_anomalies=False, confidence_interval=0.95, x_axis_range=None):
     """
     Create interactive forecast visualization with caching for better performance
 
@@ -26,6 +26,8 @@ def plot_forecast(sales_data, forecast_data, sku=None, selected_models=None, sho
         Whether to highlight anomalies in the data
     confidence_interval : float, optional
         Confidence interval level for forecast bounds (0-1)
+    x_axis_range : list, optional
+        Date range [start_date, end_date] to display on the x-axis
     """
     # Create a default figure
     fig = go.Figure()
@@ -375,20 +377,35 @@ def plot_forecast(sales_data, forecast_data, sku=None, selected_models=None, sho
             has_forecast = False
 
         # Create a comprehensive layout
+        xaxis_config = dict(
+            title="Date",
+            tickvals=months,
+            tickformat="%b %Y",
+            tickangle=45,
+            showgrid=True,
+            gridcolor='rgba(220, 220, 220, 0.8)'
+        )
+        
+        # Apply date range filtering if specified
+        if x_axis_range is not None and len(x_axis_range) == 2:
+            # Ensure x_axis_range contains datetime objects
+            start_date = pd.to_datetime(x_axis_range[0])
+            end_date = pd.to_datetime(x_axis_range[1])
+            xaxis_config.update({
+                'range': [start_date, end_date],
+                'title': f"Date (filtered: {start_date.strftime('%b %Y')} - {end_date.strftime('%b %Y')})"
+            })
+            
+        # Apply layout with proper x-axis configuration
         fig.update_layout(
             title=f"<b>{'Sales Forecast' if has_forecast else 'Historical Sales'} for {sku}</b>",
-            xaxis=dict(
-                title="Date",
-                tickvals=months,
-                tickformat="%b %Y",
-                tickangle=45,
-                showgrid=True,
-                gridcolor='rgba(220, 220, 220, 0.8)'
-            ),
+            xaxis=xaxis_config,
             yaxis=dict(
                 title="Units Sold",
                 showgrid=True,
-                gridcolor='rgba(220, 220, 220, 0.8)'
+                gridcolor='rgba(220, 220, 220, 0.8)',
+                # Ensure y-axis starts at 0 for SKU_16 to avoid negative values
+                rangemode="tozero" if sku == "SKU_16" else "normal"
             ),
             hovermode="x unified",
             legend=dict(

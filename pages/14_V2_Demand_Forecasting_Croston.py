@@ -997,8 +997,39 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
                 # Set test prediction flag based on checkbox
                 forecast_data['show_test_predictions'] = show_test_predictions
 
+            # Add a timeline slider for controlling x-axis date range
+            st.subheader("Chart Timeline Options")
+            
+            # Determine the min and max dates for the slider
+            min_date = st.session_state.sales_data[st.session_state.sales_data['sku'] == selected_sku]['date'].min()
+            
+            # Get the max date (either from forecast or sales data)
+            if 'forecast' in forecast_data and forecast_data['forecast'] is not None and len(forecast_data['forecast']) > 0:
+                max_date = forecast_data['forecast'].index.max()
+            else:
+                max_date = st.session_state.sales_data[st.session_state.sales_data['sku'] == selected_sku]['date'].max()
+            
+            # Create a date range slider
+            date_range = st.slider(
+                "Select date range to display",
+                min_value=min_date,
+                max_value=max_date,
+                value=(min_date, max_date),  # Default to full range
+                format="MMM YYYY",  # Format for displaying dates
+                key=f"date_slider_{selected_sku}"
+            )
+            
+            # Unpack the selected date range
+            start_date, end_date = date_range
+            
             # Display forecast chart with selected models (FULL WIDTH)
-            forecast_fig = plot_forecast(st.session_state.sales_data, forecast_data, selected_sku, selected_models_for_viz)
+            forecast_fig = plot_forecast(
+                st.session_state.sales_data, 
+                forecast_data, 
+                selected_sku, 
+                selected_models_for_viz,
+                x_axis_range=[start_date, end_date]  # Pass date range to plot function
+            )
             st.plotly_chart(forecast_fig, use_container_width=True)
 
             # Add a note about model selection
