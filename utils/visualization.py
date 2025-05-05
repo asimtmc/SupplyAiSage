@@ -147,10 +147,15 @@ def plot_forecast(sales_data, forecast_data, sku=None, selected_models=None, sho
                     dash_pattern = dash_patterns.get(model_key, 'solid')
                     marker_symbol = marker_symbols.get(model_key, 'circle')
 
+                    # Ensure forecast values are non-negative (especially for SKU_16)
+                    forecast_values = model_forecast.values.copy()
+                    if model_key == 'sarima' and sku == 'SKU_16':  # Special handling for SKU_16 with SARIMA
+                        forecast_values = np.maximum(forecast_values, 0)  # Ensure values are non-negative
+                    
                     fig.add_trace(
                         go.Scatter(
                             x=model_forecast.index,
-                            y=model_forecast.values,
+                            y=forecast_values,
                             mode='lines+markers',
                             name=f"{model_key.upper()} Forecast",
                             line=dict(color=color, dash=dash_pattern, width=2),
