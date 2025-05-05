@@ -194,6 +194,17 @@ if 'v2_forecast_progress' not in st.session_state:
     st.session_state.v2_forecast_progress = 0
 if 'v2_forecast_current_sku' not in st.session_state:
     st.session_state.v2_forecast_current_sku = ""
+# Initialize date range filter variables
+if 'v2_data_start_date' not in st.session_state:
+    if 'sales_data' in st.session_state and st.session_state.sales_data is not None:
+        st.session_state.v2_data_start_date = st.session_state.sales_data['date'].min().date()
+    else:
+        st.session_state.v2_data_start_date = None
+if 'v2_data_end_date' not in st.session_state:
+    if 'sales_data' in st.session_state and st.session_state.sales_data is not None:
+        st.session_state.v2_data_end_date = st.session_state.sales_data['date'].max().date()
+    else:
+        st.session_state.v2_data_end_date = None
 
 # Create sidebar for settings
 with st.sidebar:
@@ -260,6 +271,35 @@ with st.sidebar:
         else:
             st.warning("⚠️ Please select at least one SKU for analysis")
 
+    # Add date range selector for training data
+    st.subheader("Data Selection Range")
+    
+    # Determine min and max dates from the sales data
+    min_date = st.session_state.sales_data['date'].min().date()
+    max_date = st.session_state.sales_data['date'].max().date()
+    
+    # Display data range information
+    st.info(f"Available data range: {min_date.strftime('%b %Y')} to {max_date.strftime('%b %Y')}")
+    
+    # Add date range slider for selecting data for forecasting
+    date_range = st.slider(
+        "Select date range for training data",
+        min_value=min_date,
+        max_value=max_date,
+        value=(min_date, max_date),
+        format="MMM YYYY",
+        help="Select the date range to use for training the forecast models"
+    )
+    
+    # Store the date range selection in session state
+    st.session_state.v2_data_start_date = date_range[0]
+    st.session_state.v2_data_end_date = date_range[1]
+    
+    # Show selected range info
+    start_date_str = date_range[0].strftime('%b %Y')
+    end_date_str = date_range[1].strftime('%b %Y')
+    st.success(f"Using data from {start_date_str} to {end_date_str} for model training")
+    
     # Forecast horizon slider
     forecast_periods = st.slider(
         "Forecast Periods (Months)",
@@ -400,8 +440,9 @@ with st.sidebar:
 
     # Create a run button with a unique key
     if should_show_button:
-        # Generate a cache key based on selected parameters
-        cache_key = f"{forecast_scope}_{len(selected_skus_to_forecast)}_{forecast_periods}_{num_clusters}_{'-'.join(models_to_evaluate)}"
+        # Generate a cache key based on selected parameters including date range
+        date_range_key = f"{st.session_state.v2_data_start_date.strftime('%Y%m%d')}_{st.session_state.v2_data_end_date.strftime('%Y%m%d')}"
+        cache_key = f"{forecast_scope}_{len(selected_skus_to_forecast)}_{forecast_periods}_{num_clusters}_{'-'.join(models_to_evaluate)}_{date_range_key}"
 
         # Check if we have cached results for these parameters
         cached_results_available = cache_key in st.session_state.v2_forecast_cache
@@ -409,9 +450,14 @@ with st.sidebar:
         # Add option to use cached forecast or force fresh run
         use_cache = True
         if cached_results_available:
-            # Add timestamp information
+            # Add timestamp and date range information
             cache_timestamp = st.session_state.v2_forecast_cache[cache_key].get('timestamp', 'Unknown time')
-            cache_info = st.info(f"💾 A cached forecast from {cache_timestamp} is available with these parameters.")
+            date_range_info = st.session_state.v2_forecast_cache[cache_key].get('date_range', '')
+            
+            if date_range_info:
+                cache_info = st.info(f"💾 A cached forecast from {cache_timestamp} is available with these parameters.\nDate range: {date_range_info}")
+            else:
+                cache_info = st.info(f"💾 A cached forecast from {cache_timestamp} is available with these parameters.")
             use_cache = st.checkbox("Use cached forecast (faster)", value=True, 
                                     help="Uncheck to force a fresh forecast calculation")
             
@@ -506,9 +552,27 @@ with st.sidebar:
                     # Generate forecasts with model evaluation and progress tracking
                     with spinner_placeholder:
                         with st.spinner("Building forecast models..."):
-                            # For simplicity, use the standard generate_forecasts function which already works
+                            # Filter sales data based on selected date range
+                            filtered_sales_data = st.session_state.sales_data.copy()
+                            if st.session_state.v2_data_start_date and st.session_state.v2_data_end_date:
+                                # Convert date objects to datetime for comparison
+                                start_date = pd.Timestamp(st.session_state.v2_data_start_date)
+                                end_date = pd.Timestamp(st.session_state.v2_data_end_date)
+                                
+                                # Filter data based on selected date range
+                                filtered_sales_data = filtered_sales_data[
+                                    (filtered_sales_data['date'] >= start_date) & 
+                                    (filtered_sales_data['date'] <= end_date)
+                                ]
+                                
+                                # Log filtered data info
+                                original_rows = len(st.session_state.sales_data)
+                                filtered_rows = len(filtered_sales_data)
+                                progress_details.info(f"Using {filtered_rows} data points from selected date range (out of {original_rows} total)")
+                            
+                            # Use the standard generate_forecasts function with the filtered data
                             st.session_state.v2_forecasts = generate_forecasts(
-                                st.session_state.sales_data,
+                                filtered_sales_data,
                                 st.session_state.v2_clusters,
                                 forecast_periods=st.session_state.v2_forecast_periods,
                                 evaluate_models_flag=evaluate_models_flag,
@@ -550,12 +614,14 @@ with st.sidebar:
                         if sku_list and not st.session_state.v2_selected_sku in sku_list:
                             st.session_state.v2_selected_sku = sku_list[0]
 
-                        # Cache the forecast results for future use
-                        cache_key = f"{forecast_scope}_{len(selected_skus_to_forecast)}_{forecast_periods}_{num_clusters}_{'-'.join(models_to_evaluate)}"
+                        # Cache the forecast results for future use with date range information
+                        date_range_key = f"{st.session_state.v2_data_start_date.strftime('%Y%m%d')}_{st.session_state.v2_data_end_date.strftime('%Y%m%d')}"
+                        cache_key = f"{forecast_scope}_{len(selected_skus_to_forecast)}_{forecast_periods}_{num_clusters}_{'-'.join(models_to_evaluate)}_{date_range_key}"
                         st.session_state.v2_forecast_cache[cache_key] = {
                             'forecasts': st.session_state.v2_forecasts,
                             'clusters': st.session_state.v2_clusters,
-                            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                            'date_range': f"{st.session_state.v2_data_start_date.strftime('%b %Y')} to {st.session_state.v2_data_end_date.strftime('%b %Y')}"
                         }
                         st.session_state.v2_models_loaded = True
 
