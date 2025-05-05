@@ -3,6 +3,55 @@ import numpy as np
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.metrics import mean_absolute_error, mean_squared_error
+
+def calculate_intermittent_metrics(actual, predicted):
+    """
+    Calculate metrics suitable for intermittent demand patterns
+    that still provide useful comparisons with traditional models.
+    
+    Parameters:
+    -----------
+    actual : array-like
+        Actual values (can contain zeros)
+    predicted : array-like
+        Predicted values
+        
+    Returns:
+    --------
+    dict
+        Dictionary containing RMSE, MAPE and MAE metrics
+    """
+    # Ensure arrays are numpy arrays of same length
+    actual = np.array(actual)
+    predicted = np.array(predicted)
+    min_len = min(len(actual), len(predicted))
+    actual = actual[:min_len]
+    predicted = predicted[:min_len]
+    
+    # Calculate MAE (works well for all types of data)
+    mae = mean_absolute_error(actual, predicted)
+    
+    # Calculate RMSE
+    rmse = np.sqrt(mean_squared_error(actual, predicted))
+    
+    # Calculate modified MAPE for intermittent series
+    # Use period-to-period cumulative totals to avoid division by zero
+    cumulative_actual = np.cumsum(actual)
+    cumulative_predicted = np.cumsum(predicted)
+    
+    # Calculate differences at each period end
+    valid_indices = cumulative_actual > 0
+    if np.any(valid_indices):
+        errors = np.abs(cumulative_actual[valid_indices] - cumulative_predicted[valid_indices]) / cumulative_actual[valid_indices]
+        mape = np.mean(errors) * 100
+    else:
+        mape = np.nan
+    
+    return {
+        'rmse': rmse,
+        'mape': mape,
+        'mae': mae
+    }
 from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
