@@ -793,8 +793,27 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
             
             # Calculate percentage of zero values (only if we have data)
             if not sku_history.empty:
-                zero_percentage = (sku_history == 0).mean() * 100
-                is_intermittent = zero_percentage > 40
+                # Include periods with no data as zeros (fill in missing months)
+                # First ensure the index is sorted
+                sku_history = sku_history.sort_index()
+                
+                # Create a continuous date range from min to max with monthly frequency
+                if len(sku_history) > 0:
+                    full_date_range = pd.date_range(
+                        start=sku_history.index.min(),
+                        end=sku_history.index.max(),
+                        freq='MS'  # Month Start frequency
+                    )
+                    
+                    # Reindex with the full range, filling NaN with 0
+                    complete_history = sku_history.reindex(full_date_range, fill_value=0)
+                    
+                    # Now calculate zero percentage including missing months
+                    zero_percentage = ((complete_history == 0).sum() / len(complete_history)) * 100
+                    is_intermittent = zero_percentage > 40
+                else:
+                    zero_percentage = 0
+                    is_intermittent = False
             else:
                 zero_percentage = 0
                 is_intermittent = False
