@@ -431,17 +431,27 @@ def plot_forecast(sales_data, forecast_data, sku=None, selected_models=None, sho
 
         # Add forecast divider line if we have forecast data
         if has_forecast:
-            # Get the last historical date
-            max_date = sku_data['date'].max()
+            # Determine the actual forecast start date (first date in the forecast)
+            if isinstance(forecast_data, dict) and 'forecast' in forecast_data:
+                forecast_series = forecast_data['forecast']
+                if isinstance(forecast_series, pd.Series) and not forecast_series.empty:
+                    # Use the first date in the forecast as the forecast start
+                    forecast_start = forecast_series.index.min()
+                else:
+                    # Fall back to the end of historical data
+                    forecast_start = sku_data['date'].max()
+            else:
+                # Fall back to the end of historical data
+                forecast_start = sku_data['date'].max()
 
-            # Add a vertical line separating historical and forecast periods
+            # Add a vertical line at the forecast start date
             fig.add_shape(
                 type="line",
                 xref="x",
                 yref="paper",
-                x0=max_date,
+                x0=forecast_start,
                 y0=0,
-                x1=max_date,
+                x1=forecast_start,
                 y1=1,
                 line=dict(
                     color="gray",
@@ -452,12 +462,12 @@ def plot_forecast(sales_data, forecast_data, sku=None, selected_models=None, sho
 
             # Add annotation for the forecast start
             fig.add_annotation(
-                x=max_date,
+                x=forecast_start,
                 y=1,
                 yref="paper",
                 text="Forecast Start",
                 showarrow=False,
-                xanchor="right",
+                xanchor="center",
                 yanchor="top",
                 bgcolor="rgba(255, 255, 255, 0.8)",
                 font=dict(size=12)
@@ -468,7 +478,7 @@ def plot_forecast(sales_data, forecast_data, sku=None, selected_models=None, sho
                 type="rect",
                 xref="x",
                 yref="paper",
-                x0=max_date,
+                x0=forecast_start,
                 y0=0,
                 x1=forecast_end,
                 y1=1,
