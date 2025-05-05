@@ -13,6 +13,8 @@ from utils.visualization import plot_forecast, plot_cluster_summary, plot_model_
 from utils.parameter_optimizer import get_model_parameters
 from sklearn.model_selection import train_test_split
 from statsmodels.tsa.statespace.exponential_smoothing import ExponentialSmoothing
+# Import the auto data loading functionality
+from utils.session_data import load_data_if_needed
 
 # Implement Improved Croston Methods for intermittent demand forecasting
 
