@@ -13,6 +13,8 @@ from utils.visualization import plot_forecast, plot_cluster_summary, plot_model_
 from utils.parameter_optimizer import get_model_parameters
 from sklearn.model_selection import train_test_split
 from statsmodels.tsa.statespace.exponential_smoothing import ExponentialSmoothing
+# Import seasonal decomposition for time series analysis
+from statsmodels.tsa.seasonal import seasonal_decompose
 # Import the auto data loading functionality
 from utils.session_data import load_data_if_needed
 
@@ -1133,7 +1135,7 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
                     </div>
                     """, unsafe_allow_html=True)
         
-        forecast_tabs = st.tabs(["Forecast Chart", "Model Comparison", "Forecast Metrics"])
+        forecast_tabs = st.tabs(["Forecast Chart", "Model Comparison", "Forecast Metrics", "Time Series Decomposition"])
 
         with forecast_tabs[0]:
             # Forecast visualization section - full width
@@ -1439,7 +1441,7 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
             # Detailed metrics and accuracy information
             if 'model_evaluation' in forecast_data and forecast_data['model_evaluation']['metrics']:
                 st.subheader("Model Evaluation Results")
-
+                
                 # Create table of model evaluation metrics
                 metrics_data = []
                 # First get models from all_models_forecasts to make sure we don't miss any
@@ -1501,6 +1503,150 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
                 # Add a note about N/A values in the metrics
                 if any(m == "N/A" for m in metrics_df['RMSE']):
                     st.info("**Note:** 'N/A' metrics indicate specialized models like Croston which are evaluated differently. For intermittent demand patterns, Croston forecasts are often more reliable despite lacking conventional error metrics.")
+                
+        with forecast_tabs[3]:
+            # Time Series Decomposition Analysis
+            st.subheader("Time Series Decomposition")
+            st.markdown("""
+            This analysis breaks down the sales time series into its core components:
+            - **Trend**: The long-term progression of the series (increasing or decreasing)
+            - **Seasonal**: Repeating patterns or cycles
+            - **Residual**: The random variation remaining after trend and seasonal components are removed
+            """)
+            
+            # Get the historical data for this SKU from the dataframe
+            sku_data = st.session_state.sales_data[st.session_state.sales_data['sku'] == selected_sku]
+            
+            if not sku_data.empty:
+                # Prepare time series for decomposition by pivoting
+                sku_data_pivot = sku_data.pivot_table(
+                    index='date', 
+                    values='quantity', 
+                    aggfunc='sum'
+                )
+                
+                # Check if we have at least 2 seasons of data (needed for decomposition)
+                time_series = sku_data_pivot['quantity']
+                
+                if len(time_series) >= 4:  # Need at least 4 data points
+                    try:
+                        # Create decomposition model options
+                        st.write("### Decomposition Settings")
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            model_type = st.selectbox(
+                                "Decomposition Model",
+                                ["additive", "multiplicative"],
+                                index=0,
+                                help="Additive: Components are added together. Multiplicative: Components are multiplied together."
+                            )
+                            
+                        with col2:
+                            # Determine a reasonable default period (e.g., 12 for monthly data)
+                            default_period = 12 if len(time_series) >= 24 else max(2, len(time_series) // 4)
+                            period = st.slider(
+                                "Seasonal Period",
+                                min_value=2,
+                                max_value=min(24, len(time_series) // 2),
+                                value=default_period,
+                                help="Number of time steps in a seasonal cycle (e.g., 12 for monthly data with yearly seasonality)"
+                            )
+                        
+                        # Perform the decomposition
+                        decomposition = seasonal_decompose(
+                            time_series, 
+                            model=model_type, 
+                            period=period
+                        )
+                        
+                        # Create individual plots for each component
+                        # Original Data
+                        fig_observed = px.line(
+                            x=time_series.index, 
+                            y=time_series.values,
+                            title=f"Original Time Series - {selected_sku}",
+                            labels={"x": "Date", "y": "Sales"}
+                        )
+                        fig_observed.update_layout(template="plotly_white")
+                        
+                        # Trend Component
+                        fig_trend = px.line(
+                            x=decomposition.trend.index, 
+                            y=decomposition.trend.values,
+                            title=f"Trend Component - {selected_sku}",
+                            labels={"x": "Date", "y": "Trend"}
+                        )
+                        fig_trend.update_layout(template="plotly_white")
+                        
+                        # Seasonal Component
+                        fig_seasonal = px.line(
+                            x=decomposition.seasonal.index, 
+                            y=decomposition.seasonal.values,
+                            title=f"Seasonal Component - {selected_sku}",
+                            labels={"x": "Date", "y": "Seasonality"}
+                        )
+                        fig_seasonal.update_layout(template="plotly_white")
+                        
+                        # Residual Component
+                        fig_residual = px.line(
+                            x=decomposition.resid.index, 
+                            y=decomposition.resid.values,
+                            title=f"Residual Component - {selected_sku}",
+                            labels={"x": "Date", "y": "Residuals"}
+                        )
+                        fig_residual.update_layout(template="plotly_white")
+                        
+                        # Display the plots in a 2x2 grid
+                        st.write("### Decomposed Time Series Components")
+                        
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            st.plotly_chart(fig_observed, use_container_width=True)
+                            st.plotly_chart(fig_seasonal, use_container_width=True)
+                            
+                        with col2:
+                            st.plotly_chart(fig_trend, use_container_width=True)
+                            st.plotly_chart(fig_residual, use_container_width=True)
+                        
+                        # Add interpretation guidelines
+                        with st.expander("How to Interpret These Charts", expanded=False):
+                            st.markdown("""
+                            ### Interpreting Time Series Decomposition
+                            
+                            **Original Data**: The raw sales values over time.
+                            
+                            **Trend Component**: 
+                            - Upward trend: Long-term growth in sales
+                            - Downward trend: Long-term decline in sales
+                            - Flat trend: Stable sales over time
+                            
+                            **Seasonal Component**:
+                            - Repeating patterns indicate predictable seasonal fluctuations
+                            - Higher peaks indicate stronger seasonality
+                            - The pattern repeats every period (e.g., every 12 months)
+                            
+                            **Residual Component**:
+                            - Random variation that couldn't be captured by trend or seasonality
+                            - Large spikes indicate unusual events or outliers
+                            - Ideally should look random with no clear pattern
+                            
+                            **What This Means for Forecasting**:
+                            - Strong trend → Focus on trend-based models (ARIMA, Regression)
+                            - Strong seasonality → Use seasonal models (SARIMA, Prophet)
+                            - High residuals → Consider adding external variables or events
+                            - Multiplicative patterns → Sales variation increases with volume
+                            - Additive patterns → Sales variation is consistent regardless of volume
+                            """)
+                    
+                    except Exception as e:
+                        st.error(f"Error performing decomposition: {str(e)}")
+                        st.info("Tip: Try adjusting the period parameter or switching between additive and multiplicative models.")
+                else:
+                    st.warning(f"Not enough data points for decomposition. Need at least 4, but found {len(time_series)}.")
+            else:
+                st.warning(f"No data available for SKU {selected_sku}")
 
     # Forecast export
     st.header("Export Forecasts")
