@@ -11,6 +11,8 @@ from utils.forecast_engine import extract_features, cluster_skus, generate_forec
 from utils.visualization import plot_forecast, plot_cluster_summary, plot_model_comparison
 # Import parameter optimizer functions for using tuned parameters
 from utils.parameter_optimizer import get_model_parameters
+# Import auto data loading functionality
+from utils.session_data import load_data_if_needed
 
 # Initialize variables that might be used in multiple places
 all_sku_data = []
@@ -29,9 +31,9 @@ if 'v2_forecast_cache' not in st.session_state:
 if 'v2_models_loaded' not in st.session_state:
     st.session_state.v2_models_loaded = False
 
-# Check if data is loaded in session state
-if 'sales_data' not in st.session_state or st.session_state.sales_data is None:
-    st.warning("Please upload sales data on the main page first.")
+# Auto-load data if not already loaded
+if not load_data_if_needed():
+    st.warning("No sales data found in the database. Please upload sales data on the main page.")
     st.stop()
 
 # Page title

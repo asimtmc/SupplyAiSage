@@ -368,9 +368,9 @@ if 'v2_forecast_cache' not in st.session_state:
 if 'v2_models_loaded' not in st.session_state:
     st.session_state.v2_models_loaded = False
 
-# Check if data is loaded in session state
-if 'sales_data' not in st.session_state or st.session_state.sales_data is None:
-    st.warning("Please upload sales data on the main page first.")
+# Auto-load data if not already loaded
+if not load_data_if_needed():
+    st.warning("No sales data found in the database. Please upload sales data on the main page.")
     st.stop()
 
 # Page title
