@@ -85,7 +85,7 @@ def croston_forecast(time_series, forecast_periods, alpha=0.1):
     return all_forecasts.iloc[-forecast_periods:]
 
 # Function to check if a time series has intermittent demand
-def is_intermittent_demand(time_series, threshold=0.4):
+def is_intermittent_demand(time_series, threshold=None):
     """
     Check if a time series has intermittent demand (high percentage of zeros).
     
@@ -93,19 +93,51 @@ def is_intermittent_demand(time_series, threshold=0.4):
     -----------
     time_series : pandas.Series
         Time series of demand values.
-    threshold : float, optional (default=0.4)
+    threshold : float, optional (default=None)
         Threshold for percentage of zeros to consider demand intermittent.
+        If None, uses the threshold from session state.
         
     Returns:
     --------
     bool
         True if the demand is intermittent, False otherwise.
     """
-    # Calculate percentage of zero values
-    zero_percentage = (time_series == 0).mean()
+    # If threshold is not specified, use the value from session state
+    if threshold is None:
+        if 'v2_intermittent_threshold' in st.session_state:
+            threshold = st.session_state.v2_intermittent_threshold / 100.0  # Convert from percentage
+        else:
+            threshold = 0.4  # Default fallback value
+    elif threshold > 1.0:
+        # If threshold is given as percentage, convert to ratio
+        threshold = threshold / 100.0
+    
+    # First ensure we have a continuous date range
+    # Sort the index
+    time_series = time_series.sort_index()
+    
+    # Get min and max dates
+    if len(time_series) > 0:
+        min_date = time_series.index.min()
+        max_date = time_series.index.max()
+        
+        # Create full date range
+        full_date_range = pd.date_range(
+            start=min_date,
+            end=max_date,
+            freq='MS'  # Month Start frequency
+        )
+        
+        # Reindex with the full range, filling NaN with 0
+        complete_series = time_series.reindex(full_date_range, fill_value=0)
+        
+        # Calculate percentage of zero values
+        zero_percentage = (complete_series == 0).mean()
+    else:
+        zero_percentage = 0
     
     # Return True if percentage of zeros exceeds threshold
-    return zero_percentage > threshold
+    return zero_percentage >= threshold
 
 # Initialize variables that might be used in multiple places
 all_sku_data = []
@@ -133,8 +165,8 @@ if 'sales_data' not in st.session_state or st.session_state.sales_data is None:
 st.title("V2 Demand Forecasting with Croston Method")
 st.markdown("""
 This module specializes in accurate demand forecasting for products with intermittent demand patterns.
-The system automatically identifies SKUs with frequent zero values (>40%) and applies the Croston method,
-which is optimized for intermittent demand. For regular demand patterns, standard forecasting models are used.
+The system automatically identifies SKUs with frequent zero values based on a configurable threshold and applies 
+the Croston method, which is optimized for intermittent demand. For regular demand patterns, standard forecasting models are used.
 """)
 
 # Add information about Croston method in an expander
@@ -155,7 +187,7 @@ with st.expander("About Croston Method for Intermittent Demand", expanded=True):
         - Slow-moving inventory
         - Seasonal or highly specialized products
         
-        **In this application:** SKUs with >40% zero values in their history are automatically classified as intermittent.
+        **In this application:** SKUs with zero values exceeding the configurable threshold (default 40%) are classified as having intermittent demand patterns.
         """)
     
     with col2:
@@ -194,6 +226,9 @@ if 'v2_forecast_progress' not in st.session_state:
     st.session_state.v2_forecast_progress = 0
 if 'v2_forecast_current_sku' not in st.session_state:
     st.session_state.v2_forecast_current_sku = ""
+# Initialize intermittent demand threshold variable (default 40%)
+if 'v2_intermittent_threshold' not in st.session_state:
+    st.session_state.v2_intermittent_threshold = 40.0
 # Initialize date range filter variables
 if 'v2_data_start_date' not in st.session_state:
     if 'sales_data' in st.session_state and st.session_state.sales_data is not None:
@@ -402,6 +437,34 @@ with st.sidebar:
             st.success("Tuned parameters: ON")
         else:
             st.info("Using default parameters")
+    
+    # Add intermittent demand threshold slider
+    st.subheader("Intermittent Demand Settings")
+    
+    # Get previous threshold value
+    prev_threshold = st.session_state.v2_intermittent_threshold
+    
+    # Add slider for intermittent demand threshold
+    intermittent_threshold = st.slider(
+        "Intermittent Demand Threshold (%)",
+        min_value=5.0,
+        max_value=80.0,
+        value=st.session_state.v2_intermittent_threshold,
+        step=5.0,
+        help="Percentage of zero values required to classify a SKU as having intermittent demand. Higher values require more zeros to classify as intermittent."
+    )
+    
+    # Update the session state
+    st.session_state.v2_intermittent_threshold = intermittent_threshold
+    
+    # Provide information about the threshold
+    st.info(f"SKUs with {intermittent_threshold}% or more zero values will be classified as intermittent demand patterns and use the Croston method")
+    
+    # If threshold changed, clear cache
+    if prev_threshold != intermittent_threshold:
+        if 'v2_forecast_cache' in st.session_state:
+            st.session_state.v2_forecast_cache = {}
+            st.toast("Intermittent demand threshold changed - cached forecasts cleared", icon="ℹ️")
     
     # Add option to forecast all or selected SKUs
     st.subheader("Forecast Scope")
@@ -810,7 +873,8 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
                     
                     # Now calculate zero percentage including missing months
                     zero_percentage = ((complete_history == 0).sum() / len(complete_history)) * 100
-                    is_intermittent = zero_percentage > 40
+                    # Use the user-defined threshold from session state
+                    is_intermittent = zero_percentage >= st.session_state.v2_intermittent_threshold
                 else:
                     zero_percentage = 0
                     is_intermittent = False
