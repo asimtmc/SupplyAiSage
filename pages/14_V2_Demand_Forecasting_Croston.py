@@ -1005,9 +1005,14 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
             
             # Get the max date (either from forecast or sales data)
             if 'forecast' in forecast_data and forecast_data['forecast'] is not None and len(forecast_data['forecast']) > 0:
-                max_date = forecast_data['forecast'].index.max()
+                # Convert to Python's native datetime to avoid Timestamp type issues
+                max_date = forecast_data['forecast'].index.max().to_pydatetime()
             else:
                 max_date = st.session_state.sales_data[st.session_state.sales_data['sku'] == selected_sku]['date'].max()
+            
+            # Convert min_date to Python datetime to ensure consistent types
+            min_date = pd.to_datetime(min_date).to_pydatetime()
+            max_date = pd.to_datetime(max_date).to_pydatetime()
             
             # Create a date range slider
             date_range = st.slider(

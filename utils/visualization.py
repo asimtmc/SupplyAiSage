@@ -388,13 +388,22 @@ def plot_forecast(sales_data, forecast_data, sku=None, selected_models=None, sho
         
         # Apply date range filtering if specified
         if x_axis_range is not None and len(x_axis_range) == 2:
-            # Ensure x_axis_range contains datetime objects
-            start_date = pd.to_datetime(x_axis_range[0])
-            end_date = pd.to_datetime(x_axis_range[1])
-            xaxis_config.update({
-                'range': [start_date, end_date],
-                'title': f"Date (filtered: {start_date.strftime('%b %Y')} - {end_date.strftime('%b %Y')})"
-            })
+            try:
+                # Ensure x_axis_range contains datetime objects
+                start_date = pd.to_datetime(x_axis_range[0])
+                end_date = pd.to_datetime(x_axis_range[1])
+                
+                # Convert to string representation for the range to avoid Timestamp compatibility issues
+                date_range = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
+                
+                xaxis_config.update({
+                    'range': date_range,
+                    'title': f"Date (filtered: {start_date.strftime('%b %Y')} - {end_date.strftime('%b %Y')})"
+                })
+            except Exception as e:
+                # If date filtering fails, log the error but continue without filtering
+                print(f"Error applying date range filter: {str(e)}")
+                # Don't modify the xaxis_config if there's an error
             
         # Apply layout with proper x-axis configuration
         fig.update_layout(
