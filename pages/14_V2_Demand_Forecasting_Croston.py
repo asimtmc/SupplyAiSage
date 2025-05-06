@@ -1564,17 +1564,17 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
                         import plotly.graph_objects as go
                         from plotly.subplots import make_subplots
                         
-                        # Create subplot structure with 4 rows and 1 column
+                        # Create subplot structure with 4 rows and 1 column - ultra compact
                         fig = make_subplots(
                             rows=4, 
                             cols=1, 
                             shared_xaxes=True,  # Common x-axis
-                            vertical_spacing=0.03,  # Minimal spacing between plots
+                            vertical_spacing=0.01,  # Ultra-minimal spacing between plots
                             subplot_titles=(
-                                f"Original Time Series", 
-                                f"Trend Component", 
-                                f"Seasonal Component", 
-                                f"Residual Component"
+                                f"Original Series", 
+                                f"Trend", 
+                                f"Seasonal", 
+                                f"Residual"
                             )
                         )
                         
@@ -1585,7 +1585,7 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
                                 x=time_series.index, 
                                 y=time_series.values, 
                                 name="Sales", 
-                                line=dict(color='#1f77b4')
+                                line=dict(color='#1f77b4', width=1.5)
                             ),
                             row=1, col=1
                         )
@@ -1596,7 +1596,7 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
                                 x=decomposition.trend.index, 
                                 y=decomposition.trend.values, 
                                 name="Trend", 
-                                line=dict(color='#1f77b4')
+                                line=dict(color='#1f77b4', width=1.5)
                             ),
                             row=2, col=1
                         )
@@ -1607,7 +1607,7 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
                                 x=decomposition.seasonal.index, 
                                 y=decomposition.seasonal.values, 
                                 name="Seasonality", 
-                                line=dict(color='#1f77b4')
+                                line=dict(color='#1f77b4', width=1.5)
                             ),
                             row=3, col=1
                         )
@@ -1618,41 +1618,79 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
                                 x=decomposition.resid.index, 
                                 y=decomposition.resid.values, 
                                 name="Residuals", 
-                                line=dict(color='#1f77b4')
+                                line=dict(color='#1f77b4', width=1.5)
                             ),
                             row=4, col=1
                         )
                         
-                        # Update layout
+                        # Update layout for ultra-compact display
                         fig.update_layout(
-                            height=800,  # Total height of the figure
+                            height=500,  # Further reduced total height
                             template="plotly_white",
-                            title=f"Decomposed Time Series Components - {selected_sku}",
+                            title=f"Time Series Decomposition - {selected_sku}",
                             showlegend=False,
-                            margin=dict(t=50, l=50, r=10, b=20)
+                            margin=dict(t=20, l=30, r=5, b=5),  # Ultra-tight margins
+                            plot_bgcolor='rgba(0,0,0,0)',
+                            paper_bgcolor='rgba(0,0,0,0)'
                         )
                         
-                        # Style the y-axis titles to appear on the left side
-                        fig.update_yaxes(title_text="Sales", row=1, col=1, title_standoff=0)
-                        fig.update_yaxes(title_text="Trend", row=2, col=1, title_standoff=0)
-                        fig.update_yaxes(title_text="Seasonality", row=3, col=1, title_standoff=0)
-                        fig.update_yaxes(title_text="Residuals", row=4, col=1, title_standoff=0)
+                        # Ultra-compact y-axis titles
+                        # Make each subplot more compact by reducing tick labels and titles
+                        fig.update_yaxes(
+                            title_text="Sales", 
+                            row=1, 
+                            col=1, 
+                            title_standoff=0, 
+                            tickfont=dict(size=10),
+                            titlefont=dict(size=10)
+                        )
+                        fig.update_yaxes(
+                            title_text="Trend", 
+                            row=2, 
+                            col=1, 
+                            title_standoff=0, 
+                            tickfont=dict(size=10),
+                            titlefont=dict(size=10)
+                        )
+                        fig.update_yaxes(
+                            title_text="Season", 
+                            row=3, 
+                            col=1, 
+                            title_standoff=0, 
+                            tickfont=dict(size=10),
+                            titlefont=dict(size=10)
+                        )
+                        fig.update_yaxes(
+                            title_text="Resid", 
+                            row=4, 
+                            col=1, 
+                            title_standoff=0, 
+                            tickfont=dict(size=10),
+                            titlefont=dict(size=10)
+                        )
                         
-                        # Only show x-axis title on the bottom subplot
-                        fig.update_xaxes(title_text="", row=1, col=1)
-                        fig.update_xaxes(title_text="", row=2, col=1)
-                        fig.update_xaxes(title_text="", row=3, col=1)
-                        fig.update_xaxes(title_text="Date", row=4, col=1)
+                        # Only show x-axis title on the bottom subplot, make more compact
+                        fig.update_xaxes(title_text="", row=1, col=1, showticklabels=False)
+                        fig.update_xaxes(title_text="", row=2, col=1, showticklabels=False)
+                        fig.update_xaxes(title_text="", row=3, col=1, showticklabels=False)
+                        fig.update_xaxes(
+                            title_text="Date", 
+                            row=4, 
+                            col=1, 
+                            tickfont=dict(size=10),
+                            titlefont=dict(size=10)
+                        )
                         
-                        # Move the subplot titles to the left, aligned with y-axis labels
+                        # Move subplot titles to the left and make more compact
                         for i, annotation in enumerate(fig['layout']['annotations']):
                             annotation['x'] = 0  # Set x position to far left 
                             annotation['xanchor'] = 'left'  # Anchor to left
-                            annotation['font'] = dict(size=12)  # Adjust font size
+                            annotation['font'] = dict(size=10)  # Smaller font size
+                            annotation['y'] = annotation['y'] - 0.03  # Move closer to plot
                         
-                        # Display the stacked figure
-                        st.write("### Decomposed Time Series Components")
-                        st.plotly_chart(fig, use_container_width=True)
+                        # Display the stacked figure with minimal whitespace
+                        st.markdown("##### Decomposed Time Series Components")
+                        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
                         
                         # Add interpretation guidelines
                         with st.expander("How to Interpret These Charts", expanded=False):
