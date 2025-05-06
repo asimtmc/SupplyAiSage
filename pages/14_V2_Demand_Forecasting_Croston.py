@@ -1578,6 +1578,11 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
                             )
                         )
                         
+                        # Ensure we use the complete data range up to September 2024
+                        # Determine the date range
+                        min_date = time_series.index.min()
+                        max_date = time_series.index.max()
+                        
                         # Add traces for each component
                         # Original Data
                         fig.add_trace(
@@ -1622,6 +1627,9 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
                             ),
                             row=4, col=1
                         )
+                        
+                        # Set x-axis range to ensure we display all data through September 2024
+                        fig.update_xaxes(range=[min_date, max_date])
                         
                         # Update layout for ultra-compact display
                         fig.update_layout(
