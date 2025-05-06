@@ -1560,60 +1560,99 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
                             period=period
                         )
                         
-                        # Create individual plots for each component
-                        # Original Data
-                        fig_observed = px.line(
-                            x=time_series.index, 
-                            y=time_series.values,
-                            title=f"Original Time Series - {selected_sku}",
-                            labels={"x": "Date", "y": "Sales"}
+                        # Create a single stacked figure with subplots
+                        import plotly.graph_objects as go
+                        from plotly.subplots import make_subplots
+                        
+                        # Create subplot structure with 4 rows and 1 column
+                        fig = make_subplots(
+                            rows=4, 
+                            cols=1, 
+                            shared_xaxes=True,  # Common x-axis
+                            vertical_spacing=0.03,  # Minimal spacing between plots
+                            subplot_titles=(
+                                f"Original Time Series", 
+                                f"Trend Component", 
+                                f"Seasonal Component", 
+                                f"Residual Component"
+                            )
                         )
-                        fig_observed.update_layout(template="plotly_white")
+                        
+                        # Add traces for each component
+                        # Original Data
+                        fig.add_trace(
+                            go.Scatter(
+                                x=time_series.index, 
+                                y=time_series.values, 
+                                name="Sales", 
+                                line=dict(color='#1f77b4')
+                            ),
+                            row=1, col=1
+                        )
                         
                         # Trend Component
-                        fig_trend = px.line(
-                            x=decomposition.trend.index, 
-                            y=decomposition.trend.values,
-                            title=f"Trend Component - {selected_sku}",
-                            labels={"x": "Date", "y": "Trend"}
+                        fig.add_trace(
+                            go.Scatter(
+                                x=decomposition.trend.index, 
+                                y=decomposition.trend.values, 
+                                name="Trend", 
+                                line=dict(color='#1f77b4')
+                            ),
+                            row=2, col=1
                         )
-                        fig_trend.update_layout(template="plotly_white")
                         
                         # Seasonal Component
-                        fig_seasonal = px.line(
-                            x=decomposition.seasonal.index, 
-                            y=decomposition.seasonal.values,
-                            title=f"Seasonal Component - {selected_sku}",
-                            labels={"x": "Date", "y": "Seasonality"}
+                        fig.add_trace(
+                            go.Scatter(
+                                x=decomposition.seasonal.index, 
+                                y=decomposition.seasonal.values, 
+                                name="Seasonality", 
+                                line=dict(color='#1f77b4')
+                            ),
+                            row=3, col=1
                         )
-                        fig_seasonal.update_layout(template="plotly_white")
                         
                         # Residual Component
-                        fig_residual = px.line(
-                            x=decomposition.resid.index, 
-                            y=decomposition.resid.values,
-                            title=f"Residual Component - {selected_sku}",
-                            labels={"x": "Date", "y": "Residuals"}
+                        fig.add_trace(
+                            go.Scatter(
+                                x=decomposition.resid.index, 
+                                y=decomposition.resid.values, 
+                                name="Residuals", 
+                                line=dict(color='#1f77b4')
+                            ),
+                            row=4, col=1
                         )
-                        fig_residual.update_layout(template="plotly_white")
                         
-                        # Display the plots in a 1x4 vertical stack
+                        # Update layout
+                        fig.update_layout(
+                            height=800,  # Total height of the figure
+                            template="plotly_white",
+                            title=f"Decomposed Time Series Components - {selected_sku}",
+                            showlegend=False,
+                            margin=dict(t=50, l=50, r=10, b=20)
+                        )
+                        
+                        # Style the y-axis titles to appear on the left side
+                        fig.update_yaxes(title_text="Sales", row=1, col=1, title_standoff=0)
+                        fig.update_yaxes(title_text="Trend", row=2, col=1, title_standoff=0)
+                        fig.update_yaxes(title_text="Seasonality", row=3, col=1, title_standoff=0)
+                        fig.update_yaxes(title_text="Residuals", row=4, col=1, title_standoff=0)
+                        
+                        # Only show x-axis title on the bottom subplot
+                        fig.update_xaxes(title_text="", row=1, col=1)
+                        fig.update_xaxes(title_text="", row=2, col=1)
+                        fig.update_xaxes(title_text="", row=3, col=1)
+                        fig.update_xaxes(title_text="Date", row=4, col=1)
+                        
+                        # Move the subplot titles to the left, aligned with y-axis labels
+                        for i, annotation in enumerate(fig['layout']['annotations']):
+                            annotation['x'] = 0  # Set x position to far left 
+                            annotation['xanchor'] = 'left'  # Anchor to left
+                            annotation['font'] = dict(size=12)  # Adjust font size
+                        
+                        # Display the stacked figure
                         st.write("### Decomposed Time Series Components")
-                        
-                        # Set smaller height for each chart
-                        chart_height = 250
-                        
-                        # Update layout for each chart to reduce height
-                        fig_observed.update_layout(height=chart_height)
-                        fig_trend.update_layout(height=chart_height)
-                        fig_seasonal.update_layout(height=chart_height)
-                        fig_residual.update_layout(height=chart_height)
-                        
-                        # Display charts in a single column, in specified order
-                        st.plotly_chart(fig_observed, use_container_width=True)
-                        st.plotly_chart(fig_trend, use_container_width=True)
-                        st.plotly_chart(fig_seasonal, use_container_width=True)
-                        st.plotly_chart(fig_residual, use_container_width=True)
+                        st.plotly_chart(fig, use_container_width=True)
                         
                         # Add interpretation guidelines
                         with st.expander("How to Interpret These Charts", expanded=False):
