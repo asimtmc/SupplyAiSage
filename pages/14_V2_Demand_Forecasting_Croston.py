@@ -1642,7 +1642,7 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
                             col=1, 
                             title_standoff=0, 
                             tickfont=dict(size=10),
-                            titlefont=dict(size=10)
+                            title_font=dict(size=10)  # Changed from titlefont to title_font
                         )
                         fig.update_yaxes(
                             title_text="Trend", 
@@ -1650,7 +1650,7 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
                             col=1, 
                             title_standoff=0, 
                             tickfont=dict(size=10),
-                            titlefont=dict(size=10)
+                            title_font=dict(size=10)  # Changed from titlefont to title_font
                         )
                         fig.update_yaxes(
                             title_text="Season", 
@@ -1658,7 +1658,7 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
                             col=1, 
                             title_standoff=0, 
                             tickfont=dict(size=10),
-                            titlefont=dict(size=10)
+                            title_font=dict(size=10)  # Changed from titlefont to title_font
                         )
                         fig.update_yaxes(
                             title_text="Resid", 
@@ -1666,7 +1666,7 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
                             col=1, 
                             title_standoff=0, 
                             tickfont=dict(size=10),
-                            titlefont=dict(size=10)
+                            title_font=dict(size=10)  # Changed from titlefont to title_font
                         )
                         
                         # Only show x-axis title on the bottom subplot, make more compact
@@ -1678,7 +1678,7 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
                             row=4, 
                             col=1, 
                             tickfont=dict(size=10),
-                            titlefont=dict(size=10)
+                            title_font=dict(size=10)  # Changed from titlefont to title_font
                         )
                         
                         # Move subplot titles to the left and make more compact
