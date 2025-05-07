@@ -22,14 +22,16 @@ if 'soh_data' not in st.session_state:
     st.session_state.soh_data = None
 if 'open_orders_data' not in st.session_state:
     st.session_state.open_orders_data = None
+if 'bom_data' not in st.session_state:
+    st.session_state.bom_data = None
 if 'selected_tab' not in st.session_state:
     st.session_state.selected_tab = "SKU Transition Dashboard"
 if 'selected_sku' not in st.session_state:
     st.session_state.selected_sku = None
 if 'filter_category' not in st.session_state:
     st.session_state.filter_category = None
-if 'filter_status' not in st.session_state:
-    st.session_state.filter_status = None
+if 'filter_component_type' not in st.session_state:
+    st.session_state.filter_component_type = None
 if 'date_range' not in st.session_state:
     st.session_state.date_range = None
 
@@ -96,64 +98,178 @@ with st.sidebar:
     
     # File upload section
     st.subheader("Upload Data Files")
-    transition_file = st.file_uploader("Upload Transitions Data (Excel)", type=["xlsx", "xls"], key="transition_upload")
-    fg_master_file = st.file_uploader("Upload FG Master Data (Excel)", type=["xlsx", "xls"], key="fg_master_upload")
-    forecast_file = st.file_uploader("Upload Forecast Data (Excel)", type=["xlsx", "xls"], key="forecast_upload")
-    soh_file = st.file_uploader("Upload SOH Data (Excel)", type=["xlsx", "xls"], key="soh_upload")
-    open_orders_file = st.file_uploader("Upload Open Orders Data (Excel)", type=["xlsx", "xls"], key="open_orders_upload")
+    transition_file = st.file_uploader("Upload Transition Management Excel File", type=["xlsx", "xls"], key="transition_upload")
     
-    # Process uploaded files
+    # Process uploaded file with multiple sheets
     if transition_file is not None:
         try:
-            # Save to session state
-            st.session_state.transition_data = pd.read_excel(transition_file)
-            # Save to database
-            file_id = save_uploaded_file(transition_file, 'transition_data', 'Transition planning data')
-            st.success(f"Successfully loaded transition data with {len(st.session_state.transition_data)} records")
+            # Read all sheets from the Excel file
+            excel_file = pd.ExcelFile(transition_file)
+            
+            # Check if all required sheets exist
+            required_sheets = ["FG Master", "BOM", "FG Forecast", "SOH", "Open Orders", "Transition Timeline"]
+            missing_sheets = [sheet for sheet in required_sheets if sheet not in excel_file.sheet_names]
+            
+            if missing_sheets:
+                st.error(f"Error: Missing sheets in uploaded file: {', '.join(missing_sheets)}")
+            else:
+                # Load each sheet with correct column validation
+                
+                # 1. FG Master
+                fg_master_df = pd.read_excel(excel_file, sheet_name="FG Master")
+                required_cols = ["FG Code", "Description", "Category"]
+                if all(col in fg_master_df.columns for col in required_cols):
+                    # Rename columns to match code expectations
+                    fg_master_df = fg_master_df.rename(columns={
+                        "FG Code": "sku_code",
+                        "Description": "description",
+                        "Category": "category"
+                    })
+                    st.session_state.fg_master_data = fg_master_df
+                    st.success(f"✅ FG Master: {len(fg_master_df)} records loaded")
+                else:
+                    missing_cols = [col for col in required_cols if col not in fg_master_df.columns]
+                    st.error(f"Error in FG Master sheet: Missing columns {', '.join(missing_cols)}")
+                
+                # 2. BOM
+                bom_df = pd.read_excel(excel_file, sheet_name="BOM")
+                required_cols = ["FG Code", "Component Code", "Component Type", "Qty per FG"]
+                if all(col in bom_df.columns for col in required_cols):
+                    # Rename columns to match code expectations
+                    bom_df = bom_df.rename(columns={
+                        "FG Code": "sku_code",
+                        "Component Code": "material_id",
+                        "Component Type": "component_type",
+                        "Qty per FG": "quantity_required"
+                    })
+                    st.session_state.bom_data = bom_df
+                    st.success(f"✅ BOM: {len(bom_df)} records loaded")
+                else:
+                    missing_cols = [col for col in required_cols if col not in bom_df.columns]
+                    st.error(f"Error in BOM sheet: Missing columns {', '.join(missing_cols)}")
+                
+                # 3. FG Forecast
+                forecast_df = pd.read_excel(excel_file, sheet_name="FG Forecast")
+                required_cols = ["FG Code", "Month", "Forecast Qty"]
+                if all(col in forecast_df.columns for col in required_cols):
+                    # Rename columns to match code expectations
+                    forecast_df = forecast_df.rename(columns={
+                        "FG Code": "sku_code",
+                        "Month": "date",
+                        "Forecast Qty": "forecast_qty"
+                    })
+                    # Convert Month to datetime if it's not already
+                    if not pd.api.types.is_datetime64_any_dtype(forecast_df["date"]):
+                        forecast_df["date"] = pd.to_datetime(forecast_df["date"])
+                    st.session_state.forecast_data = forecast_df
+                    st.success(f"✅ FG Forecast: {len(forecast_df)} records loaded")
+                else:
+                    missing_cols = [col for col in required_cols if col not in forecast_df.columns]
+                    st.error(f"Error in FG Forecast sheet: Missing columns {', '.join(missing_cols)}")
+                
+                # 4. SOH
+                soh_df = pd.read_excel(excel_file, sheet_name="SOH")
+                required_cols = ["Component Code", "Component Type", "Stock on Hand"]
+                if all(col in soh_df.columns for col in required_cols):
+                    # Rename columns to match code expectations
+                    soh_df = soh_df.rename(columns={
+                        "Component Code": "material_id",
+                        "Component Type": "component_type",
+                        "Stock on Hand": "qty_on_hand"
+                    })
+                    st.session_state.soh_data = soh_df
+                    st.success(f"✅ SOH: {len(soh_df)} records loaded")
+                else:
+                    missing_cols = [col for col in required_cols if col not in soh_df.columns]
+                    st.error(f"Error in SOH sheet: Missing columns {', '.join(missing_cols)}")
+                
+                # 5. Open Orders
+                open_orders_df = pd.read_excel(excel_file, sheet_name="Open Orders")
+                required_cols = ["Component Code", "Component Type", "Open Order Qty", "Expected Arrival"]
+                if all(col in open_orders_df.columns for col in required_cols):
+                    # Rename columns to match code expectations
+                    open_orders_df = open_orders_df.rename(columns={
+                        "Component Code": "material_id",
+                        "Component Type": "component_type",
+                        "Open Order Qty": "order_qty",
+                        "Expected Arrival": "expected_date"
+                    })
+                    # Convert Expected Arrival to datetime if it's not already
+                    if not pd.api.types.is_datetime64_any_dtype(open_orders_df["expected_date"]):
+                        open_orders_df["expected_date"] = pd.to_datetime(open_orders_df["expected_date"])
+                    st.session_state.open_orders_data = open_orders_df
+                    st.success(f"✅ Open Orders: {len(open_orders_df)} records loaded")
+                else:
+                    missing_cols = [col for col in required_cols if col not in open_orders_df.columns]
+                    st.error(f"Error in Open Orders sheet: Missing columns {', '.join(missing_cols)}")
+                
+                # 6. Transition Timeline
+                transition_df = pd.read_excel(excel_file, sheet_name="Transition Timeline")
+                required_cols = ["FG Code", "Old RM/PM", "New RM/PM", "Start Date", "Go-Live Date"]
+                if all(col in transition_df.columns for col in required_cols):
+                    # Add status field based on dates
+                    today = datetime.now().date()
+                    transition_df["status"] = "Planning"
+                    
+                    # Convert dates to datetime if they're not already
+                    if not pd.api.types.is_datetime64_any_dtype(transition_df["Start Date"]):
+                        transition_df["Start Date"] = pd.to_datetime(transition_df["Start Date"])
+                    if not pd.api.types.is_datetime64_any_dtype(transition_df["Go-Live Date"]):
+                        transition_df["Go-Live Date"] = pd.to_datetime(transition_df["Go-Live Date"])
+                    
+                    # Set status based on dates
+                    for i, row in transition_df.iterrows():
+                        start_date = row["Start Date"].date() if hasattr(row["Start Date"], "date") else row["Start Date"]
+                        end_date = row["Go-Live Date"].date() if hasattr(row["Go-Live Date"], "date") else row["Go-Live Date"]
+                        
+                        if today >= end_date:
+                            transition_df.at[i, "status"] = "Go-Live"
+                        elif today >= start_date:
+                            transition_df.at[i, "status"] = "In Progress"
+                    
+                    # Rename columns to match code expectations
+                    transition_df = transition_df.rename(columns={
+                        "FG Code": "sku_code",
+                        "Old RM/PM": "old_version",
+                        "New RM/PM": "new_version",
+                        "Start Date": "planned_start_date",
+                        "Go-Live Date": "planned_go_live_date"
+                    })
+                    
+                    # Add transition type based on RM/PM naming if possible
+                    transition_df["transition_type"] = transition_df["old_version"].apply(
+                        lambda x: "Formulation" if "RM" in str(x) else "Artwork"
+                    )
+                    
+                    # Add priority (can be refined later)
+                    transition_df["priority"] = "Medium"
+                    
+                    st.session_state.transition_data = transition_df
+                    st.success(f"✅ Transition Timeline: {len(transition_df)} records loaded")
+                else:
+                    missing_cols = [col for col in required_cols if col not in transition_df.columns]
+                    st.error(f"Error in Transition Timeline sheet: Missing columns {', '.join(missing_cols)}")
+                
+                # Save to database for future use
+                file_id = save_uploaded_file(transition_file, 'transition_data', 'Transition management data')
+                
         except Exception as e:
-            st.error(f"Error processing transition data: {str(e)}")
-    
-    if fg_master_file is not None:
-        try:
-            st.session_state.fg_master_data = pd.read_excel(fg_master_file)
-            file_id = save_uploaded_file(fg_master_file, 'fg_master_data', 'Finished goods master data')
-            st.success(f"Successfully loaded FG master data with {len(st.session_state.fg_master_data)} records")
-        except Exception as e:
-            st.error(f"Error processing FG master data: {str(e)}")
-    
-    if forecast_file is not None:
-        try:
-            st.session_state.forecast_data = pd.read_excel(forecast_file)
-            file_id = save_uploaded_file(forecast_file, 'forecast_data', 'Demand forecast data')
-            st.success(f"Successfully loaded forecast data with {len(st.session_state.forecast_data)} records")
-        except Exception as e:
-            st.error(f"Error processing forecast data: {str(e)}")
-    
-    if soh_file is not None:
-        try:
-            st.session_state.soh_data = pd.read_excel(soh_file)
-            file_id = save_uploaded_file(soh_file, 'soh_data', 'Stock on hand data')
-            st.success(f"Successfully loaded SOH data with {len(st.session_state.soh_data)} records")
-        except Exception as e:
-            st.error(f"Error processing SOH data: {str(e)}")
-    
-    if open_orders_file is not None:
-        try:
-            st.session_state.open_orders_data = pd.read_excel(open_orders_file)
-            file_id = save_uploaded_file(open_orders_file, 'open_orders_data', 'Open orders data')
-            st.success(f"Successfully loaded open orders data with {len(st.session_state.open_orders_data)} records")
-        except Exception as e:
-            st.error(f"Error processing open orders data: {str(e)}")
+            st.error(f"Error processing Excel file: {str(e)}")
     
     # Global filters
     st.header("Filters")
     
     # Category filter
-    if st.session_state.fg_master_data is not None and 'Category' in st.session_state.fg_master_data.columns:
-        categories = ['All'] + sorted(st.session_state.fg_master_data['Category'].unique().tolist())
+    if st.session_state.fg_master_data is not None and 'category' in st.session_state.fg_master_data.columns:
+        categories = ['All'] + sorted(st.session_state.fg_master_data['category'].unique().tolist())
         st.session_state.filter_category = st.selectbox("Product Category", categories)
     
-    # Status filter
+    # Component type filter
+    if st.session_state.bom_data is not None and 'component_type' in st.session_state.bom_data.columns:
+        component_types = ['All'] + sorted(st.session_state.bom_data['component_type'].unique().tolist())
+        st.session_state.filter_component_type = st.selectbox("Component Type", component_types)
+    
+    # Transition Status filter
     statuses = ['All', 'Planning', 'In Progress', 'Go-Live']
     st.session_state.filter_status = st.selectbox("Transition Status", statuses)
     
@@ -166,10 +282,13 @@ with st.sidebar:
             max_date = min_date + timedelta(days=365)
             for col in date_cols:
                 if pd.api.types.is_datetime64_any_dtype(st.session_state.transition_data[col]):
-                    col_min = st.session_state.transition_data[col].min().date()
-                    col_max = st.session_state.transition_data[col].max().date()
-                    min_date = min(min_date, col_min)
-                    max_date = max(max_date, col_max)
+                    try:
+                        col_min = st.session_state.transition_data[col].min().date()
+                        col_max = st.session_state.transition_data[col].max().date()
+                        min_date = min(min_date, col_min)
+                        max_date = max(max_date, col_max)
+                    except (AttributeError, ValueError) as e:
+                        st.warning(f"Date range issue with {col}: {e}")
             
             st.session_state.date_range = st.date_input(
                 "Date Range",
@@ -201,40 +320,47 @@ if (st.session_state.transition_data is None or
     st.warning("⚠️ Please upload all required data files in the sidebar to use the Transition Management Tool")
     
     # Show sample data structure expected
-    with st.expander("Expected Data Structure"):
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("Transition Data")
-            st.markdown("""
-            - `sku_code`: Finished goods SKU code
-            - `transition_type`: Type (Formulation/Artwork)
-            - `old_version`: Current version code
-            - `new_version`: New version code
-            - `planned_start_date`: Transition planning start
-            - `planned_go_live_date`: Go-live target date
-            - `actual_go_live_date`: Actual go-live date (if completed)
-            - `status`: Planning/In Progress/Go-Live
-            - `priority`: High/Medium/Low
-            """)
+    with st.expander("Expected Excel File Structure"):
+        st.markdown("""
+        ### Required Excel File Structure
         
-        with col2:
-            st.subheader("Other Required Data")
-            st.markdown("""
-            **FG Master Data**
-            - `sku_code`, `sku_name`, `category`, etc.
-            
-            **BOM Data**
-            - `sku_code`, `material_id`, `qty_required`, etc.
-            
-            **Forecast Data**
-            - `sku_code`, `date`, `forecast_qty`, etc.
-            
-            **SOH Data**
-            - `material_id`/`sku_code`, `qty_on_hand`, etc.
-            
-            **Open Orders Data**
-            - `material_id`, `order_qty`, `expected_date`, etc.
-            """)
+        The Excel file should contain the following **six sheets**, each with specific column headers:
+        
+        #### 1. FG Master
+        | FG Code | Description      | Category   |
+        |---------|------------------|------------|
+        | FG1001  | Shampoo 200ml    | Hair Care  |
+        
+        #### 2. BOM (Bill of Materials)
+        | FG Code | Component Code | Component Type | Qty per FG |
+        |---------|----------------|----------------|------------|
+        | FG1001  | RM101          | RM             | 0.5        |
+        
+        #### 3. FG Forecast
+        | FG Code | Month   | Forecast Qty |
+        |---------|---------|---------------|
+        | FG1001  | 2024-06 | 10000         |
+        
+        #### 4. SOH (Stock on Hand)
+        | Component Code | Component Type | Stock on Hand |
+        |----------------|----------------|----------------|
+        | RM101          | RM             | 5000           |
+        
+        #### 5. Open Orders
+        | Component Code | Component Type | Open Order Qty | Expected Arrival |
+        |----------------|----------------|----------------|------------------|
+        | RM101          | RM             | 2000           | 2024-06-10       |
+        
+        #### 6. Transition Timeline
+        | FG Code | Old RM/PM    | New RM/PM    | Start Date | Go-Live Date |
+        |---------|--------------|--------------|------------|---------------|
+        | FG1001  | RM101/PM201  | RM103/PM203  | 2024-06-01 | 2024-07-01    |
+        
+        ### Notes:
+        - Column names must be **exactly as shown** (case-sensitive)
+        - Dates should be in `YYYY-MM-DD` format
+        - Upload a single Excel file with all six sheets
+        """)
 else:
     # 1. SKU Transition Dashboard
     if st.session_state.selected_tab == "SKU Transition Dashboard":
@@ -246,7 +372,7 @@ else:
         # Apply filters
         if st.session_state.filter_category != 'All' and st.session_state.fg_master_data is not None:
             filtered_skus = st.session_state.fg_master_data[
-                st.session_state.fg_master_data['Category'] == st.session_state.filter_category
+                st.session_state.fg_master_data['category'] == st.session_state.filter_category
             ]['sku_code'].unique().tolist()
             df = df[df['sku_code'].isin(filtered_skus)]
         
