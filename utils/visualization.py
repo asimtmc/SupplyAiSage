@@ -626,57 +626,9 @@ def plot_cluster_summary(cluster_info):
             margin=dict(l=20, r=20, t=40, b=20)
         )
     
-    # Combine the bar chart and table into a single figure
-    # Use a hack with invisible subfigures to position both elements
-    fig = go.Figure()
-    
-    # Add a dummy invisible trace to occupy the full figure area
-    fig.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode='markers', marker=dict(opacity=0)))
-    
-    # Use annotations to place the figures
-    fig.add_annotation(
-        x=0.5, y=0.75,
-        text="",
-        showarrow=False,
-        xref="paper", yref="paper"
-    )
-    
-    fig.add_annotation(
-        x=0.5, y=0.25,
-        text="",
-        showarrow=False,
-        xref="paper", yref="paper"
-    )
-    
-    # Update layout to include both figures as images
-    fig.update_layout(
-        images=[
-            dict(
-                source=fig_dist.to_image(format="png"),
-                xref="paper", yref="paper",
-                x=0, y=1.05,
-                sizex=1, sizey=0.6,
-                xanchor="left", yanchor="top"
-            ),
-            dict(
-                source=fig_table.to_image(format="png"),
-                xref="paper", yref="paper",
-                x=0, y=0.38,
-                sizex=1, sizey=0.4,
-                xanchor="left", yanchor="top"
-            )
-        ],
-        title="SKU Cluster Analysis",
-        height=800,
-        showlegend=False,
-        template="plotly_white"
-    )
-    
-    # Remove axis visibility for the dummy scatter plot
-    fig.update_xaxes(visible=False)
-    fig.update_yaxes(visible=False)
-
-    return fig
+    # Return the distribution figure directly, avoiding the need for kaleido package
+    # In Streamlit, we'll display both figures separately
+    return fig_dist
 
 def plot_material_requirements(material_requirements, top_n=10):
     """

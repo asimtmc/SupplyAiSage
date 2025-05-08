@@ -938,19 +938,20 @@ with st.sidebar:
 if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and st.session_state.v2_forecasts:
     # Show cluster analysis
     st.header("SKU Cluster Analysis")
-
-    col1, col2 = st.columns([2, 1])
-
-    with col1:
-        # Display cluster summary chart
+    
+    if 'v2_clusters' in st.session_state and st.session_state.v2_clusters is not None:
+        # Display the cluster distribution chart
         cluster_fig = plot_cluster_summary(st.session_state.v2_clusters)
         st.plotly_chart(cluster_fig, use_container_width=True)
-
-    with col2:
-        # Show cluster details
-        st.subheader("Cluster Characteristics")
-
-        if 'v2_clusters' in st.session_state and st.session_state.v2_clusters is not None:
+        
+        # Create columns for detailed views and download options
+        col1, col2 = st.columns([3, 2])
+        
+        with col1:
+            # Show cluster distribution statistics
+            st.subheader("Cluster Distribution")
+            
+            # Group by cluster name to get counts
             cluster_groups = st.session_state.v2_clusters.groupby('cluster_name').size().reset_index()
             cluster_groups.columns = ['Cluster', 'Count']
 
@@ -960,14 +961,76 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
             cluster_groups['Percentage'] = cluster_groups['Percentage'].astype(str) + '%'
 
             st.dataframe(cluster_groups, use_container_width=True)
+        
+        with col2:
+            # Show recommended forecasting models per cluster
+            st.subheader("Recommended Forecasting Methods")
+            
+            # If recommended model column exists
+            if 'recommended_model' in st.session_state.v2_clusters.columns:
+                # Get the most common recommended model per cluster
+                model_recommendations = st.session_state.v2_clusters.groupby('cluster_name')['recommended_model'].agg(
+                    lambda x: x.value_counts().index[0] if len(x) > 0 else "Unknown"
+                ).reset_index()
+                model_recommendations.columns = ['Cluster', 'Recommended Model']
+                
+                # Display model recommendations
+                st.dataframe(model_recommendations, use_container_width=True)
+            else:
+                st.info("Model recommendations not available")
+        
+        # Option to show all SKUs and their clusters
+        st.subheader("Detailed SKU Cluster Assignments")
+        show_all = st.checkbox("Show All SKUs and Their Clusters", value=st.session_state.v2_show_all_clusters)
+        st.session_state.v2_show_all_clusters = show_all
 
-            # Option to show all SKUs and their clusters
-            show_all = st.checkbox("Show All SKUs and Their Clusters", value=st.session_state.v2_show_all_clusters)
-            st.session_state.v2_show_all_clusters = show_all
-
-            if show_all:
-                sku_clusters = st.session_state.v2_clusters[['sku', 'cluster_name']].sort_values('cluster_name')
-                st.dataframe(sku_clusters, use_container_width=True)
+        if show_all:
+            # Determine columns to display based on what's available
+            display_columns = ['sku', 'cluster_name']
+            if 'recommended_model' in st.session_state.v2_clusters.columns:
+                display_columns.append('recommended_model')
+            
+            # Add key metrics if they exist
+            metric_columns = ['mean_sales', 'cv', 'trend_slope', 'seasonality', 'zero_ratio']
+            available_metrics = [col for col in metric_columns if col in st.session_state.v2_clusters.columns]
+            display_columns.extend(available_metrics)
+            
+            # Create a clean dataframe for display
+            sku_clusters = st.session_state.v2_clusters[display_columns].sort_values('cluster_name')
+            
+            # Rename columns for better readability
+            readable_names = {
+                'sku': 'SKU',
+                'cluster_name': 'Cluster',
+                'recommended_model': 'Recommended Model',
+                'mean_sales': 'Avg. Demand',
+                'cv': 'CV',
+                'trend_slope': 'Trend',
+                'seasonality': 'Seasonality',
+                'zero_ratio': 'Zero %'
+            }
+            sku_clusters = sku_clusters.rename(columns={k: v for k, v in readable_names.items() if k in sku_clusters.columns})
+            
+            # Round numeric columns to 2 decimal places
+            numeric_cols = sku_clusters.select_dtypes(include=['float64']).columns
+            for col in numeric_cols:
+                sku_clusters[col] = sku_clusters[col].round(2)
+                
+            # Display detailed dataframe
+            st.dataframe(sku_clusters, use_container_width=True)
+            
+            # Provide download link for CSV
+            csv = sku_clusters.to_csv(index=False).encode('utf-8')
+            
+            st.download_button(
+                label="📥 Download Cluster Data as CSV",
+                data=csv,
+                file_name="sku_cluster_analysis.csv",
+                mime="text/csv",
+                help="Download the complete cluster analysis data as a CSV file"
+            )
+    else:
+        st.warning("Cluster analysis data is not available. Please run the forecasting process first.")
 
     # Show SKU-wise Model Selection Table
     st.header("SKU-wise Model Selection")
