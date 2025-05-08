@@ -233,7 +233,8 @@ def get_file_by_type(file_type):
     Returns:
     --------
     tuple
-        (filename, pandas_dataframe) or None if no file found
+        (filename, pandas_dataframe) or (filename, file_data_bytes) for transition_data,
+        or None if no file found
     """
     session = None
     try:
@@ -260,7 +261,13 @@ def get_file_by_type(file_type):
             if not file.file_data or len(file.file_data) == 0:
                 print(f"Error: File data is empty for {file.filename}")
                 return None
+            
+            # For transition_data, return the raw file bytes 
+            if file_type == 'transition_data':
+                print(f"Returning raw file data for transition data: {file.filename}")
+                return (file.filename, file.file_data)
                 
+            # For all other file types, parse into DataFrame
             try:
                 # Convert bytes data to pandas DataFrame
                 file_bytes = io.BytesIO(file.file_data)

@@ -91,7 +91,9 @@ def load_transition_data_from_database():
         if transition_file:
             # Process the Excel file with all sheets for transition management
             try:
-                excel_file = pd.ExcelFile(pd.read_excel(transition_file[1]))
+                # Create a BytesIO object with the file data
+                file_buffer = io.BytesIO(transition_file[1])
+                excel_file = pd.ExcelFile(file_buffer)
                 
                 # Check if all required sheets exist
                 required_sheets = ["FG Master", "BOM", "FG Forecast", "SOH", "Open Orders", "Transition Timeline"]
