@@ -4,6 +4,7 @@ This module handles loading data from the database into session state.
 """
 import streamlit as st
 import pandas as pd
+import io
 from utils.database import get_file_by_type
 from datetime import datetime
 
