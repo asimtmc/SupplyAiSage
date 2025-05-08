@@ -97,164 +97,96 @@ with st.sidebar:
     st.header("Data Management")
     
     # File upload section
-    st.subheader("Upload Data Files")
-    transition_file = st.file_uploader("Upload Transition Management Excel File", type=["xlsx", "xls"], key="transition_upload")
+    st.subheader("Upload Data")
     
-    # Process uploaded file with multiple sheets
-    if transition_file is not None:
-        try:
-            # Read all sheets from the Excel file
-            excel_file = pd.ExcelFile(transition_file)
-            
-            # Check if all required sheets exist
-            required_sheets = ["FG Master", "BOM", "FG Forecast", "SOH", "Open Orders", "Transition Timeline"]
-            missing_sheets = [sheet for sheet in required_sheets if sheet not in excel_file.sheet_names]
-            
-            if missing_sheets:
-                st.error(f"Error: Missing sheets in uploaded file: {', '.join(missing_sheets)}")
-            else:
-                # Load each sheet with correct column validation
-                
-                # 1. FG Master
-                fg_master_df = pd.read_excel(excel_file, sheet_name="FG Master")
-                required_cols = ["FG Code", "Description", "Category"]
-                if all(col in fg_master_df.columns for col in required_cols):
-                    # Rename columns to match code expectations
-                    fg_master_df = fg_master_df.rename(columns={
-                        "FG Code": "sku_code",
-                        "Description": "description",
-                        "Category": "category"
-                    })
-                    st.session_state.fg_master_data = fg_master_df
-                    st.success(f"✅ FG Master: {len(fg_master_df)} records loaded")
-                else:
-                    missing_cols = [col for col in required_cols if col not in fg_master_df.columns]
-                    st.error(f"Error in FG Master sheet: Missing columns {', '.join(missing_cols)}")
-                
-                # 2. BOM
-                bom_df = pd.read_excel(excel_file, sheet_name="BOM")
-                required_cols = ["FG Code", "Component Code", "Component Type", "Qty per FG"]
-                if all(col in bom_df.columns for col in required_cols):
-                    # Rename columns to match code expectations
-                    bom_df = bom_df.rename(columns={
-                        "FG Code": "sku_code",
-                        "Component Code": "material_id",
-                        "Component Type": "component_type",
-                        "Qty per FG": "quantity_required"
-                    })
-                    st.session_state.bom_data = bom_df
-                    st.success(f"✅ BOM: {len(bom_df)} records loaded")
-                else:
-                    missing_cols = [col for col in required_cols if col not in bom_df.columns]
-                    st.error(f"Error in BOM sheet: Missing columns {', '.join(missing_cols)}")
-                
-                # 3. FG Forecast
-                forecast_df = pd.read_excel(excel_file, sheet_name="FG Forecast")
-                required_cols = ["FG Code", "Month", "Forecast Qty"]
-                if all(col in forecast_df.columns for col in required_cols):
-                    # Rename columns to match code expectations
-                    forecast_df = forecast_df.rename(columns={
-                        "FG Code": "sku_code",
-                        "Month": "date",
-                        "Forecast Qty": "forecast_qty"
-                    })
-                    # Convert Month to datetime if it's not already
-                    if not pd.api.types.is_datetime64_any_dtype(forecast_df["date"]):
-                        forecast_df["date"] = pd.to_datetime(forecast_df["date"])
-                    st.session_state.forecast_data = forecast_df
-                    st.success(f"✅ FG Forecast: {len(forecast_df)} records loaded")
-                else:
-                    missing_cols = [col for col in required_cols if col not in forecast_df.columns]
-                    st.error(f"Error in FG Forecast sheet: Missing columns {', '.join(missing_cols)}")
-                
-                # 4. SOH
-                soh_df = pd.read_excel(excel_file, sheet_name="SOH")
-                required_cols = ["Component Code", "Component Type", "Stock on Hand"]
-                if all(col in soh_df.columns for col in required_cols):
-                    # Rename columns to match code expectations
-                    soh_df = soh_df.rename(columns={
-                        "Component Code": "material_id",
-                        "Component Type": "component_type",
-                        "Stock on Hand": "qty_on_hand"
-                    })
-                    st.session_state.soh_data = soh_df
-                    st.success(f"✅ SOH: {len(soh_df)} records loaded")
-                else:
-                    missing_cols = [col for col in required_cols if col not in soh_df.columns]
-                    st.error(f"Error in SOH sheet: Missing columns {', '.join(missing_cols)}")
-                
-                # 5. Open Orders
-                open_orders_df = pd.read_excel(excel_file, sheet_name="Open Orders")
-                required_cols = ["Component Code", "Component Type", "Open Order Qty", "Expected Arrival"]
-                if all(col in open_orders_df.columns for col in required_cols):
-                    # Rename columns to match code expectations
-                    open_orders_df = open_orders_df.rename(columns={
-                        "Component Code": "material_id",
-                        "Component Type": "component_type",
-                        "Open Order Qty": "order_qty",
-                        "Expected Arrival": "expected_date"
-                    })
-                    # Convert Expected Arrival to datetime if it's not already
-                    if not pd.api.types.is_datetime64_any_dtype(open_orders_df["expected_date"]):
-                        open_orders_df["expected_date"] = pd.to_datetime(open_orders_df["expected_date"])
-                    st.session_state.open_orders_data = open_orders_df
-                    st.success(f"✅ Open Orders: {len(open_orders_df)} records loaded")
-                else:
-                    missing_cols = [col for col in required_cols if col not in open_orders_df.columns]
-                    st.error(f"Error in Open Orders sheet: Missing columns {', '.join(missing_cols)}")
-                
-                # 6. Transition Timeline
-                transition_df = pd.read_excel(excel_file, sheet_name="Transition Timeline")
-                required_cols = ["FG Code", "Old RM/PM", "New RM/PM", "Start Date", "Go-Live Date"]
-                if all(col in transition_df.columns for col in required_cols):
-                    # Add status field based on dates
-                    today = datetime.now().date()
-                    transition_df["status"] = "Planning"
-                    
-                    # Convert dates to datetime if they're not already
-                    if not pd.api.types.is_datetime64_any_dtype(transition_df["Start Date"]):
-                        transition_df["Start Date"] = pd.to_datetime(transition_df["Start Date"])
-                    if not pd.api.types.is_datetime64_any_dtype(transition_df["Go-Live Date"]):
-                        transition_df["Go-Live Date"] = pd.to_datetime(transition_df["Go-Live Date"])
-                    
-                    # Set status based on dates
-                    for i, row in transition_df.iterrows():
-                        start_date = row["Start Date"].date() if hasattr(row["Start Date"], "date") else row["Start Date"]
-                        end_date = row["Go-Live Date"].date() if hasattr(row["Go-Live Date"], "date") else row["Go-Live Date"]
-                        
-                        if today >= end_date:
-                            transition_df.at[i, "status"] = "Go-Live"
-                        elif today >= start_date:
-                            transition_df.at[i, "status"] = "In Progress"
-                    
-                    # Rename columns to match code expectations
-                    transition_df = transition_df.rename(columns={
-                        "FG Code": "sku_code",
-                        "Old RM/PM": "old_version",
-                        "New RM/PM": "new_version",
-                        "Start Date": "planned_start_date",
-                        "Go-Live Date": "planned_go_live_date"
-                    })
-                    
-                    # Add transition type based on RM/PM naming if possible
-                    transition_df["transition_type"] = transition_df["old_version"].apply(
-                        lambda x: "Formulation" if "RM" in str(x) else "Artwork"
-                    )
-                    
-                    # Add priority (can be refined later)
-                    transition_df["priority"] = "Medium"
-                    
-                    st.session_state.transition_data = transition_df
-                    st.success(f"✅ Transition Timeline: {len(transition_df)} records loaded")
-                else:
-                    missing_cols = [col for col in required_cols if col not in transition_df.columns]
-                    st.error(f"Error in Transition Timeline sheet: Missing columns {', '.join(missing_cols)}")
-                
-                # Save to database for future use
+    # Create an expander for the upload with template information
+    with st.expander("Upload Transition Management Excel File"):
+        st.markdown("""
+        ### Single Excel File with 6 Sheets
+        Upload a single Excel file containing all 6 required sheets following the template structure.
+        """)
+        
+        # Generate and display download template button
+        from utils.sample_generator import generate_sample_transition_excel
+        
+        template_file = generate_sample_transition_excel()
+        st.download_button(
+            "📥 Download Template", 
+            data=template_file, 
+            file_name="Transition_Management_Template.xlsx", 
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            help="Download a sample Excel template with the required structure"
+        )
+        
+        # File uploader
+        transition_file = st.file_uploader("Upload Excel File", type=["xlsx", "xls"], key="transition_upload")
+        
+        # Process uploaded file
+        if transition_file is not None:
+            try:
+                # Save file to database first
                 file_id = save_uploaded_file(transition_file, 'transition_data', 'Transition management data')
+                st.success("File uploaded to database successfully!")
                 
-        except Exception as e:
-            st.error(f"Error processing Excel file: {str(e)}")
+                # Process the file and load into session state
+                # Create a progress bar for loading
+                progress_bar = st.progress(0)
+                st.info("Processing file, please wait...")
+                
+                # Reset file position before reading
+                transition_file.seek(0)
+                
+                # Read all sheets from the Excel file
+                excel_file = pd.ExcelFile(transition_file)
+                
+                # Check if all required sheets exist
+                required_sheets = ["FG Master", "BOM", "FG Forecast", "SOH", "Open Orders", "Transition Timeline"]
+                missing_sheets = [sheet for sheet in required_sheets if sheet not in excel_file.sheet_names]
+                
+                if missing_sheets:
+                    st.error(f"Error: Missing sheets in uploaded file: {', '.join(missing_sheets)}")
+                else:
+                    # Load each sheet with progress updates
+                    progress_bar.progress(10)
+                    
+                    # Use the newly created function in data_loader to process the excel file
+                    # This keeps the code DRY and ensures consistent processing
+                    from utils.data_loader import load_transition_data_from_database
+                    
+                    # This will reload all data from database including the just-uploaded file
+                    load_success = load_transition_data_from_database()
+                    
+                    progress_bar.progress(100)
+                    
+                    if load_success:
+                        st.success("✅ All data loaded successfully! Please check the dashboard tabs.")
+                        
+                        # Provide a way to refresh the page
+                        if st.button("Refresh Dashboard"):
+                            st.rerun()
+                    else:
+                        # Show database load status errors if any
+                        for key, status in st.session_state.db_load_status.items():
+                            if status['status'] == 'error':
+                                st.error(status['message'])
+                            elif status['status'] == 'warning':
+                                st.warning(status['message'])
+                
+            except Exception as e:
+                st.error(f"Error processing Excel file: {str(e)}")
+    
+    # Add database status expander to show what's loaded
+    with st.expander("Database Status"):
+        if 'db_load_status' in st.session_state:
+            for key, status in st.session_state.db_load_status.items():
+                if status['status'] == 'success':
+                    st.success(status['message'])
+                elif status['status'] == 'warning':
+                    st.warning(status['message'])
+                elif status['status'] == 'error':
+                    st.error(status['message'])
+        else:
+            st.info("Database status not available")
     
     # Global filters
     st.header("Filters")
@@ -288,7 +220,7 @@ with st.sidebar:
                         min_date = min(min_date, col_min)
                         max_date = max(max_date, col_max)
                     except (AttributeError, ValueError) as e:
-                        st.warning(f"Date range issue with {col}: {e}")
+                        pass
             
             st.session_state.date_range = st.date_input(
                 "Date Range",
