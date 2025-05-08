@@ -403,7 +403,8 @@ else:
             transition_skus = st.session_state.transition_data['sku_code'].unique().tolist()
             
             # Filter BOM data for transition SKUs
-            impacted_bom = st.session_state.bom_data[st.session_state.bom_data['sku_code'].isin(transition_skus)]
+            # Use 'sku' column instead of 'sku_code' to match the actual column name in the BOM data
+            impacted_bom = st.session_state.bom_data[st.session_state.bom_data['sku'].isin(transition_skus)]
             
             # Get unique materials from filtered BOM
             impacted_materials = impacted_bom['material_id'].unique().tolist()
