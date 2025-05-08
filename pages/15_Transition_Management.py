@@ -423,12 +423,12 @@ else:
             
             # Create a network diagram or heatmap
             # For simplicity, showing a table first
-            st.dataframe(impacted_bom[['sku_code', 'material_id', 'quantity_required']])
+            st.dataframe(impacted_bom[['sku', 'material_id', 'quantity_required']])
             
             # Create heatmap of material usage across SKUs
             pivot_data = impacted_bom.pivot_table(
                 index='material_id',
-                columns='sku_code',
+                columns='sku',
                 values='quantity_required',
                 aggfunc='sum',
                 fill_value=0
@@ -487,7 +487,7 @@ else:
             
             # Get materials used in transition SKUs
             transition_skus = st.session_state.transition_data['sku_code'].unique().tolist()
-            impacted_bom = st.session_state.bom_data[st.session_state.bom_data['sku_code'].isin(transition_skus)]
+            impacted_bom = st.session_state.bom_data[st.session_state.bom_data['sku'].isin(transition_skus)]
             impacted_materials = impacted_bom['material_id'].unique().tolist()
             
             # Material selection
@@ -532,7 +532,7 @@ else:
                             
                             # Get BOM entry for this SKU and material
                             bom_entry = impacted_bom[
-                                (impacted_bom['sku_code'] == sku) & 
+                                (impacted_bom['sku'] == sku) & 
                                 (impacted_bom['material_id'] == selected_material)
                             ]
                             
@@ -691,7 +691,7 @@ else:
             
             # Get materials used in transition SKUs
             transition_skus = st.session_state.transition_data['sku_code'].unique().tolist()
-            impacted_bom = st.session_state.bom_data[st.session_state.bom_data['sku_code'].isin(transition_skus)]
+            impacted_bom = st.session_state.bom_data[st.session_state.bom_data['sku'].isin(transition_skus)]
             impacted_materials = impacted_bom['material_id'].unique().tolist()
             
             # Calculate ordering recommendations
@@ -740,7 +740,7 @@ else:
                         
                         # Get BOM entry for this SKU and material
                         bom_entry = impacted_bom[
-                            (impacted_bom['sku_code'] == sku) & 
+                            (impacted_bom['sku'] == sku) & 
                             (impacted_bom['material_id'] == material)
                         ]
                         
@@ -922,7 +922,7 @@ else:
                 
                 # Get BOM for old version
                 # This is a simplification, we'd need actual version-specific BOM data
-                old_bom = st.session_state.bom_data[st.session_state.bom_data['sku_code'] == sku]
+                old_bom = st.session_state.bom_data[st.session_state.bom_data['sku'] == sku]
                 
                 # Simulate obsolete materials based on transition type
                 if transition_type == 'Formulation':
