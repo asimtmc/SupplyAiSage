@@ -497,12 +497,13 @@ def plot_forecast(sales_data, forecast_data, sku=None, selected_models=None, sho
 
 def plot_cluster_summary(cluster_info):
     """
-    Create a plotly figure showing cluster distribution and characteristics
+    Create a comprehensive SKU cluster analysis dashboard
+    showing distribution, characteristics, and recommended forecast methods
 
     Parameters:
     -----------
     cluster_info : pandas.DataFrame
-        Information about SKU clusters
+        Information about SKU clusters including metrics and recommendations
 
     Returns:
     --------
@@ -519,22 +520,161 @@ def plot_cluster_summary(cluster_info):
     cluster_counts = cluster_info['cluster_name'].value_counts().reset_index()
     cluster_counts.columns = ['Cluster', 'Count']
 
-    # Create figure
-    fig = px.bar(
+    # Create distribution figure
+    fig_dist = px.bar(
         cluster_counts, 
         x='Cluster', 
         y='Count',
         title="SKU Distribution by Cluster",
         color='Count',
-        color_continuous_scale=px.colors.sequential.Blues
+        color_continuous_scale=px.colors.sequential.Blues,
     )
 
     # Update layout
-    fig.update_layout(
+    fig_dist.update_layout(
         xaxis_title="Cluster",
         yaxis_title="Number of SKUs",
+        template="plotly_white",
+        height=400
+    )
+    
+    # Add percentage labels on top of bars
+    total_skus = cluster_counts['Count'].sum()
+    for i, row in enumerate(cluster_counts.itertuples()):
+        percentage = (row.Count / total_skus) * 100
+        fig_dist.add_annotation(
+            x=row.Cluster,
+            y=row.Count,
+            text=f"{percentage:.1f}%",
+            showarrow=False,
+            yshift=10,
+            font=dict(size=10)
+        )
+    
+    # Create a table view of cluster characteristics
+    try:
+        # Get average characteristics per cluster
+        cluster_features = ['mean_sales', 'cv', 'trend_slope', 'seasonality', 'volatility', 'zero_ratio']
+        available_features = [f for f in cluster_features if f in cluster_info.columns]
+        
+        # Compute average metrics for each cluster
+        cluster_metrics = cluster_info.groupby('cluster_name')[available_features].mean().reset_index()
+        
+        # Also get the most common recommended model per cluster
+        if 'recommended_model' in cluster_info.columns:
+            model_recommendations = cluster_info.groupby('cluster_name')['recommended_model'].agg(
+                lambda x: x.value_counts().index[0] if len(x) > 0 else "Unknown"
+            ).reset_index()
+            cluster_metrics = cluster_metrics.merge(model_recommendations, on='cluster_name')
+        
+        # Format metrics for display
+        for col in available_features:
+            if col in cluster_metrics.columns:
+                cluster_metrics[col] = cluster_metrics[col].round(2)
+        
+        # Rename columns for better readability
+        readable_names = {
+            'mean_sales': 'Avg. Demand',
+            'cv': 'CV',
+            'trend_slope': 'Trend',
+            'seasonality': 'Seasonality',
+            'volatility': 'Volatility',
+            'zero_ratio': 'Zero %',
+            'recommended_model': 'Suggested Model'
+        }
+        
+        cluster_metrics = cluster_metrics.rename(columns=readable_names)
+        
+        # Create a table using plotly graph objects
+        fig_table = go.Figure(data=[go.Table(
+            header=dict(
+                values=list(cluster_metrics.columns),
+                fill_color='royalblue',
+                align='center',
+                font=dict(color='white', size=12)
+            ),
+            cells=dict(
+                values=[cluster_metrics[col] for col in cluster_metrics.columns],
+                fill_color='lavender',
+                align='center'
+            )
+        )])
+        
+        fig_table.update_layout(
+            title="Cluster Characteristics & Recommended Models",
+            height=300,
+            margin=dict(l=20, r=20, t=40, b=20)
+        )
+    except Exception as e:
+        # If table creation fails, create a simple fallback table
+        fig_table = go.Figure(data=[go.Table(
+            header=dict(
+                values=["Cluster"],
+                fill_color='royalblue',
+                align='center',
+                font=dict(color='white', size=12)
+            ),
+            cells=dict(
+                values=[cluster_counts['Cluster']],
+                fill_color='lavender',
+                align='center'
+            )
+        )])
+        fig_table.update_layout(
+            title="Cluster List (detailed metrics unavailable)",
+            height=300,
+            margin=dict(l=20, r=20, t=40, b=20)
+        )
+    
+    # Combine the bar chart and table into a single figure
+    # Use a hack with invisible subfigures to position both elements
+    fig = go.Figure()
+    
+    # Add a dummy invisible trace to occupy the full figure area
+    fig.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode='markers', marker=dict(opacity=0)))
+    
+    # Use annotations to place the figures
+    fig.add_annotation(
+        x=0.5, y=0.75,
+        text="",
+        showarrow=False,
+        xref="paper", yref="paper"
+    )
+    
+    fig.add_annotation(
+        x=0.5, y=0.25,
+        text="",
+        showarrow=False,
+        xref="paper", yref="paper"
+    )
+    
+    # Update layout to include both figures as images
+    fig.update_layout(
+        images=[
+            dict(
+                source=fig_dist.to_image(format="png"),
+                xref="paper", yref="paper",
+                x=0, y=1.05,
+                sizex=1, sizey=0.6,
+                xanchor="left", yanchor="top"
+            ),
+            dict(
+                source=fig_table.to_image(format="png"),
+                xref="paper", yref="paper",
+                x=0, y=0.38,
+                sizex=1, sizey=0.4,
+                xanchor="left", yanchor="top"
+            )
+        ],
+        title="SKU Cluster Analysis",
+        height=800,
+        showlegend=False,
         template="plotly_white"
     )
+    
+    # Remove axis visibility for the dummy scatter plot
+    fig.update_xaxes(visible=False)
+    fig.update_yaxes(visible=False)
 
     return fig
 
