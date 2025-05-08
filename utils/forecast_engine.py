@@ -173,20 +173,26 @@ def extract_features(sales_data):
         if len(sku_data) < 4:  # Need at least a few months of data
             continue
 
-        # Calculate basic statistics
+        # 1. Mean demand
         mean_sales = sku_data['quantity'].mean()
+        
+        # 2. Coefficient of variation (CV = std/mean)
         std_sales = sku_data['quantity'].std()
         cv = std_sales / mean_sales if mean_sales > 0 else 0
-
-        # Calculate trend
+        
+        # 3. Intermittency (% of zero-demand periods)
+        zero_ratio = (sku_data['quantity'] == 0).mean()
+        
+        # 4. Trend (slope from linear regression over time)
         try:
             sku_data['trend_index'] = np.arange(len(sku_data))
             trend_model = np.polyfit(sku_data['trend_index'], sku_data['quantity'], 1)
             trend_slope = trend_model[0]
         except:
             trend_slope = 0
-
-        # Check for seasonality using autocorrelation
+            
+        # 5. Seasonality score
+        # 5.1 Autocorrelation approach
         if len(sku_data) >= 13:  # Need at least a year of data for seasonality
             try:
                 autocorr = pd.Series(sku_data['quantity'].values).autocorr(lag=12)  # 12-month lag
@@ -194,27 +200,39 @@ def extract_features(sales_data):
                 autocorr = 0
         else:
             autocorr = 0
-
-        # Calculate skewness and kurtosis
-        skewness = sku_data['quantity'].skew()
-        kurtosis = sku_data['quantity'].kurtosis()
-
-        # Calculate volatility
+            
+        # 5.2 Alternative: Apply Fourier terms (if enough data)
+        fourier_score = 0
+        if len(sku_data) >= 24:  # Need at least 2 years for reliable Fourier analysis
+            try:
+                from scipy import signal
+                # Get the quantity values
+                quantity = sku_data['quantity'].values
+                # Apply FFT to get frequency components
+                fft_result = np.abs(np.fft.rfft(quantity - np.mean(quantity)))
+                # Use the strength of seasonal components relative to the overall signal
+                # Focus on components that might represent seasonality (excluding very high frequencies)
+                potential_seasonal_components = fft_result[1:min(7, len(fft_result))]
+                if len(potential_seasonal_components) > 0:
+                    fourier_score = np.max(potential_seasonal_components) / np.mean(fft_result) if np.mean(fft_result) > 0 else 0
+            except:
+                fourier_score = 0
+                
+        # Use the stronger of the two seasonality indicators
+        seasonality_score = max(autocorr, fourier_score)
+        
+        # Additional features that could be useful
+        # Volatility (variability in period-to-period changes)
         pct_change = sku_data['quantity'].pct_change().dropna()
         volatility = pct_change.std() if len(pct_change) > 0 else 0
-
-        # Calculate zero ratio (proportion of months with zero sales)
-        zero_ratio = (sku_data['quantity'] == 0).mean()
-
-        # Store features
+        
+        # Store all features
         features_list.append({
             'sku': sku,
             'mean_sales': mean_sales,
             'cv': cv,
             'trend_slope': trend_slope,
-            'seasonality': autocorr,
-            'skewness': skewness,
-            'kurtosis': kurtosis,
+            'seasonality': seasonality_score,
             'volatility': volatility,
             'zero_ratio': zero_ratio
         })
@@ -224,7 +242,7 @@ def extract_features(sales_data):
 
     return features_df
 
-def cluster_skus(features_df, n_clusters=5):
+def cluster_skus(features_df, n_clusters=None):
     """
     Cluster SKUs based on their time series features
 
@@ -233,7 +251,7 @@ def cluster_skus(features_df, n_clusters=5):
     features_df : pandas.DataFrame
         DataFrame with extracted features per SKU
     n_clusters : int, optional
-        Number of clusters to create (default is 5)
+        Number of clusters to create (default is determined automatically using the Elbow method)
 
     Returns:
     --------
@@ -243,66 +261,186 @@ def cluster_skus(features_df, n_clusters=5):
     # Select features for clustering
     cluster_features = [
         'mean_sales', 'cv', 'trend_slope', 'seasonality', 
-        'skewness', 'volatility', 'zero_ratio'
+        'volatility', 'zero_ratio'
     ]
-
+    
+    # Make sure all required features exist
+    available_features = [f for f in cluster_features if f in features_df.columns]
+    
     # Handle missing values
-    for feature in cluster_features:
-        if feature in features_df.columns:
-            features_df[feature] = features_df[feature].fillna(features_df[feature].median())
+    for feature in available_features:
+        features_df[feature] = features_df[feature].fillna(features_df[feature].median())
 
     # Subset dataframe to only include features used for clustering
-    features_subset = features_df[cluster_features]
-
-    # Standardize features
+    features_subset = features_df[available_features]
+    
+    # Normalize features
     scaler = StandardScaler()
     scaled_features = scaler.fit_transform(features_subset)
-
-    # Apply K-means clustering
+    
+    # Optionally apply PCA for dimensionality reduction if we have many features
+    apply_pca = len(available_features) >= 5  # Only apply if we have enough features
+    if apply_pca:
+        try:
+            from sklearn.decomposition import PCA
+            # Keep enough components to explain at least 90% of variance
+            pca = PCA(n_components=0.9)
+            scaled_features = pca.fit_transform(scaled_features)
+        except:
+            # If PCA fails, just continue with normalized features
+            pass
+    
+    # Determine optimal number of clusters using the Elbow method if not specified
+    if n_clusters is None:
+        from sklearn.metrics import silhouette_score
+        
+        # Test range of cluster counts (2 to 10 or number of samples, whichever is smaller)
+        max_clusters = min(10, len(features_df) - 1)
+        if max_clusters < 2:
+            max_clusters = 2  # Minimum 2 clusters
+            
+        inertia_values = []
+        silhouette_scores = []
+        
+        for k in range(2, max_clusters + 1):
+            try:
+                # Train KMeans
+                kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
+                kmeans.fit(scaled_features)
+                
+                # Record inertia (sum of squared distances to nearest centroid)
+                inertia_values.append(kmeans.inertia_)
+                
+                # Calculate silhouette score (measure of how similar points are to their own cluster)
+                cluster_labels = kmeans.labels_
+                if len(set(cluster_labels)) > 1:  # Need at least 2 clusters for silhouette
+                    silhouette_scores.append(silhouette_score(scaled_features, cluster_labels))
+                else:
+                    silhouette_scores.append(0)
+            except:
+                # If clustering fails, just append zero
+                inertia_values.append(0)
+                silhouette_scores.append(0)
+        
+        # Find elbow point - where adding more clusters gives diminishing returns
+        if len(inertia_values) > 2:
+            from scipy.signal import argrelextrema
+            # Calculate rate of inertia decrease
+            inertia_diffs = np.diff(inertia_values)
+            inertia_diffs_rate = np.diff(inertia_diffs)
+            
+            # Look for points where the rate of decrease changes significantly
+            try:
+                # Find local minima in the second derivative
+                local_mins = argrelextrema(np.array(inertia_diffs_rate), np.less)[0]
+                if len(local_mins) > 0:
+                    # Add 2 because we started at k=2 and indices are 0-based
+                    n_clusters = local_mins[0] + 2
+                else:
+                    # If no clear elbow, use silhouette score to pick the best k
+                    n_clusters = silhouette_scores.index(max(silhouette_scores)) + 2
+            except:
+                # Default to 5 clusters if automatic detection fails
+                n_clusters = 5
+        else:
+            # Default to a reasonable number if we don't have enough data points
+            n_clusters = min(5, len(features_df))
+    
+    # Apply K-means clustering with the optimal or specified number of clusters
     kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
     cluster_labels = kmeans.fit_predict(scaled_features)
+    
+    # Optionally, experiment with alternative clustering methods
+    try_alternative_methods = False
+    if try_alternative_methods:
+        try:
+            # Try DBSCAN for density-based clustering (good for finding outliers)
+            from sklearn.cluster import DBSCAN
+            dbscan = DBSCAN(eps=0.5, min_samples=3)
+            dbscan_labels = dbscan.fit_predict(scaled_features)
+            
+            # Only use DBSCAN if it finds a reasonable number of clusters
+            unique_labels = set(dbscan_labels) - {-1}  # Exclude noise points
+            if 2 <= len(unique_labels) <= 10:
+                cluster_labels = dbscan_labels
+                
+            # Try hierarchical clustering
+            from sklearn.cluster import AgglomerativeClustering
+            hc = AgglomerativeClustering(n_clusters=n_clusters)
+            hc_labels = hc.fit_predict(scaled_features)
+            
+            # Select the clustering method that gives the best silhouette score
+            kmeans_silhouette = silhouette_score(scaled_features, cluster_labels)
+            hc_silhouette = silhouette_score(scaled_features, hc_labels)
+            
+            if hc_silhouette > kmeans_silhouette:
+                cluster_labels = hc_labels
+        except:
+            # If alternative methods fail, stick with K-means
+            pass
 
     # Add cluster labels to original features
     features_df['cluster'] = cluster_labels
 
     # Determine cluster characteristics
-    cluster_profiles = features_df.groupby('cluster')[cluster_features].mean()
+    cluster_profiles = features_df.groupby('cluster')[available_features].mean()
 
-    # Assign descriptive names based on characteristics
+    # Assign interpretable tags based on characteristics
     cluster_names = {}
+    recommended_models = {}
 
     for cluster in range(n_clusters):
         profile = cluster_profiles.loc[cluster]
-
-        # Determine key characteristics of this cluster
-        if profile['seasonality'] > 0.3:
-            seasonality = "Seasonal"
+        
+        # Initialize the tag components
+        cluster_tag_components = []
+        
+        # Fast Movers: high mean, low CV
+        if profile['mean_sales'] > features_df['mean_sales'].median() and profile['cv'] < features_df['cv'].median():
+            cluster_tag_components.append("Fast Movers")
+            recommended_model = "auto_arima"  # Good for stable, high-volume patterns
+            
+        # Intermittent: high zero_ratio
+        elif profile['zero_ratio'] > 0.3:
+            cluster_tag_components.append("Intermittent")
+            recommended_model = "croston"  # Specialized for intermittent demand
+            
+        # Seasonal Spikes: high seasonality
+        elif profile['seasonality'] > 0.3:
+            cluster_tag_components.append("Seasonal Spikes")
+            recommended_model = "prophet"  # Good for capturing seasonality
+            
+        # Volatile: high CV and volatility
+        elif profile['cv'] > features_df['cv'].median() and profile['volatility'] > features_df['volatility'].median():
+            cluster_tag_components.append("Volatile")
+            recommended_model = "ets"  # Handles varying volatility well
+            
+        # Trending: significant trend_slope
+        elif abs(profile['trend_slope']) > 0.1 * profile['mean_sales']:
+            direction = "Growing" if profile['trend_slope'] > 0 else "Declining"
+            cluster_tag_components.append(f"{direction} Trend")
+            recommended_model = "holtwinters"  # Good for trending data
+            
+        # Steady: default case for stable patterns
         else:
-            seasonality = "Non-seasonal"
+            cluster_tag_components.append("Steady")
+            recommended_model = "arima"  # General-purpose model
+        
+        # Add modifiers for other significant characteristics
+        if profile['seasonality'] > 0.3 and "Seasonal" not in " ".join(cluster_tag_components):
+            cluster_tag_components.append("with Seasonality")
+            
+        if profile['zero_ratio'] > 0.2 and profile['zero_ratio'] <= 0.3 and "Intermittent" not in " ".join(cluster_tag_components):
+            cluster_tag_components.append("with Gaps")
+        
+        # Create the final descriptive tag
+        cluster_tag = " ".join(cluster_tag_components)
+        cluster_names[cluster] = cluster_tag
+        recommended_models[cluster] = recommended_model
 
-        if profile['trend_slope'] > 0.1:
-            trend = "Growing"
-        elif profile['trend_slope'] < -0.1:
-            trend = "Declining"
-        else:
-            trend = "Stable"
-
-        if profile['volatility'] > 0.3:
-            volatility = "Volatile"
-        else:
-            volatility = "Steady"
-
-        if profile['zero_ratio'] > 0.3:
-            frequency = "Intermittent"
-        else:
-            frequency = "Regular"
-
-        # Create descriptive name
-        name = f"{seasonality} {trend} {volatility} {frequency}"
-        cluster_names[cluster] = name
-
-    # Map names to cluster numbers
+    # Map names and recommended models to cluster numbers
     features_df['cluster_name'] = features_df['cluster'].map(cluster_names)
+    features_df['recommended_model'] = features_df['cluster'].map(recommended_models)
 
     return features_df
 
