@@ -15,6 +15,8 @@ from sklearn.model_selection import train_test_split
 from statsmodels.tsa.statespace.exponential_smoothing import ExponentialSmoothing
 # Import seasonal decomposition for time series analysis
 from statsmodels.tsa.seasonal import seasonal_decompose
+# Import automatic seasonal period detection
+from utils.seasonal_detector import detect_seasonal_period
 # Import the auto data loading functionality
 from utils.session_data import load_data_if_needed
 
@@ -1606,13 +1608,18 @@ if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and s
                             )
                             
                         with col2:
-                            # Determine a reasonable default period (e.g., 12 for monthly data)
-                            default_period = 12 if len(time_series) >= 24 else max(2, len(time_series) // 4)
+                            # Automatically detect the optimal seasonal period
+                            detected_period = detect_seasonal_period(time_series)
+                            
+                            # Show detected period in text
+                            st.info(f"📊 **Detected optimal seasonal period: {detected_period}**")
+                            
+                            # Allow user to override with slider
                             period = st.slider(
                                 "Seasonal Period",
                                 min_value=2,
                                 max_value=min(24, len(time_series) // 2),
-                                value=default_period,
+                                value=detected_period,
                                 help="Number of time steps in a seasonal cycle (e.g., 12 for monthly data with yearly seasonality)"
                             )
                         
