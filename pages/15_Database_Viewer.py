@@ -169,70 +169,77 @@ with data_container:
     elif selected_option == "Model Parameters":
         st.subheader("Model Parameters")
         
-        # Get all model parameters from the database
-        params = get_all_model_parameters()
-        
-        if params:
-            # Extract main data for display
-            display_data = []
-            for param in params:
-                # Format parameters for display
-                param_str = json.dumps(param['parameters'], indent=2) if isinstance(param['parameters'], dict) else str(param['parameters'])
-                
-                display_data.append({
-                    'sku': param['sku'],
-                    'model_type': param['model_type'],
-                    'last_updated': param['last_updated'],
-                    'tuning_iterations': param['tuning_iterations'],
-                    'best_score': param['best_score'],
-                    'parameters': param_str
+        # Direct database query as a fallback for model parameters
+        try:
+            # Use sqlite3 directly to query model parameters
+            conn = sqlite3.connect("data/supply_chain.db")
+            df_params = pd.read_sql_query("SELECT id, sku, model_type, parameters, last_updated, tuning_iterations, best_score FROM model_parameter_cache", conn)
+            conn.close()
+            
+            if not df_params.empty:
+                # Format columns for better display
+                df_params = df_params.rename(columns={
+                    'sku': 'SKU',
+                    'model_type': 'Model Type',
+                    'parameters': 'Parameters',
+                    'last_updated': 'Last Updated',
+                    'tuning_iterations': 'Iterations',
+                    'best_score': 'Best Score'
                 })
-            
-            # Convert to DataFrame
-            df = pd.DataFrame(display_data)
-            
-            # Format and rename columns
-            df.columns = ['SKU', 'Model', 'Last Updated', 'Iterations', 'Best Score', 'Parameters']
-            
-            # Display the table
-            st.dataframe(df)
-            
-            # Add download button
-            st.download_button(
-                label="Download as Excel",
-                data=to_excel(df),
-                file_name="model_parameters.xlsx",
-                mime="application/vnd.ms-excel"
-            )
-        else:
+                
+                # Display the table
+                st.dataframe(df_params)
+                
+                # Add download button
+                st.download_button(
+                    label="Download as Excel",
+                    data=to_excel(df_params),
+                    file_name="model_parameters.xlsx",
+                    mime="application/vnd.ms-excel"
+                )
+            else:
+                st.info("No model parameters found in the database.")
+                
+        except Exception as e:
+            st.error(f"Error retrieving model parameters: {str(e)}")
             st.info("No optimized model parameters have been saved to the database yet.")
             
     elif selected_option == "Secondary Sales":
         st.subheader("Secondary Sales Data")
         
-        # Get all secondary sales data
-        secondary_sales = get_secondary_sales()
-        
-        if len(secondary_sales) > 0:
-            # Convert to DataFrame
-            df = pd.DataFrame(secondary_sales)
+        # Direct database query for secondary sales
+        try:
+            # Use sqlite3 directly to query secondary sales
+            conn = sqlite3.connect("data/supply_chain.db")
+            df_sales = pd.read_sql_query("SELECT sku, date, primary_sales, estimated_secondary_sales, noise, algorithm_used FROM secondary_sales ORDER BY sku, date", conn)
+            conn.close()
             
-            # Rename columns for better display
-            if not df.empty:
-                df = df[['sku', 'date', 'primary_sales', 'estimated_secondary_sales', 'noise', 'algorithm_used']]
-                df.columns = ['SKU', 'Date', 'Primary Sales', 'Secondary Sales', 'Difference', 'Algorithm']
-            
-            # Display the table
-            st.dataframe(df)
-            
-            # Add download button
-            st.download_button(
-                label="Download as Excel",
-                data=to_excel(df),
-                file_name="secondary_sales.xlsx",
-                mime="application/vnd.ms-excel"
-            )
-        else:
+            if not df_sales.empty:
+                # Format columns for better display
+                df_sales = df_sales.rename(columns={
+                    'sku': 'SKU',
+                    'date': 'Date',
+                    'primary_sales': 'Primary Sales',
+                    'estimated_secondary_sales': 'Secondary Sales',
+                    'noise': 'Difference',
+                    'algorithm_used': 'Algorithm'
+                })
+                
+                # Display the table
+                st.dataframe(df_sales)
+                
+                # Add download button
+                st.download_button(
+                    label="Download as Excel",
+                    data=to_excel(df_sales),
+                    file_name="secondary_sales.xlsx",
+                    mime="application/vnd.ms-excel"
+                )
+            else:
+                st.info("No secondary sales data found in the database.")
+                
+        except Exception as e:
+            st.error(f"Error retrieving secondary sales data: {str(e)}")
             st.info("No secondary sales data has been generated yet.")
     
 # Add a section to query the database directly (for advanced users)
