@@ -242,38 +242,4 @@ with data_container:
             st.error(f"Error retrieving secondary sales data: {str(e)}")
             st.info("No secondary sales data has been generated yet.")
     
-# Add a section to query the database directly (for advanced users)
-with st.expander("Advanced: Direct SQL Query", expanded=False):
-    st.write("""
-    This section allows advanced users to query the database directly using SQL.
-    Be careful with your queries as there is no validation or protection against harmful operations.
-    """)
-    
-    sql_query = st.text_area(
-        "Enter SQL Query", 
-        height=150,
-        value="SELECT name FROM sqlite_master WHERE type='table';"
-    )
-    
-    if st.button("Run Query"):
-        try:
-            # Connect to the database
-            conn = sqlite3.connect("data/supply_chain.db")
-            
-            # Execute the query and get results
-            df = pd.read_sql_query(sql_query, conn)
-            conn.close()
-            
-            # Display results
-            st.write("Query Results:")
-            st.dataframe(df)
-            
-            # Add download button
-            st.download_button(
-                label="Download Results",
-                data=to_excel(df),
-                file_name="query_results.xlsx",
-                mime="application/vnd.ms-excel"
-            )
-        except Exception as e:
-            st.error(f"Error executing query: {str(e)}")
+# No direct SQL query section as requested
