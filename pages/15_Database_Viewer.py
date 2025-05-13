@@ -72,6 +72,21 @@ with data_container:
                 file_name="uploaded_files.xlsx",
                 mime="application/vnd.ms-excel"
             )
+            
+            # Add row detail viewer
+            st.markdown("### View Row Details")
+            if len(df) > 0:
+                row_index = st.selectbox("Select row to view details:", 
+                                    options=range(len(df)),
+                                    format_func=lambda i: f"{df.iloc[i]['Filename']}", key="files_row_select")
+                
+                if row_index is not None:
+                    st.markdown("#### Row Details")
+                    selected_row = df.iloc[row_index]
+                    
+                    # Display each column in a separate row
+                    for col in df.columns:
+                        st.markdown(f"**{col}**: {selected_row[col]}")
         else:
             st.info("No files have been uploaded to the database yet.")
     
@@ -197,6 +212,21 @@ with data_container:
                     file_name="model_parameters.xlsx",
                     mime="application/vnd.ms-excel"
                 )
+                
+                # Add row detail viewer
+                st.markdown("### View Row Details")
+                if len(df_params) > 0:
+                    row_index = st.selectbox("Select row to view details:", 
+                                        options=range(len(df_params)),
+                                        format_func=lambda i: f"{df_params.iloc[i]['SKU']} - {df_params.iloc[i]['Model Type']}")
+                    
+                    if row_index is not None:
+                        st.markdown("#### Row Details")
+                        selected_row = df_params.iloc[row_index]
+                        
+                        # Display each column in a separate row
+                        for col in df_params.columns:
+                            st.markdown(f"**{col}**: {selected_row[col]}")
             else:
                 st.info("No model parameters found in the database.")
                 
@@ -235,6 +265,22 @@ with data_container:
                     file_name="secondary_sales.xlsx",
                     mime="application/vnd.ms-excel"
                 )
+                
+                # Add row detail viewer
+                st.markdown("### View Row Details")
+                if len(df_sales) > 0:
+                    row_index = st.selectbox("Select row to view details:", 
+                                        options=range(len(df_sales)),
+                                        format_func=lambda i: f"{df_sales.iloc[i]['SKU']} - {df_sales.iloc[i]['Date']}", 
+                                        key="sales_row_select")
+                    
+                    if row_index is not None:
+                        st.markdown("#### Row Details")
+                        selected_row = df_sales.iloc[row_index]
+                        
+                        # Display each column in a separate row
+                        for col in df_sales.columns:
+                            st.markdown(f"**{col}**: {selected_row[col]}")
             else:
                 st.info("No secondary sales data found in the database.")
                 
