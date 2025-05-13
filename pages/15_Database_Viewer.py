@@ -1,0 +1,272 @@
+import streamlit as st
+import pandas as pd
+import json
+import sqlite3
+import io
+from utils.database import (
+    get_all_files, 
+    get_forecast_history, 
+    get_forecast_details,
+    get_all_model_parameters,
+    get_secondary_sales
+)
+
+# Page title
+st.title("Database Viewer")
+st.markdown("""
+This module provides direct access to all data stored in the system's database,
+allowing you to view and export any table for analysis or reporting.
+""")
+
+# Create a dropdown to select the table to view
+table_options = {
+    "Uploaded Files": "uploaded_files",
+    "Forecasts": "forecast_results",
+    "Model Parameters": "model_parameter_cache",
+    "Secondary Sales": "secondary_sales"
+}
+
+selected_option = st.selectbox(
+    "Select data to view", 
+    options=list(table_options.keys()),
+    index=0
+)
+
+# Container for table data
+data_container = st.container()
+
+# Function to convert data to Excel
+def to_excel(df):
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, sheet_name='Sheet1', index=False)
+    return output.getvalue()
+
+# Display the selected table data
+with data_container:
+    # Create a horizontal line for visual separation
+    st.markdown("---")
+    
+    # Different handling based on the selected table
+    if selected_option == "Uploaded Files":
+        st.subheader("Uploaded Files")
+        
+        # Get all files from the database
+        files = get_all_files()
+        
+        if files:
+            # Convert to DataFrame for display
+            df = pd.DataFrame(files)
+            
+            # Reorder and rename columns for better display
+            df = df[['filename', 'file_type', 'created_at', 'id']]
+            df.columns = ['Filename', 'Type', 'Upload Date', 'ID']
+            
+            # Display the table
+            st.dataframe(df)
+            
+            # Add download button
+            st.download_button(
+                label="Download as Excel",
+                data=to_excel(df),
+                file_name="uploaded_files.xlsx",
+                mime="application/vnd.ms-excel"
+            )
+        else:
+            st.info("No files have been uploaded to the database yet.")
+    
+    elif selected_option == "Forecasts":
+        st.subheader("Forecast Results")
+        
+        # Get all forecasts from the database
+        forecasts = get_forecast_history()
+        
+        if forecasts:
+            # Convert to DataFrame for display
+            df = pd.DataFrame(forecasts)
+            
+            # Format metric columns to show fewer decimal places
+            if 'mape' in df.columns:
+                df['mape'] = df['mape'].apply(lambda x: f"{x:.2f}" if pd.notnull(x) else "N/A")
+            if 'rmse' in df.columns:
+                df['rmse'] = df['rmse'].apply(lambda x: f"{x:.2f}" if pd.notnull(x) else "N/A")
+            if 'mae' in df.columns:
+                df['mae'] = df['mae'].apply(lambda x: f"{x:.2f}" if pd.notnull(x) else "N/A")
+                
+            # Rename columns for better display
+            df.columns = ['ID', 'SKU', 'Model', 'Date', 'MAPE (%)', 'RMSE', 'MAE']
+            
+            # Display the table
+            st.dataframe(df)
+            
+            # Add download button
+            st.download_button(
+                label="Download as Excel",
+                data=to_excel(df),
+                file_name="forecast_results.xlsx",
+                mime="application/vnd.ms-excel"
+            )
+            
+            # Option to view detailed forecast
+            st.markdown("### View Detailed Forecast")
+            forecast_id = st.selectbox(
+                "Select a forecast to view details",
+                options=df['ID'].tolist(),
+                format_func=lambda x: f"{df[df['ID']==x]['SKU'].values[0]} - {df[df['ID']==x]['Model'].values[0]} - {df[df['ID']==x]['Date'].values[0]}"
+            )
+            
+            if forecast_id:
+                # Get detailed forecast data
+                details = get_forecast_details(forecast_id)
+                
+                if details:
+                    st.write("#### Forecast Details")
+                    
+                    # Display basic info
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.write(f"**SKU:** {details['sku']}")
+                        st.write(f"**Model:** {details['model_type']}")
+                        st.write(f"**Date:** {details['forecast_date']}")
+                    
+                    with col2:
+                        st.write(f"**MAPE:** {details['mape']:.2f}%" if details['mape'] is not None else "**MAPE:** N/A")
+                        st.write(f"**RMSE:** {details['rmse']:.2f}" if details['rmse'] is not None else "**RMSE:** N/A")
+                        st.write(f"**MAE:** {details['mae']:.2f}" if details['mae'] is not None else "**MAE:** N/A")
+                    
+                    # Parse and display forecast data
+                    st.write("#### Forecast Values")
+                    try:
+                        forecast_data = json.loads(details['forecast_data'])
+                        forecast_df = pd.DataFrame(forecast_data)
+                        st.dataframe(forecast_df)
+                        
+                        # Add download button for detailed forecast
+                        st.download_button(
+                            label="Download Detailed Forecast",
+                            data=to_excel(forecast_df),
+                            file_name=f"forecast_details_{details['sku']}_{details['model_type']}.xlsx",
+                            mime="application/vnd.ms-excel"
+                        )
+                    except Exception as e:
+                        st.error(f"Error parsing forecast data: {str(e)}")
+                    
+                    # Parse and display model parameters
+                    if details['model_params']:
+                        st.write("#### Model Parameters")
+                        try:
+                            model_params = json.loads(details['model_params'])
+                            # Convert dict to DataFrame for better display
+                            params_df = pd.DataFrame([model_params])
+                            st.dataframe(params_df)
+                        except:
+                            st.write(details['model_params'])
+                else:
+                    st.error("Could not retrieve forecast details.")
+        else:
+            st.info("No forecasts have been saved to the database yet.")
+            
+    elif selected_option == "Model Parameters":
+        st.subheader("Model Parameters")
+        
+        # Get all model parameters from the database
+        params = get_all_model_parameters()
+        
+        if params:
+            # Extract main data for display
+            display_data = []
+            for param in params:
+                # Format parameters for display
+                param_str = json.dumps(param['parameters'], indent=2) if isinstance(param['parameters'], dict) else str(param['parameters'])
+                
+                display_data.append({
+                    'sku': param['sku'],
+                    'model_type': param['model_type'],
+                    'last_updated': param['last_updated'],
+                    'tuning_iterations': param['tuning_iterations'],
+                    'best_score': param['best_score'],
+                    'parameters': param_str
+                })
+            
+            # Convert to DataFrame
+            df = pd.DataFrame(display_data)
+            
+            # Format and rename columns
+            df.columns = ['SKU', 'Model', 'Last Updated', 'Iterations', 'Best Score', 'Parameters']
+            
+            # Display the table
+            st.dataframe(df)
+            
+            # Add download button
+            st.download_button(
+                label="Download as Excel",
+                data=to_excel(df),
+                file_name="model_parameters.xlsx",
+                mime="application/vnd.ms-excel"
+            )
+        else:
+            st.info("No optimized model parameters have been saved to the database yet.")
+            
+    elif selected_option == "Secondary Sales":
+        st.subheader("Secondary Sales Data")
+        
+        # Get all secondary sales data
+        secondary_sales = get_secondary_sales()
+        
+        if len(secondary_sales) > 0:
+            # Convert to DataFrame
+            df = pd.DataFrame(secondary_sales)
+            
+            # Rename columns for better display
+            if not df.empty:
+                df = df[['sku', 'date', 'primary_sales', 'estimated_secondary_sales', 'noise', 'algorithm_used']]
+                df.columns = ['SKU', 'Date', 'Primary Sales', 'Secondary Sales', 'Difference', 'Algorithm']
+            
+            # Display the table
+            st.dataframe(df)
+            
+            # Add download button
+            st.download_button(
+                label="Download as Excel",
+                data=to_excel(df),
+                file_name="secondary_sales.xlsx",
+                mime="application/vnd.ms-excel"
+            )
+        else:
+            st.info("No secondary sales data has been generated yet.")
+    
+# Add a section to query the database directly (for advanced users)
+with st.expander("Advanced: Direct SQL Query", expanded=False):
+    st.write("""
+    This section allows advanced users to query the database directly using SQL.
+    Be careful with your queries as there is no validation or protection against harmful operations.
+    """)
+    
+    sql_query = st.text_area(
+        "Enter SQL Query", 
+        height=150,
+        value="SELECT name FROM sqlite_master WHERE type='table';"
+    )
+    
+    if st.button("Run Query"):
+        try:
+            # Connect to the database
+            conn = sqlite3.connect("data/supply_chain.db")
+            
+            # Execute the query and get results
+            df = pd.read_sql_query(sql_query, conn)
+            conn.close()
+            
+            # Display results
+            st.write("Query Results:")
+            st.dataframe(df)
+            
+            # Add download button
+            st.download_button(
+                label="Download Results",
+                data=to_excel(df),
+                file_name="query_results.xlsx",
+                mime="application/vnd.ms-excel"
+            )
+        except Exception as e:
+            st.error(f"Error executing query: {str(e)}")
