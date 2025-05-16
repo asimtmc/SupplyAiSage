@@ -25,5 +25,5 @@ setup(
         "st-gsheets-connection>=0.1.0",
         "altair>=5.5.0",
     ],
-    python_requires=">=3.12",
+    python_requires=">=3.10",
 )
