@@ -1,0 +1,23 @@
+{
+  "name": "AI Supply Chain Platform",
+  "description": "Advanced AI-powered supply chain forecasting and analysis tool",
+  "repository": "https://github.com/yourusername/supply-chain-forecasting",
+  "keywords": ["python", "streamlit", "supply-chain", "forecast", "inventory"],
+  "buildpacks": [
+    {
+      "url": "heroku/python"
+    }
+  ],
+  "env": {
+    "PYTHON_VERSION": {
+      "description": "Python version to use",
+      "value": "3.12.0"
+    }
+  },
+  "formation": {
+    "web": {
+      "quantity": 1,
+      "size": "standard-1x"
+    }
+  }
+}
