@@ -1,1 +1,1 @@
-web: uv sync --no-lockfile && bin/optimize_heroku.sh && python heroku_startup.py && streamlit run app.py --server.port=$PORT --server.address=0.0.0.0 --server.maxUploadSize=50
+web: pip install -r heroku_prod_requirements.txt && bin/optimize_heroku.sh && python heroku_startup.py && streamlit run app.py --server.port=$PORT --server.address=0.0.0.0 --server.enableStaticServing=false --browser.gatherUsageStats=false --server.maxUploadSize=25
