@@ -5,6 +5,9 @@ import sqlite3
 from datetime import datetime
 import io
 
+# Import custom modules
+from utils.session_data import load_data_if_needed
+
 # Set page configuration
 st.set_page_config(
     page_title="Intermittent Demand Forecasting",
@@ -16,23 +19,20 @@ st.set_page_config(
 # Make sure data directory exists
 if not os.path.exists('data'):
     os.makedirs('data')
+if not os.path.exists('data/samples'):
+    os.makedirs('data/samples')
 
 # Initialize SQLite database if not exists
 def init_db():
     """Initialize the database with required tables."""
     db_path = 'data/supply_chain.db'
     
-    # Create new database
+    # Create new database if it doesn't exist
     conn = sqlite3.connect(db_path)
     
-    # Drop existing tables to start fresh
-    conn.execute("DROP TABLE IF EXISTS uploaded_files")
-    conn.execute("DROP TABLE IF EXISTS forecast_results")
-    conn.execute("DROP TABLE IF EXISTS model_parameter_cache")
-    
-    # Create tables
+    # Create tables if they don't exist
     conn.execute('''
-    CREATE TABLE uploaded_files (
+    CREATE TABLE IF NOT EXISTS uploaded_files (
         id TEXT PRIMARY KEY,
         filename TEXT,
         file_data BLOB,
@@ -42,7 +42,7 @@ def init_db():
     ''')
     
     conn.execute('''
-    CREATE TABLE forecast_results (
+    CREATE TABLE IF NOT EXISTS forecast_results (
         id TEXT PRIMARY KEY,
         sku TEXT,
         model TEXT,
@@ -53,7 +53,7 @@ def init_db():
     ''')
     
     conn.execute('''
-    CREATE TABLE model_parameter_cache (
+    CREATE TABLE IF NOT EXISTS model_parameter_cache (
         id TEXT PRIMARY KEY,
         sku TEXT,
         model_type TEXT,
@@ -77,15 +77,18 @@ st.title("Intermittent Demand Forecasting")
 st.markdown("""
 ### Specialized Tool for Intermittent Demand Patterns
 
-This simplified application focuses on accurate demand forecasting for products with intermittent 
+This application focuses on accurate demand forecasting for products with intermittent 
 demand patterns using the Croston method and other specialized algorithms.
 
 #### Key Features:
-- **Automatic Pattern Detection**: Identifies intermittent demand patterns
-- **Specialized Algorithms**: Optimized for sporadic demand
+- **Automatic Seasonal Detection**: Intelligently identifies seasonal patterns
+- **Specialized Algorithms**: Optimized for sporadic demand patterns
 - **Hyperparameter Tuning**: Fine-tunes models for better accuracy
-- **Streamlined Interface**: Focused on essential functionality
+- **Interactive Visualizations**: Explore forecasts with dynamic charts
 """)
+
+# Automatically load sample data if no other data exists
+data_loaded = load_data_if_needed()
 
 # File uploader
 uploaded_file = st.file_uploader("Upload your sales data (Excel file)", type=['xlsx'])
@@ -136,40 +139,18 @@ if uploaded_file is not None:
             st.session_state.sales_data = df
             
             # Add navigation instruction
-            st.success("Data uploaded successfully! Navigate to the Demand Forecasting page to generate forecasts.")
+            st.success("Data uploaded successfully! Navigate to the Intermittent Demand Forecasting page to generate forecasts.")
 
     except Exception as e:
         st.error(f"An error occurred: {str(e)}")
+elif data_loaded:
+    # Display preview of loaded data
+    st.write("Using loaded data:")
+    st.dataframe(st.session_state.sales_data.head())
+    st.info(f"Total rows: {len(st.session_state.sales_data)}")
+    st.success("Sample data loaded automatically. Navigate to the Intermittent Demand Forecasting page to generate forecasts.")
 else:
-    # Check if we have data in the database
-    conn = sqlite3.connect('data/supply_chain.db')
-    cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM uploaded_files WHERE file_type = 'sales_data'")
-    file_count = cursor.fetchone()[0]
-    
-    if file_count > 0:
-        st.info(f"Total files in database: {file_count}")
-        cursor.execute("SELECT id, filename FROM uploaded_files WHERE file_type = 'sales_data'")
-        files = cursor.fetchall()
-        
-        for file_id, filename in files:
-            st.write(f"Found file: {filename} (ID: {file_id})")
-            
-            # Attempt to load the file
-            cursor.execute("SELECT file_data FROM uploaded_files WHERE id = ?", (file_id,))
-            file_data = cursor.fetchone()[0]
-            
-            try:
-                # Load to pandas dataframe
-                data = pd.read_excel(io.BytesIO(file_data))
-                st.session_state.sales_data = data
-                st.success(f"Successfully parsed file {filename} - found {len(data)} rows")
-            except Exception as e:
-                st.warning(f"Could not parse file {filename}: {str(e)}")
-    else:
-        st.warning("No files found in the database. Please upload a file.")
-    
-    conn.close()
+    st.warning("No data loaded. Please upload a file.")
 
 # Add footer
 st.markdown("---")
