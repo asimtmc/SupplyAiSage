@@ -173,8 +173,8 @@ with tabs[1]:
             # Frequency selection
             frequency = st.selectbox(
                 "Data Frequency",
-                options=['D', 'W', 'M'],
-                format_func=lambda x: {'D': 'Daily', 'W': 'Weekly', 'M': 'Monthly'}[x],
+                options=['D', 'W', 'ME'],
+                format_func=lambda x: {'D': 'Daily', 'W': 'Weekly', 'ME': 'Monthly'}[x],
                 index=2  # Default to monthly
             )
             

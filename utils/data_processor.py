@@ -99,12 +99,12 @@ def check_intermittent_demand(data, threshold=0.3):
     zero_proportion = (data['quantity'] == 0).mean()
     return zero_proportion >= threshold
 
-def prepare_data_for_forecasting(data, frequency='M'):
+def prepare_data_for_forecasting(data, frequency='ME'):
     """Prepare data for forecasting by resampling to a regular time frequency.
     
     Args:
         data (pd.DataFrame): Time series with date and quantity columns
-        frequency (str): Pandas frequency string (e.g., 'D', 'W', 'M')
+        frequency (str): Pandas frequency string (e.g., 'D', 'W', 'ME' for month end)
         
     Returns:
         pd.DataFrame: Resampled data
@@ -112,7 +112,21 @@ def prepare_data_for_forecasting(data, frequency='M'):
     # Set date as index
     data_idx = data.set_index('date')
     
+    # Map old deprecated frequency codes to newer ones
+    freq_mapping = {
+        'M': 'ME',  # Month end
+        'W': 'W-SUN',  # Week end (Sunday)
+        'Q': 'QE',  # Quarter end
+        'Y': 'YE'  # Year end
+    }
+    
+    # Apply mapping if needed
+    if frequency in freq_mapping:
+        freq_to_use = freq_mapping[frequency]
+    else:
+        freq_to_use = frequency
+    
     # Resample to specified frequency
-    resampled = data_idx.resample(frequency)['quantity'].sum().reset_index()
+    resampled = data_idx.resample(freq_to_use)['quantity'].sum().reset_index()
     
     return resampled

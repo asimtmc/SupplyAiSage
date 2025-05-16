@@ -71,15 +71,6 @@ def optimize_parameters(sku, model_type, data, cross_validation=True):
     # Different optimization based on model type
     if model_type == 'auto_arima':
         best_params, metrics = optimize_auto_arima_parameters(data, cv=3 if cross_validation else 0)
-    elif model_type == 'prophet':
-        # Default parameters for Prophet
-        best_params = {
-            'changepoint_prior_scale': 0.05,
-            'seasonality_prior_scale': 10,
-            'seasonality_mode': 'additive',
-            'interval_width': 0.8
-        }
-        metrics = {'mae': np.mean(data['quantity']) * 0.2}  # Simplified metric
     elif model_type == 'croston':
         # Default parameters for Croston
         best_params = {
@@ -133,13 +124,7 @@ def get_model_parameters_with_fallback(sku, model_type):
                 'error_action': 'ignore',
                 'suppress_warnings': True
             }
-        elif model_type == 'prophet':
-            params = {
-                'changepoint_prior_scale': 0.05,
-                'seasonality_prior_scale': 10,
-                'seasonality_mode': 'additive',
-                'interval_width': 0.8
-            }
+
         elif model_type == 'croston':
             params = {
                 'alpha': 0.1,
