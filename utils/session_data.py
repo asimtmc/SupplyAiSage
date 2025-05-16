@@ -1,35 +1,46 @@
 import streamlit as st
 import pandas as pd
-from utils.database import get_file_by_type, get_all_files
+import sqlite3
+import io
 
 def load_data_if_needed():
-    """
-    Automatically loads the required data files if they haven't been loaded yet.
-    Call this at the beginning of each page to ensure data is available.
-    """
-    # Check if sales data is already loaded
-    if 'sales_data' not in st.session_state or st.session_state.sales_data is None:
-        try:
-            # Load sales data from database
-            sales_data_file = get_file_by_type('sales_data')
-            if sales_data_file:
-                st.session_state.sales_data = sales_data_file[1]
-                print(f"Auto-loaded sales data: {sales_data_file[0]}")
-            
-            # Load BOM data from database
-            bom_data_file = get_file_by_type('bom_data')
-            if bom_data_file:
-                st.session_state.bom_data = bom_data_file[1]
-                print(f"Auto-loaded BOM data: {bom_data_file[0]}")
-            
-            # Load supplier data from database
-            supplier_data_file = get_file_by_type('supplier_data')
-            if supplier_data_file:
-                st.session_state.supplier_data = supplier_data_file[1]
-                print(f"Auto-loaded supplier data: {supplier_data_file[0]}")
-                
-        except Exception as e:
-            print(f"Error auto-loading data: {str(e)}")
+    """Loads sales data from the database if it's not already in session state
     
-    # Return True if we have sales data, False otherwise
-    return 'sales_data' in st.session_state and st.session_state.sales_data is not None
+    Returns:
+        bool: True if data is loaded, False otherwise
+    """
+    # Check if data is already loaded
+    if 'sales_data' in st.session_state and not st.session_state.sales_data.empty:
+        return True
+    
+    # Load from the database
+    try:
+        conn = sqlite3.connect('data/supply_chain.db')
+        cursor = conn.cursor()
+        
+        # Get latest sales file
+        cursor.execute(
+            "SELECT file_data FROM uploaded_files WHERE file_type = 'sales_data' ORDER BY upload_date DESC LIMIT 1"
+        )
+        result = cursor.fetchone()
+        
+        if result:
+            file_data = result[0]
+            # Load into dataframe
+            data = pd.read_excel(io.BytesIO(file_data))
+            
+            # Process data if needed - check date column format, etc.
+            if 'date' in data.columns:
+                if not pd.api.types.is_datetime64_any_dtype(data['date']):
+                    data['date'] = pd.to_datetime(data['date'])
+            
+            # Store in session state
+            st.session_state.sales_data = data
+            conn.close()
+            return True
+        else:
+            conn.close()
+            return False
+    except Exception as e:
+        print(f"Error loading data: {str(e)}")
+        return False
