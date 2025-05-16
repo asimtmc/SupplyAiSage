@@ -1,35 +1,30 @@
 {
-  "name": "AI Supply Chain Platform",
-  "description": "Advanced AI-powered supply chain forecasting and analysis tool",
-  "repository": "https://github.com/yourusername/supply-chain-forecasting",
-  "keywords": ["python", "streamlit", "supply-chain", "forecast", "inventory"],
-  "stack": "heroku-24",
-  "formation": {
-    "web": {
-      "quantity": 1,
-      "size": "standard-1x"
-    }
-  },
+  "name": "Intermittent Demand Forecasting",
+  "description": "A specialized forecasting app for products with intermittent demand patterns using the Croston method.",
+  "repository": "https://github.com/yourusername/intermittent-demand-forecasting",
+  "keywords": ["python", "streamlit", "forecasting", "croston", "intermittent-demand"],
+  "success_url": "/",
   "env": {
-    "DISABLE_UV_LOCKING": {
-      "description": "Disable UV lockfile requirement",
+    "PYTHON_VERSION": {
+      "description": "Python runtime version",
+      "value": "3.10.12"
+    },
+    "STREAMLIT_SERVER_HEADLESS": {
+      "description": "Run streamlit in headless mode",
       "value": "true"
     },
-    "DISABLE_COLLECTSTATIC": {
-      "description": "Disable collectstatic during build",
-      "value": "1"
-    },
-    "TF_CPP_MIN_LOG_LEVEL": {
-      "description": "Suppress TensorFlow warnings",
-      "value": "2"
+    "STREAMLIT_SERVER_ENABLE_CORS": {
+      "description": "Enable CORS for streamlit server",
+      "value": "true"
     }
   },
   "buildpacks": [
     {
-      "url": "https://github.com/heroku/heroku-buildpack-apt"
-    },
-    {
       "url": "heroku/python"
     }
-  ]
+  ],
+  "addons": [],
+  "scripts": {
+    "postdeploy": "python init_db.py"
+  }
 }
