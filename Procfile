@@ -1,1 +1,1 @@
-web: pip install -r requirements-minimal.txt && bin/optimize_heroku.sh && bin/strip_tensorflow.sh && python heroku_startup.py && streamlit run app.py --server.port=$PORT --server.address=0.0.0.0 --server.enableStaticServing=false --browser.gatherUsageStats=false --server.maxUploadSize=10
+web: streamlit run app.py --server.port=$PORT --server.headless=true
