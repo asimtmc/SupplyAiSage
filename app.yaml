@@ -1,25 +1,10 @@
-runtime: python
-env: flex
-runtime_config:
-  python_version: 3.10
+runtime: python310
 
-# This resource setting ensures application uses minimal resources
-# Adjust as needed if your application requires more
-resources:
-  cpu: 1
-  memory_gb: 1
-  disk_size_gb: 10
-
-automatic_scaling:
-  min_num_instances: 1
-  max_num_instances: 1
+env_variables:
+  PYTHONUNBUFFERED: 'True'
 
 handlers:
 - url: /.*
   script: auto
 
-env_variables:
-  STREAMLIT_SERVER_PORT: 8080
-  STREAMLIT_SERVER_ADDRESS: 0.0.0.0
-  STREAMLIT_SERVER_HEADLESS: 'true'
-  STREAMLIT_SERVER_ENABLE_STATIC_SERVING: 'false'
+entrypoint: streamlit run app.py --server.port=$PORT --server.headless=true --server.enableCORS=false --server.enableXsrfProtection=false

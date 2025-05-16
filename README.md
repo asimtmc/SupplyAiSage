@@ -1,88 +1,83 @@
-# AI Supply Chain Platform
+# Intermittent Demand Forecasting Platform
 
-Advanced AI-powered supply chain forecasting and analysis tool with time series analysis, seasonal decomposition, and multiple forecasting models.
+A specialized forecasting application optimized for products with intermittent demand patterns, using the Croston method and other advanced forecasting techniques.
 
 ## Features
 
-- Demand Forecasting with multiple algorithms (SARIMA, Prophet, Neural Networks)
-- Production Planning and Optimization
-- Materials Procurement Scheduling
-- Interactive Dashboards & What-If Scenarios
-- Specialized handling for intermittent demand patterns
-- Detailed transition management and material depletion tracking
-- Database Viewer with detailed row exploration and export functionality
+- **Specialized for Intermittent Demand**: Automatically detects and handles demand patterns with frequent zero values
+- **Croston Method Implementation**: Uses the industry-standard approach for intermittent demand forecasting
+- **Automatic Seasonal Period Detection**: Intelligently identifies seasonal patterns in your data
+- **Hyperparameter Tuning**: Optimizes model parameters for better accuracy
+- **Interactive Visualizations**: Explore forecasts with dynamic charts
 
-## Deployment to Heroku
+## Getting Started
 
-### Prerequisites
+### Local Development
 
-- Heroku account
-- Heroku CLI installed
-- Git installed
+1. Install requirements:
+```
+pip install -r requirements-minimal.txt
+```
 
-### Steps to Deploy
+2. Initialize the database:
+```
+python init_db.py
+```
 
-1. **Login to Heroku**
-   ```
-   heroku login
-   ```
+3. Run the application:
+```
+streamlit run app.py
+```
 
-2. **Create a Heroku app**
-   ```
-   heroku create your-app-name
-   ```
+### Heroku Deployment
 
-3. **Add PostgreSQL addon**
-   ```
-   heroku addons:create heroku-postgresql:mini
-   ```
+This application is optimized for deployment on Heroku with a size limit of 450MB.
 
-4. **Push to Heroku**
-   ```
-   git push heroku main
-   ```
+1. Create a new Heroku app:
+```
+heroku create your-app-name
+```
 
-5. **Ensure at least one dyno is running**
-   ```
-   heroku ps:scale web=1
-   ```
+2. Set Python runtime:
+```
+heroku buildpacks:set heroku/python
+```
 
-6. **Open the app in browser**
-   ```
-   heroku open
-   ```
+3. Push to Heroku:
+```
+git push heroku main
+```
 
-### Environment Variables
+4. Run database initialization:
+```
+heroku run python init_db.py
+```
 
-The application will automatically use the `DATABASE_URL` environment variable provided by Heroku.
+## Data Format
 
-### Troubleshooting
+The application expects sales data with at least the following columns:
+- `date`: Date of sale (YYYY-MM-DD format)
+- `sku`: Product identifier
+- `quantity`: Quantity sold
 
-If you encounter issues with deployment:
+## Optimization for Heroku
 
-1. Check Heroku logs:
-   ```
-   heroku logs --tail
-   ```
+The application has been significantly trimmed to focus exclusively on the core forecasting functionality to meet Heroku's 450MB slug size limit:
 
-2. Ensure Python 3.12 is properly specified in `.python-version`
-
-3. Verify your Procfile is correctly configured
-
-## Local Development
-
-1. Clone the repository
-2. Install dependencies: `pip install -r requirements-deploy.txt`
-3. Run the application: `streamlit run app.py`
-
-## Database
-
-The application uses SQLite in local development and PostgreSQL in production.
-All database tables are automatically created when the application starts.
+- Removed TensorFlow and other large dependencies
+- Simplified to focus exclusively on Croston method
+- Optimized database operations
+- Reduced code duplication
 
 ## File Structure
 
+- `/utils`: Core utilities for forecasting and data processing
+- `/pages`: Streamlit pages for the web interface
 - `app.py`: Main application entry point
-- `pages/`: Streamlit pages for different modules
-- `utils/`: Utility functions and database operations
-- `data/`: Directory for storing the SQLite database and cache files
+- `init_db.py`: Database initialization script
+- `heroku_startup.py`: Automated setup for Heroku deployment
+- `.slugignore`: Configuration to exclude unnecessary files during deployment
+
+## License
+
+© 2025 Intermittent Demand Forecasting Platform
