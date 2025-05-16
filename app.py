@@ -3,10 +3,11 @@ import pandas as pd
 import os
 import sqlite3
 from datetime import datetime
+import io
 
 # Set page configuration
 st.set_page_config(
-    page_title="Demand Forecasting Platform",
+    page_title="Intermittent Demand Forecasting",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -20,22 +21,28 @@ if not os.path.exists('data'):
 def init_db():
     """Initialize the database with required tables."""
     db_path = 'data/supply_chain.db'
+    
+    # Create new database
     conn = sqlite3.connect(db_path)
     
-    # Create tables if they don't exist
+    # Drop existing tables to start fresh
+    conn.execute("DROP TABLE IF EXISTS uploaded_files")
+    conn.execute("DROP TABLE IF EXISTS forecast_results")
+    conn.execute("DROP TABLE IF EXISTS model_parameter_cache")
+    
+    # Create tables
     conn.execute('''
-    CREATE TABLE IF NOT EXISTS uploaded_files (
+    CREATE TABLE uploaded_files (
         id TEXT PRIMARY KEY,
         filename TEXT,
         file_data BLOB,
-        file_size INTEGER,
         upload_date TIMESTAMP,
         file_type TEXT
     )
     ''')
     
     conn.execute('''
-    CREATE TABLE IF NOT EXISTS forecast_results (
+    CREATE TABLE forecast_results (
         id TEXT PRIMARY KEY,
         sku TEXT,
         model TEXT,
@@ -46,7 +53,7 @@ def init_db():
     ''')
     
     conn.execute('''
-    CREATE TABLE IF NOT EXISTS model_parameter_cache (
+    CREATE TABLE model_parameter_cache (
         id TEXT PRIMARY KEY,
         sku TEXT,
         model_type TEXT,
@@ -66,19 +73,18 @@ db_url = init_db()
 print(f"Using SQLite database: {db_url}")
 
 # Main page content
-st.title("Demand Forecasting Platform")
+st.title("Intermittent Demand Forecasting")
 st.markdown("""
-### Welcome to the Demand Forecasting Platform
+### Specialized Tool for Intermittent Demand Patterns
 
-This application specializes in accurate demand forecasting for products with intermittent demand patterns.
-The system automatically identifies SKUs with frequent zero values and applies the Croston method, 
-which is optimized for intermittent demand.
+This simplified application focuses on accurate demand forecasting for products with intermittent 
+demand patterns using the Croston method and other specialized algorithms.
 
-#### Features:
-- **Automatic Detection**: Identifies products with intermittent demand patterns
-- **Specialized Algorithms**: Uses Croston method for intermittent demand
-- **Hyperparameter Tuning**: Optimizes model parameters for better accuracy
-- **Interactive Visualizations**: Explores forecasts with dynamic charts
+#### Key Features:
+- **Automatic Pattern Detection**: Identifies intermittent demand patterns
+- **Specialized Algorithms**: Optimized for sporadic demand
+- **Hyperparameter Tuning**: Fine-tunes models for better accuracy
+- **Streamlined Interface**: Focused on essential functionality
 """)
 
 # File uploader
@@ -111,15 +117,15 @@ if uploaded_file is not None:
             if existing_file:
                 # Update existing file
                 cursor.execute(
-                    "UPDATE uploaded_files SET file_data = ?, file_size = ?, upload_date = ?, file_type = ? WHERE id = ?",
-                    (uploaded_file.getvalue(), uploaded_file.size, datetime.now(), 'sales_data', file_id)
+                    "UPDATE uploaded_files SET file_data = ?, upload_date = ?, file_type = ? WHERE id = ?",
+                    (uploaded_file.getvalue(), datetime.now(), 'sales_data', file_id)
                 )
                 st.info(f"Updated existing file: {uploaded_file.name}")
             else:
                 # Insert new file
                 cursor.execute(
-                    "INSERT INTO uploaded_files (id, filename, file_data, file_size, upload_date, file_type) VALUES (?, ?, ?, ?, ?, ?)",
-                    (file_id, uploaded_file.name, uploaded_file.getvalue(), uploaded_file.size, datetime.now(), 'sales_data')
+                    "INSERT INTO uploaded_files (id, filename, file_data, upload_date, file_type) VALUES (?, ?, ?, ?, ?)",
+                    (file_id, uploaded_file.name, uploaded_file.getvalue(), datetime.now(), 'sales_data')
                 )
                 st.info(f"Saved new file to database: {uploaded_file.name}")
             
@@ -143,11 +149,11 @@ else:
     
     if file_count > 0:
         st.info(f"Total files in database: {file_count}")
-        cursor.execute("SELECT id, filename, file_size FROM uploaded_files WHERE file_type = 'sales_data'")
+        cursor.execute("SELECT id, filename FROM uploaded_files WHERE file_type = 'sales_data'")
         files = cursor.fetchall()
         
-        for file_id, filename, file_size in files:
-            st.write(f"Found file: {filename} (ID: {file_id}, Size: {file_size} bytes)")
+        for file_id, filename in files:
+            st.write(f"Found file: {filename} (ID: {file_id})")
             
             # Attempt to load the file
             cursor.execute("SELECT file_data FROM uploaded_files WHERE id = ?", (file_id,))
@@ -155,7 +161,6 @@ else:
             
             try:
                 # Load to pandas dataframe
-                import io
                 data = pd.read_excel(io.BytesIO(file_data))
                 st.session_state.sales_data = data
                 st.success(f"Successfully parsed file {filename} - found {len(data)} rows")
@@ -168,4 +173,4 @@ else:
 
 # Add footer
 st.markdown("---")
-st.markdown("© 2025 Demand Forecasting Platform | Optimized for Heroku Deployment")
+st.markdown("© 2025 Intermittent Demand Forecasting | Optimized for Heroku Deployment")

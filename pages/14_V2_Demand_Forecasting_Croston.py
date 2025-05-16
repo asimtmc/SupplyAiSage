@@ -1,2410 +1,276 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.express as px
 import plotly.graph_objects as go
-import io
-import time
 from datetime import datetime, timedelta
-from utils.data_processor import process_sales_data
-from utils.forecast_engine import extract_features, cluster_skus, generate_forecasts, evaluate_models, train_lstm_model, forecast_with_lstm, select_best_model
-from utils.visualization import plot_forecast, plot_cluster_summary, plot_model_comparison
-# Import parameter optimizer functions for using tuned parameters
-from utils.parameter_optimizer import get_model_parameters
-from sklearn.model_selection import train_test_split
-from statsmodels.tsa.statespace.exponential_smoothing import ExponentialSmoothing
-# Import seasonal decomposition for time series analysis
-from statsmodels.tsa.seasonal import seasonal_decompose
-# Import automatic seasonal period detection
+import time
+import io
+import plotly.express as px
+
+# Import utility functions
+from utils.data_processor import process_sales_data, get_sku_data, check_intermittent_demand, prepare_data_for_forecasting
 from utils.seasonal_detector import detect_seasonal_period
-# Import the auto data loading functionality
+from utils.croston import croston_optimized
+from utils.parameter_optimizer import optimize_parameters, get_model_parameters_with_fallback
+from utils.database import save_forecast_result
+from utils.visualization import plot_forecast, plot_model_comparison, plot_parameter_importance
 from utils.session_data import load_data_if_needed
 
-# Implement Improved Croston Methods for intermittent demand forecasting
-
-def croston_forecast(time_series, forecast_periods, alpha=0.1):
-    """
-    Croston's method for intermittent demand forecasting.
-    
-    Parameters:
-    -----------
-    time_series : pandas.Series
-        Time series of demand values (can contain zeros).
-    forecast_periods : int
-        Number of periods to forecast.
-    alpha : float, optional (default=0.1)
-        Smoothing parameter for both demand size and interval.
-        
-    Returns:
-    --------
-    pandas.Series
-        Forecasted values for the specified number of periods.
-    """
-    # Convert to numpy array for easier operations
-    y = time_series.values
-    
-    # Initialize variables
-    y_i = max(y[0], 0.01)  # Demand size (avoid zero)
-    q = 1       # Interval between demands
-    p = 1       # Position in interval
-    
-    # Calculate forecast for the historical period
-    forecasts = []
-    
-    for i in range(len(y)):
-        # If demand occurs
-        if y[i] > 0:
-            # Update demand size estimate
-            y_i = alpha * y[i] + (1 - alpha) * y_i
-            # Update interval estimate
-            q = alpha * p + (1 - alpha) * q
-            # Reset position
-            p = 1
-        else:
-            # Increment position
-            p += 1
-        
-        # The forecast is demand size / interval
-        forecasts.append(y_i / q)
-    
-    # Check if data has a trend
-    try:
-        indices = np.arange(len(y))
-        trend_model = np.polyfit(indices, y, 1)
-        trend_slope = trend_model[0]
-        has_trend = abs(trend_slope) > 0.05 * np.mean(y)
-    except:
-        has_trend = False
-    
-    # Create future forecasts with possible trend adjustment
-    future_forecasts = []
-    base_forecast = y_i / q
-    
-    if has_trend and trend_slope > 0:
-        # If we have a positive trend, apply a small progressive increase
-        for i in range(forecast_periods):
-            # Apply a damped trend effect (smaller than the actual trend to be conservative)
-            adjusted_forecast = base_forecast * (1 + 0.01 * (i + 1))
-            future_forecasts.append(adjusted_forecast)
-    else:
-        # Without trend, use the traditional constant forecast
-        future_forecasts = [base_forecast] * forecast_periods
-    
-    # Create a pandas Series with the original index plus future dates
-    # Get the last date in the original time series
-    last_date = time_series.index[-1]
-    
-    # Create future dates
-    freq = pd.infer_freq(time_series.index)
-    if freq is None:
-        # If frequency can't be inferred, use 'MS' (month start) as default
-        freq = 'MS'
-    
-    future_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), 
-                                 periods=forecast_periods, 
-                                 freq=freq)
-    
-    # Combine historical and future forecasts
-    all_forecasts = pd.Series(forecasts + future_forecasts, 
-                              index=list(time_series.index) + list(future_dates))
-    
-    # Return only the future part
-    return all_forecasts.iloc[-forecast_periods:]
-
-def sba_forecast(time_series, forecast_periods, alpha=0.1):
-    """
-    Syntetos-Boylan Approximation (SBA) method for intermittent demand forecasting.
-    This is an improved version of Croston's method with bias correction.
-    
-    Parameters:
-    -----------
-    time_series : pandas.Series
-        Time series of demand values (can contain zeros).
-    forecast_periods : int
-        Number of periods to forecast.
-    alpha : float, optional (default=0.1)
-        Smoothing parameter for both demand size and interval.
-        
-    Returns:
-    --------
-    pandas.Series
-        Forecasted values for the specified number of periods.
-    """
-    # Convert to numpy array for easier operations
-    y = time_series.values
-    
-    # Initialize variables
-    y_i = max(y[0], 0.01)  # Demand size (avoid zero)
-    q = 1       # Interval between demands
-    p = 1       # Position in interval
-    
-    # Calculate forecast for the historical period
-    forecasts = []
-    demand_sizes = []
-    intervals = []
-    
-    for i in range(len(y)):
-        # If demand occurs
-        if y[i] > 0:
-            # Update demand size estimate
-            y_i = alpha * y[i] + (1 - alpha) * y_i
-            # Update interval estimate
-            q = alpha * p + (1 - alpha) * q
-            # Reset position
-            p = 1
-        else:
-            # Increment position
-            p += 1
-        
-        # Store values for future forecasting
-        demand_sizes.append(y_i)
-        intervals.append(q)
-        
-        # Apply SBA bias correction: (1 - α/2) * (demand size / interval)
-        correction_factor = (1 - alpha/2)
-        forecasts.append(correction_factor * y_i / q)
-    
-    # Create future dates
-    last_date = time_series.index[-1]
-    freq = pd.infer_freq(time_series.index)
-    if freq is None:
-        freq = 'MS'  # Default to month start
-        
-    future_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), 
-                                periods=forecast_periods, 
-                                freq=freq)
-    
-    # Generate more dynamic forecasts based on recent trend
-    future_forecasts = []
-    
-    # Get trend from last periods of data
-    window_size = min(12, len(time_series))
-    recent_trend = np.polyfit(range(window_size), 
-                             demand_sizes[-window_size:], 1)[0] if window_size > 1 else 0
-    
-    # Normalize trend to be a small percentage change
-    trend_factor = min(max(1 + recent_trend * 0.05, 0.95), 1.05)
-    
-    last_forecast = (1 - alpha/2) * demand_sizes[-1] / intervals[-1]
-    
-    for i in range(forecast_periods):
-        # Apply a slight trend adjustment for each future period
-        forecast_value = last_forecast * (trend_factor ** (i+1))
-        future_forecasts.append(forecast_value)
-    
-    # Combine historical and future forecasts
-    all_forecasts = pd.Series(forecasts + future_forecasts, 
-                             index=list(time_series.index) + list(future_dates))
-    
-    # Return only the future part
-    return all_forecasts.iloc[-forecast_periods:]
-
-def tsb_forecast(time_series, forecast_periods, alpha_d=0.1, alpha_z=0.1):
-    """
-    Teunter-Syntetos-Babai (TSB) method for intermittent demand forecasting.
-    This method separately estimates demand size and probability of demand occurrence.
-    
-    Parameters:
-    -----------
-    time_series : pandas.Series
-        Time series of demand values (can contain zeros).
-    forecast_periods : int
-        Number of periods to forecast.
-    alpha_d : float, optional (default=0.1)
-        Smoothing parameter for demand size.
-    alpha_z : float, optional (default=0.1)
-        Smoothing parameter for demand occurrence probability.
-        
-    Returns:
-    --------
-    pandas.Series
-        Forecasted values for the specified number of periods.
-    """
-    # Convert to numpy array for easier operations
-    y = time_series.values
-    
-    # Initialize variables
-    z = 1.0 if y[0] > 0 else 0.0   # Demand occurrence indicator (1 = demand, 0 = no demand)
-    p = max(0.5, z)                # Initial probability of demand
-    d = max(y[0], 0.01)            # Initial demand size (avoid zero)
-    
-    # Arrays to store results
-    demand_probs = []
-    demand_sizes = []
-    forecasts = []
-    
-    # Process historical data
-    for i in range(len(y)):
-        # Update demand occurrence indicator
-        z = 1.0 if y[i] > 0 else 0.0
-        
-        # Update probability of demand
-        p = alpha_z * z + (1 - alpha_z) * p
-        
-        # Update demand size only when demand occurs
-        if y[i] > 0:
-            d = alpha_d * y[i] + (1 - alpha_d) * d
-        
-        # Store values
-        demand_probs.append(p)
-        demand_sizes.append(d)
-        
-        # Forecast = probability * demand size
-        forecasts.append(p * d)
-    
-    # Create future dates
-    last_date = time_series.index[-1]
-    freq = pd.infer_freq(time_series.index)
-    if freq is None:
-        freq = 'MS'  # Default to month start
-        
-    future_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), 
-                                periods=forecast_periods, 
-                                freq=freq)
-    
-    # Generate more dynamic forecasts
-    future_forecasts = []
-    
-    # Get trends from last periods of data
-    window_size = min(12, len(time_series))
-    
-    if window_size > 2:
-        # Calculate trends for probability and demand size
-        prob_trend = np.polyfit(range(window_size), demand_probs[-window_size:], 1)[0]
-        size_trend = np.polyfit(range(window_size), demand_sizes[-window_size:], 1)[0]
-        
-        # Normalize trends to be small percentage changes
-        prob_factor = min(max(1 + prob_trend * 0.1, 0.95), 1.05) 
-        size_factor = min(max(1 + size_trend * 0.1, 0.95), 1.05)
-    else:
-        prob_factor = 1.0
-        size_factor = 1.0
-    
-    # Last values from historical data
-    last_prob = demand_probs[-1]
-    last_size = demand_sizes[-1]
-    
-    # Create future forecasts with trend adjustments
-    for i in range(forecast_periods):
-        # Apply trends while keeping values in reasonable bounds
-        next_prob = min(max(last_prob * (prob_factor ** (i+1)), 0.05), 0.95)
-        next_size = max(last_size * (size_factor ** (i+1)), 0.01)
-        
-        # Forecast = probability * demand size
-        future_forecasts.append(next_prob * next_size)
-    
-    # Combine historical and future forecasts
-    all_forecasts = pd.Series(forecasts + future_forecasts, 
-                             index=list(time_series.index) + list(future_dates))
-    
-    # Return only the future part
-    return all_forecasts.iloc[-forecast_periods:]
-
-# Function to check if a time series has intermittent demand
-def is_intermittent_demand(time_series, threshold=None):
-    """
-    Check if a time series has intermittent demand (high percentage of zeros).
-    
-    Parameters:
-    -----------
-    time_series : pandas.Series
-        Time series of demand values.
-    threshold : float, optional (default=None)
-        Threshold for percentage of zeros to consider demand intermittent.
-        If None, uses the threshold from session state.
-        
-    Returns:
-    --------
-    bool
-        True if the demand is intermittent, False otherwise.
-    """
-    # If threshold is not specified, use the value from session state
-    if threshold is None:
-        if 'v2_intermittent_threshold' in st.session_state:
-            threshold = st.session_state.v2_intermittent_threshold / 100.0  # Convert from percentage
-        else:
-            threshold = 0.4  # Default fallback value
-    elif threshold > 1.0:
-        # If threshold is given as percentage, convert to ratio
-        threshold = threshold / 100.0
-    
-    # First ensure we have a continuous date range
-    # Sort the index
-    time_series = time_series.sort_index()
-    
-    # Get min and max dates
-    if len(time_series) > 0:
-        min_date = time_series.index.min()
-        max_date = time_series.index.max()
-        
-        # Create full date range
-        full_date_range = pd.date_range(
-            start=min_date,
-            end=max_date,
-            freq='MS'  # Month Start frequency
-        )
-        
-        # Reindex with the full range, filling NaN with 0
-        complete_series = time_series.reindex(full_date_range, fill_value=0)
-        
-        # Calculate percentage of zero values
-        zero_percentage = (complete_series == 0).mean()
-    else:
-        zero_percentage = 0
-    
-    # Return True if percentage of zeros exceeds threshold
-    return zero_percentage >= threshold
-
-# Initialize variables that might be used in multiple places
-all_sku_data = []
-show_all_models = False
-custom_models_lower = []
-first_forecast = None
-
-# Page configuration is already set in app.py
-# Do not call st.set_page_config() here as it will cause errors
-
-# Initialize cache for forecast results
-if 'v2_forecast_cache' not in st.session_state:
-    st.session_state.v2_forecast_cache = {}
-
-# Flag to track if models are loaded (lazy loading)
-if 'v2_models_loaded' not in st.session_state:
-    st.session_state.v2_models_loaded = False
-
-# Auto-load data if not already loaded
-if not load_data_if_needed():
-    st.warning("No sales data found in the database. Please upload sales data on the main page.")
-    st.stop()
+# Page configuration
+st.set_page_config(
+    page_title="Intermittent Demand Forecasting",
+    page_icon="📊",
+    layout="wide"
+)
 
 # Page title
-st.title("V2 Demand Forecasting with Croston Method")
-st.markdown("""
-This module specializes in accurate demand forecasting for products with intermittent demand patterns.
-The system automatically identifies SKUs with frequent zero values based on a configurable threshold and applies 
-the Croston method, which is optimized for intermittent demand. For regular demand patterns, standard forecasting models are used.
-""")
+st.title("🔄 Intermittent Demand Forecasting with Croston Method")
 
-# Add information about Intermittent Demand methods in an expander
-with st.expander("About Advanced Intermittent Demand Forecasting", expanded=True):
-    col1, col2 = st.columns([3, 2])
+# Sidebar for controls
+st.sidebar.header("Settings")
+
+# Load data
+data_loaded = load_data_if_needed()
+
+if not data_loaded:
+    st.info("No sales data found in session state. Please upload data on the home page first.")
+    st.stop()
+
+# Process the data
+try:
+    sales_data = process_sales_data(st.session_state.sales_data)
+    
+    # Get unique SKUs and sort them
+    skus = sorted(sales_data['sku'].unique())
+    
+    # SKU selection
+    selected_sku = st.sidebar.selectbox("Select SKU to Forecast", skus)
+    
+    # Get data for the selected SKU
+    sku_data = get_sku_data(sales_data, selected_sku)
+    
+    # Check if this SKU has intermittent demand
+    is_intermittent = check_intermittent_demand(sku_data)
+    
+    if is_intermittent:
+        st.success(f"✅ SKU {selected_sku} has intermittent demand (many zero values). Croston method is recommended.")
+    else:
+        st.info(f"ℹ️ SKU {selected_sku} does not have highly intermittent demand. Standard forecasting methods may work well.")
+    
+    # Data preprocessing options
+    st.sidebar.subheader("Data Preprocessing")
+    
+    # Frequency selection
+    frequency = st.sidebar.selectbox(
+        "Data Frequency",
+        options=['D', 'W', 'M'],
+        format_func=lambda x: {'D': 'Daily', 'W': 'Weekly', 'M': 'Monthly'}[x],
+        index=2  # Default to monthly
+    )
+    
+    # Preprocess data
+    resampled_data = prepare_data_for_forecasting(sku_data, frequency=frequency)
+    
+    # Display data
+    col1, col2 = st.columns([2, 1])
     
     with col1:
-        st.markdown("""
-        ### What is Intermittent Demand?
-        
-        Intermittent demand is characterized by:
-        - Frequent periods with zero demand
-        - Irregular demand occurrences
-        - High variability in demand sizes
-        
-        This pattern is common in:
-        - Spare parts
-        - Slow-moving inventory
-        - Seasonal or highly specialized products
-        
-        **In this application:** SKUs with zero values exceeding the configurable threshold (default 40%) are classified as having intermittent demand patterns.
-        """)
+        st.subheader("Historical Data")
+        st.line_chart(resampled_data.set_index('date')['quantity'])
     
     with col2:
-        st.markdown("""
-        ### Advanced Methods Available
+        st.subheader("Data Summary")
+        st.write(f"Total Records: {len(resampled_data)}")
+        st.write(f"Date Range: {resampled_data['date'].min().date()} to {resampled_data['date'].max().date()}")
+        st.write(f"Average Demand: {resampled_data['quantity'].mean():.2f}")
+        st.write(f"Zero Values: {(resampled_data['quantity'] == 0).sum()} ({(resampled_data['quantity'] == 0).mean()*100:.1f}%)")
         
-        This module offers three specialized methods:
+        data_quality = st.empty()  # Placeholder for data quality assessment
         
-        1. **Croston's Method**
-           - Separates demand size and intervals
-           - Uses exponential smoothing for each part
-           - Forecast = Size ÷ Interval
-        
-        2. **SBA (Syntetos-Boylan)**
-           - Improved Croston with bias correction
-           - Applies (1-α/2) adjustment factor
-           - More accurate for longer forecasts
-           
-        3. **TSB (Teunter-Syntetos-Babai)**
-           - Tracks demand probability directly
-           - Adapts quickly to changing patterns
-           - Handles trend in probability and size
-        """)
-
-# Initialize session state variables for this page
-if 'v2_forecast_periods' not in st.session_state:
-    st.session_state.v2_forecast_periods = 12  # default 12 months
-if 'v2_run_forecast' not in st.session_state:
-    st.session_state.v2_run_forecast = False
-if 'v2_selected_sku' not in st.session_state:
-    st.session_state.v2_selected_sku = None
-if 'v2_selected_skus' not in st.session_state:
-    st.session_state.v2_selected_skus = []
-if 'v2_show_all_clusters' not in st.session_state:
-    st.session_state.v2_show_all_clusters = False
-if 'v2_selected_models' not in st.session_state:
-    st.session_state.v2_selected_models = []
-if 'v2_sku_options' not in st.session_state:
-    st.session_state.v2_sku_options = []
-if 'v2_forecast_in_progress' not in st.session_state:
-    st.session_state.v2_forecast_in_progress = False
-if 'v2_forecast_progress' not in st.session_state:
-    st.session_state.v2_forecast_progress = 0
-if 'v2_forecast_current_sku' not in st.session_state:
-    st.session_state.v2_forecast_current_sku = ""
-# Initialize intermittent demand threshold variable (default 40%)
-if 'v2_intermittent_threshold' not in st.session_state:
-    st.session_state.v2_intermittent_threshold = 40.0
-# Initialize date range filter variables
-if 'v2_data_start_date' not in st.session_state:
-    if 'sales_data' in st.session_state and st.session_state.sales_data is not None:
-        st.session_state.v2_data_start_date = st.session_state.sales_data['date'].min().date()
-    else:
-        st.session_state.v2_data_start_date = None
-if 'v2_data_end_date' not in st.session_state:
-    if 'sales_data' in st.session_state and st.session_state.sales_data is not None:
-        st.session_state.v2_data_end_date = st.session_state.sales_data['date'].max().date()
-    else:
-        st.session_state.v2_data_end_date = None
-
-# Create sidebar for settings
-with st.sidebar:
-    st.header("Forecast Settings")
-
-    # Get available SKUs from sales data (always available)
-    if 'sales_data' in st.session_state and st.session_state.sales_data is not None:
-        st.subheader("SKU Selection")
-
-        # Function to update selected SKUs
-        def update_selected_skus():
-            new_selection = st.session_state.v2_sku_multiselect
-            st.session_state.v2_selected_skus = new_selection
-            if new_selection:
-                st.session_state.v2_selected_sku = new_selection[0]  # Set first selected SKU as primary
-
-        # Get available SKUs from the sales data - ensure we have a stable list
-        try:
-            available_skus = sorted(st.session_state.sales_data['sku'].unique().tolist())
-        except Exception as e:
-            st.error(f"Error getting SKUs from sales data: {str(e)}")
-            available_skus = []
-
-        # Safety check - ensure we have valid SKUs
-        available_skus = [sku for sku in available_skus if sku is not None and str(sku).strip() != '']
-
-        # Determine default selection - with robust error handling
-        default_selection = []
-
-        # If we already have selected SKUs, use them if they're still valid
-        if st.session_state.v2_selected_skus:
-            default_selection = [sku for sku in st.session_state.v2_selected_skus if sku in available_skus]
-
-        # If no valid selection, default to first SKU if available
-        if not default_selection and available_skus:
-            default_selection = [available_skus[0]]
-
-        # Info about available SKUs
-        if available_skus:
-            st.info(f"📊 {len(available_skus)} SKUs available for analysis")
+        # Data quality assessment
+        if len(resampled_data) < 12:
+            data_quality.warning("⚠️ Limited data available. Forecast may be less reliable.")
+        elif (resampled_data['quantity'] == 0).mean() > 0.7:
+            data_quality.warning("⚠️ Very high proportion of zeros. Consider using SBA Croston variant.")
         else:
-            st.warning("No SKUs found in sales data. Please check your data upload.")
-
-        # Create the multiselect widget with on_change callback
-        sku_selection = st.multiselect(
-            "Select SKUs to Analyze",
-            options=available_skus,
-            default=default_selection,
-            on_change=update_selected_skus,
-            key="v2_sku_multiselect",
-            help="Select one or more SKUs to analyze or forecast"
-        )
-
-        # Ensure selected_skus is always updated
-        st.session_state.v2_selected_skus = sku_selection
-
-        # Update primary selected SKU if we have a selection
-        if sku_selection:
-            st.session_state.v2_selected_sku = sku_selection[0]
-
-        # Show current selection information
-        if sku_selection:
-            st.success(f"✅ Selected {len(sku_selection)} SKU(s) for analysis")
-        else:
-            st.warning("⚠️ Please select at least one SKU for analysis")
-
-    # Add date range selector for training data
-    st.subheader("Data Selection Range")
+            data_quality.success("✅ Sufficient data for forecasting.")
     
-    # Determine min and max dates from the sales data
-    min_date = st.session_state.sales_data['date'].min().date()
-    max_date = st.session_state.sales_data['date'].max().date()
+    # Model parameters
+    st.sidebar.subheader("Croston Model Parameters")
     
-    # Display data range information
-    st.info(f"Available data range: {min_date.strftime('%b %Y')} to {max_date.strftime('%b %Y')}")
+    # Detect seasonality automatically
+    with st.spinner("Detecting seasonal patterns..."):
+        detected_period = detect_seasonal_period(resampled_data['quantity'])
     
-    # Add date range slider for selecting data for forecasting
-    date_range = st.slider(
-        "Select date range for training data",
-        min_value=min_date,
-        max_value=max_date,
-        value=(min_date, max_date),
-        format="MMM YYYY",
-        help="Select the date range to use for training the forecast models"
+    # Allow user to override detected seasonality
+    seasonal_period = st.sidebar.slider(
+        "Seasonal Period",
+        min_value=0,
+        max_value=12,
+        value=detected_period,
+        help="0 means no seasonality. The system detected a period of " + str(detected_period)
     )
     
-    # Store the date range selection in session state
-    st.session_state.v2_data_start_date = date_range[0]
-    st.session_state.v2_data_end_date = date_range[1]
+    # Alpha parameter (smoothing)
+    alpha = st.sidebar.slider("Alpha (Smoothing)", 0.01, 0.5, 0.1, 0.01)
     
-    # Show selected range info
-    start_date_str = date_range[0].strftime('%b %Y')
-    end_date_str = date_range[1].strftime('%b %Y')
-    st.success(f"Using data from {start_date_str} to {end_date_str} for model training")
-    
-    # Forecast horizon slider
-    forecast_periods = st.slider(
-        "Forecast Periods (Months)",
-        min_value=1,
-        max_value=24,
-        value=st.session_state.v2_forecast_periods,
-        step=1
-    )
-    st.session_state.v2_forecast_periods = forecast_periods
-
-    # Number of clusters
-    num_clusters = st.slider(
-        "Number of SKU Clusters",
-        min_value=2,
-        max_value=10,
-        value=5,
-        step=1
-    )
-
-    # Model evaluation and selection
-    st.subheader("Model Selection")
-
-    # Option to evaluate models on test data
-    evaluate_models_flag = st.checkbox("Evaluate models on test data", value=True,
-                                     help="Split data into training and test sets to evaluate model performance before forecasting")
-
-    st.write("Select forecasting models to evaluate:")
-    models_to_evaluate = []
-
-    # Original models from Demand Forecasting page
-    if st.checkbox("ARIMA", value=True):
-        models_to_evaluate.append("arima")
-
-    if st.checkbox("SARIMAX (Seasonal)", value=True):
-        models_to_evaluate.append("sarima")
-
-    if st.checkbox("Prophet", value=True):
-        models_to_evaluate.append("prophet")
-
-    if st.checkbox("LSTM Neural Network", value=True):
-        models_to_evaluate.append("lstm")
-
-    if st.checkbox("Holt-Winters", value=True):
-        models_to_evaluate.append("holtwinters")
-
-    if st.checkbox("Decomposition", value=True, help="Uses time series decomposition to separate trend, seasonal, and residual components"):
-        models_to_evaluate.append("decomposition")
-
-    if st.checkbox("Ensemble Model", value=True, help="Combines multiple forecasting models for improved accuracy"):
-        models_to_evaluate.append("ensemble")
-
-    # Additional advanced models
-    if st.checkbox("Auto ARIMA", value=True):
-        models_to_evaluate.append("auto_arima")
-
-    if st.checkbox("ETS (Exponential Smoothing)", value=True):
-        models_to_evaluate.append("ets")
-
-    if st.checkbox("Theta Method", value=True):
-        models_to_evaluate.append("theta")
-
-    if st.checkbox("Moving Average", value=True):
-        models_to_evaluate.append("moving_average")
-        
-    # Intermittent demand methods (specific to this page)
-    st.markdown("#### Intermittent Demand Methods:")
-    
-    if st.checkbox("Croston Method", value=True, help="Basic specialized method for intermittent demand patterns (products with frequent zero values)"):
-        models_to_evaluate.append("croston")
-        
-    if st.checkbox("SBA Method", value=True, help="Syntetos-Boylan Approximation - Improved Croston method with bias correction"):
-        models_to_evaluate.append("sba")
-        
-    if st.checkbox("TSB Method", value=True, help="Teunter-Syntetos-Babai - Advanced method that separately tracks demand occurrence probability"):
-        models_to_evaluate.append("tsb")
-
-    # Store selected models for visualization
-    st.session_state.v2_selected_models = models_to_evaluate
-    
-    # Add option to use tuned parameters from hyperparameter tuning
-    st.subheader("Parameter Options")
-    
-    # Initialize session state for using tuned parameters if not exists
-    if 'use_tuned_parameters' not in st.session_state:
-        st.session_state.use_tuned_parameters = False
-    
-    # Create columns for options and status
-    param_col1, param_col2 = st.columns([3, 1])
-    
-    with param_col1:
-        # Checkbox for using tuned parameters
-        prev_param_value = st.session_state.use_tuned_parameters
-        st.session_state.use_tuned_parameters = st.checkbox(
-            "Use tuned parameters from Hyperparameter Tuning",
-            value=st.session_state.use_tuned_parameters,
-            help="Apply optimized model parameters from the Hyperparameter Tuning page. Will use default parameters if tuned parameters are not available for a specific SKU-model combination."
-        )
-        
-        # If parameter setting changed, clear any cached forecasts to force refresh
-        if prev_param_value != st.session_state.use_tuned_parameters:
-            if 'v2_forecast_cache' in st.session_state:
-                st.session_state.v2_forecast_cache = {}
-                st.toast("Cleared forecast cache - please run forecast again with new parameter settings", icon="ℹ️")
-    
-    with param_col2:
-        # Show parameter status
-        if st.session_state.use_tuned_parameters:
-            st.success("Tuned parameters: ON")
-        else:
-            st.info("Using default parameters")
-    
-    # Add intermittent demand threshold slider
-    st.subheader("Intermittent Demand Settings")
-    
-    # Get previous threshold value
-    prev_threshold = st.session_state.v2_intermittent_threshold
-    
-    # Add slider for intermittent demand threshold
-    intermittent_threshold = st.slider(
-        "Intermittent Demand Threshold (%)",
-        min_value=5.0,
-        max_value=80.0,
-        value=st.session_state.v2_intermittent_threshold,
-        step=5.0,
-        help="Percentage of zero values required to classify a SKU as having intermittent demand. Higher values require more zeros to classify as intermittent."
+    # Method selection
+    method = st.sidebar.radio(
+        "Croston Variant",
+        options=['original', 'sba'],
+        format_func=lambda x: {
+            'original': 'Original Croston',
+            'sba': 'Syntetos-Boylan Approximation (SBA)'
+        }[x]
     )
     
-    # Update the session state
-    st.session_state.v2_intermittent_threshold = intermittent_threshold
+    # Forecast horizon
+    horizon = st.sidebar.slider("Forecast Horizon", 1, 24, 6)
     
-    # Provide information about the threshold
-    st.info(f"SKUs with {intermittent_threshold}% or more zero values will be classified as intermittent demand patterns and use the Croston method")
+    # Parameter tuning
+    st.sidebar.subheader("Parameter Tuning")
     
-    # If threshold changed, clear cache
-    if prev_threshold != intermittent_threshold:
-        if 'v2_forecast_cache' in st.session_state:
-            st.session_state.v2_forecast_cache = {}
-            st.toast("Intermittent demand threshold changed - cached forecasts cleared", icon="ℹ️")
+    # Button to optimize parameters
+    optimize_button = st.sidebar.button("Optimize Parameters")
     
-    # Add option to forecast all or selected SKUs
-    st.subheader("Forecast Scope")
-
-    # Determine which SKUs to forecast
-    forecast_scope = st.radio(
-        "Choose SKUs to analyze",
-        ["Selected SKUs Only", "All SKUs"],
-        index=1,  # Default to All SKUs
-        horizontal=True
-    )
-
-    # Get selected SKUs from session state
-    selected_skus_to_forecast = []
-    if 'v2_selected_skus' in st.session_state and st.session_state.v2_selected_skus:
-        selected_skus_to_forecast = st.session_state.v2_selected_skus
-
-    # Progress tracking callback function
-    def forecast_progress_callback(current_index, current_sku, total_skus):
-        # Update progress information in session state
-        st.session_state.v2_forecast_progress = int((current_index / total_skus) * 100)
-        st.session_state.v2_forecast_current_sku = current_sku
-
-    # Run forecast button
-    forecast_button_text = "Run Forecast Analysis"
-    if forecast_scope == "Selected SKUs Only" and selected_skus_to_forecast:
-        forecast_button_text = f"Run Forecast for {len(selected_skus_to_forecast)} Selected SKUs"
-    elif forecast_scope == "Selected SKUs Only" and not selected_skus_to_forecast:
-        st.warning("Please select at least one SKU to analyze.")
-
-    # Only show the button if we have valid SKUs to forecast
-    should_show_button = not (forecast_scope == "Selected SKUs Only" and not selected_skus_to_forecast)
-
-    # Create a placeholder for the progress bar
-    progress_placeholder = st.empty()
-
-    # Create a run button with a unique key
-    if should_show_button:
-        # Generate a cache key based on selected parameters including date range
-        date_range_key = f"{st.session_state.v2_data_start_date.strftime('%Y%m%d')}_{st.session_state.v2_data_end_date.strftime('%Y%m%d')}"
-        cache_key = f"{forecast_scope}_{len(selected_skus_to_forecast)}_{forecast_periods}_{num_clusters}_{'-'.join(models_to_evaluate)}_{date_range_key}"
-
-        # Check if we have cached results for these parameters
-        cached_results_available = cache_key in st.session_state.v2_forecast_cache
-
-        # Add option to use cached forecast or force fresh run
-        use_cache = True
-        if cached_results_available:
-            # Add timestamp and date range information
-            cache_timestamp = st.session_state.v2_forecast_cache[cache_key].get('timestamp', 'Unknown time')
-            date_range_info = st.session_state.v2_forecast_cache[cache_key].get('date_range', '')
+    if optimize_button:
+        with st.spinner("Optimizing parameters..."):
+            # Optimize parameters
+            result = optimize_parameters(
+                selected_sku,
+                'croston',
+                resampled_data,
+                cross_validation=True
+            )
             
-            if date_range_info:
-                cache_info = st.info(f"💾 A cached forecast from {cache_timestamp} is available with these parameters.\nDate range: {date_range_info}")
-            else:
-                cache_info = st.info(f"💾 A cached forecast from {cache_timestamp} is available with these parameters.")
-            use_cache = st.checkbox("Use cached forecast (faster)", value=True, 
-                                    help="Uncheck to force a fresh forecast calculation")
+            # Get optimized parameters
+            optimized_params = result['parameters']
             
-        # Set button text based on cache status and user preference
-        if cached_results_available and use_cache:
-            button_text = "Load Cached Forecast Results"
-        else:
-            button_text = forecast_button_text
-
-        run_forecast_clicked = st.button(
-            button_text, 
-            key="v2_run_forecast_button",
-            use_container_width=True
-        )
-
-        if run_forecast_clicked:
-            # If we have cached results and user wants to use them
-            if cached_results_available and use_cache:
-                st.toast("Using cached forecast results", icon="✅")
-                st.session_state.v2_forecasts = st.session_state.v2_forecast_cache[cache_key]['forecasts']
-                st.session_state.v2_clusters = st.session_state.v2_forecast_cache[cache_key]['clusters']
-                st.session_state.v2_run_forecast = True
-                st.session_state.v2_models_loaded = True
-
-                # Show success message
-                st.success(f"Loaded cached forecasts for {len(st.session_state.v2_forecasts)} SKUs!")
-
-            else:
-                # Set forecast in progress flag
-                st.session_state.v2_forecast_in_progress = True
-                st.session_state.v2_forecast_progress = 0
-                st.session_state.v2_run_forecast = True
-
-                # Create an enhanced progress display
-                with progress_placeholder.container():
-                    # Create a two-column layout for the progress display
-                    progress_cols = st.columns([3, 1])
-
-                with progress_cols[0]:
-                    # Header for progress display with animation effect
-                    st.markdown('<h3 style="color:#0066cc;"><span class="highlight">🔄 Forecast Generation in Progress</span></h3>', unsafe_allow_html=True)
-
-                    # Progress bar with custom styling
-                    progress_bar = st.progress(0)
-
-                    # Status text placeholder
-                    status_text = st.empty()
-
-                    # Add a progress details section
-                    progress_details = st.empty()
-
-                with progress_cols[1]:
-                    # Add an animated spinner for current processing step
-                    spinner_placeholder = st.empty()
-                    # Status indicator for phases
-                    phase_indicator = st.empty()
-
-                try:
-                    # Phase 1: Extract time series features for clustering
-                    with spinner_placeholder:
-                        with st.spinner("Extracting features..."):
-                            phase_indicator.markdown("**Phase 1/3**")
-                            status_text.markdown("### Step 1: Time Series Feature Extraction")
-                            progress_details.info("Analyzing sales patterns and extracting key time series features for every SKU...")
-                            features_df = extract_features(st.session_state.sales_data)
-                            progress_bar.progress(10)
-                            time.sleep(0.5)  # Add a small pause for visual effect
-
-                    # Phase 2: Cluster SKUs
-                    with spinner_placeholder:
-                        with st.spinner("Clustering SKUs..."):
-                            phase_indicator.markdown("**Phase 2/3**")
-                            status_text.markdown("### Step 2: SKU Clustering")
-                            progress_details.info("Grouping similar SKUs based on their sales patterns to optimize forecast model selection...")
-                            st.session_state.v2_clusters = cluster_skus(features_df, n_clusters=num_clusters)
-                            progress_bar.progress(20)
-                            time.sleep(0.5)  # Add a small pause for visual effect
-
-                    # Phase 3: Generate forecasts
-                    phase_indicator.markdown("**Phase 3/3**")
-                    status_text.markdown("### Step 3: Forecast Generation")
-
-                    # Determine which SKUs to forecast
-                    skus_to_forecast = None
-                    if forecast_scope == "Selected SKUs Only" and selected_skus_to_forecast:
-                        skus_to_forecast = selected_skus_to_forecast
-                        progress_details.info(f"Generating forecasts for {len(skus_to_forecast)} selected SKUs using {len(models_to_evaluate)} different forecasting models...")
-                    else:
-                        total_skus = len(features_df)
-                        progress_details.info(f"Generating forecasts for all {total_skus} SKUs using {len(models_to_evaluate)} different forecasting models...")
-
-                    # Generate forecasts with model evaluation and progress tracking
-                    with spinner_placeholder:
-                        with st.spinner("Building forecast models..."):
-                            # Filter sales data based on selected date range
-                            filtered_sales_data = st.session_state.sales_data.copy()
-                            if st.session_state.v2_data_start_date and st.session_state.v2_data_end_date:
-                                # Convert date objects to datetime for comparison
-                                start_date = pd.Timestamp(st.session_state.v2_data_start_date)
-                                end_date = pd.Timestamp(st.session_state.v2_data_end_date)
-                                
-                                # Filter data based on selected date range
-                                filtered_sales_data = filtered_sales_data[
-                                    (filtered_sales_data['date'] >= start_date) & 
-                                    (filtered_sales_data['date'] <= end_date)
-                                ]
-                                
-                                # Log filtered data info
-                                original_rows = len(st.session_state.sales_data)
-                                filtered_rows = len(filtered_sales_data)
-                                progress_details.info(f"Using {filtered_rows} data points from selected date range (out of {original_rows} total)")
-                            
-                            # Use the standard generate_forecasts function with the filtered data
-                            st.session_state.v2_forecasts = generate_forecasts(
-                                filtered_sales_data,
-                                st.session_state.v2_clusters,
-                                forecast_periods=st.session_state.v2_forecast_periods,
-                                evaluate_models_flag=evaluate_models_flag,
-                                models_to_evaluate=models_to_evaluate,
-                                selected_skus=skus_to_forecast,
-                                progress_callback=forecast_progress_callback,
-                                use_tuned_parameters=st.session_state.use_tuned_parameters
-                            )
-
-                    # Update progress based on callback data with improved visuals
-                    # Create an animated progress update
-                    last_progress = 0
-                    while st.session_state.v2_forecast_progress < 100 and st.session_state.v2_forecast_current_sku:
-                        current_progress = 20 + int(st.session_state.v2_forecast_progress * 0.8)
-                        if current_progress > last_progress:
-                            progress_bar.progress(current_progress)
-                            last_progress = current_progress
-
-                        with spinner_placeholder:
-                            with st.spinner(f"Processing {st.session_state.v2_forecast_current_sku}..."):
-                                # Update progress display with more dynamic information
-                                status_text.markdown(f"### Processing: **{st.session_state.v2_forecast_current_sku}**")
-                                progress_percentage = st.session_state.v2_forecast_progress
-                                progress_details.info(f"Completed: **{progress_percentage}%** | Current SKU: **{st.session_state.v2_forecast_current_sku}**")
-                                phase_indicator.markdown(f"**Processing {progress_percentage}% complete**")
-                                time.sleep(0.1)
-
-                    # Complete the progress bar with success animation
-                    progress_bar.progress(100)
-                    spinner_placeholder.success("✅ Complete")
-                    phase_indicator.markdown("**Finished!**")
-                    status_text.markdown("### ✨ Forecast Generation Completed Successfully!")
-                    progress_details.success("All forecasts have been generated and are ready to explore!")
-
-                    # If forecasts were generated, set default selected SKU
-                    if st.session_state.v2_forecasts:
-                        sku_list = sorted(list(st.session_state.v2_forecasts.keys()))
-                        st.session_state.v2_sku_options = sku_list
-                        if sku_list and not st.session_state.v2_selected_sku in sku_list:
-                            st.session_state.v2_selected_sku = sku_list[0]
-
-                        # Cache the forecast results for future use with date range information
-                        date_range_key = f"{st.session_state.v2_data_start_date.strftime('%Y%m%d')}_{st.session_state.v2_data_end_date.strftime('%Y%m%d')}"
-                        cache_key = f"{forecast_scope}_{len(selected_skus_to_forecast)}_{forecast_periods}_{num_clusters}_{'-'.join(models_to_evaluate)}_{date_range_key}"
-                        st.session_state.v2_forecast_cache[cache_key] = {
-                            'forecasts': st.session_state.v2_forecasts,
-                            'clusters': st.session_state.v2_clusters,
-                            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                            'date_range': f"{st.session_state.v2_data_start_date.strftime('%b %Y')} to {st.session_state.v2_data_end_date.strftime('%b %Y')}"
-                        }
-                        st.session_state.v2_models_loaded = True
-
-                    num_skus = len(st.session_state.v2_forecasts)
-                    if num_skus > 0:
-                        st.success(f"Successfully generated forecasts for {num_skus} SKUs!")
-                    else:
-                        st.error("No forecasts were generated. Please check your data and selected SKUs.")
-
-                except Exception as e:
-                    st.error(f"Error during forecast generation: {str(e)}")
-
-                finally:
-                    # Reset progress tracking
-                    st.session_state.v2_forecast_in_progress = False
-                    time.sleep(1)  # Keep the completed progress visible briefly
-
-            # Clear the progress display after completion
-            progress_placeholder.empty()
-
-# Main content
-if st.session_state.v2_run_forecast and 'v2_forecasts' in st.session_state and st.session_state.v2_forecasts:
-    # Show cluster analysis
-    st.header("SKU Cluster Analysis")
+            # Update sliders with optimized values
+            alpha = optimized_params.get('alpha', alpha)
+            method = optimized_params.get('method', method)
+            
+            st.sidebar.success("Parameters optimized!")
+            
+            # Show metrics
+            if 'metrics' in result:
+                st.sidebar.write("Optimization Metrics:")
+                for metric, value in result['metrics'].items():
+                    st.sidebar.write(f"- {metric.upper()}: {value:.4f}")
     
-    if 'v2_clusters' in st.session_state and st.session_state.v2_clusters is not None:
-        # Display the cluster distribution chart
-        cluster_fig = plot_cluster_summary(st.session_state.v2_clusters)
-        st.plotly_chart(cluster_fig, use_container_width=True)
-        
-        # Create columns for detailed views and download options
-        col1, col2 = st.columns([3, 2])
-        
-        with col1:
-            # Show cluster distribution statistics
-            st.subheader("Cluster Distribution")
-            
-            # Group by cluster name to get counts
-            cluster_groups = st.session_state.v2_clusters.groupby('cluster_name').size().reset_index()
-            cluster_groups.columns = ['Cluster', 'Count']
-
-            # Calculate percentage
-            total_skus = cluster_groups['Count'].sum()
-            cluster_groups['Percentage'] = (cluster_groups['Count'] / total_skus * 100).round(1)
-            cluster_groups['Percentage'] = cluster_groups['Percentage'].astype(str) + '%'
-
-            st.dataframe(cluster_groups, use_container_width=True)
-        
-        with col2:
-            # Show recommended forecasting models per cluster
-            st.subheader("Recommended Forecasting Methods")
-            
-            # If recommended model column exists
-            if 'recommended_model' in st.session_state.v2_clusters.columns:
-                # Get the most common recommended model per cluster
-                model_recommendations = st.session_state.v2_clusters.groupby('cluster_name')['recommended_model'].agg(
-                    lambda x: x.value_counts().index[0] if len(x) > 0 else "Unknown"
-                ).reset_index()
-                model_recommendations.columns = ['Cluster', 'Recommended Model']
-                
-                # Display model recommendations
-                st.dataframe(model_recommendations, use_container_width=True)
-            else:
-                st.info("Model recommendations not available")
-        
-        # Option to show all SKUs and their clusters
-        st.subheader("Detailed SKU Cluster Assignments")
-        show_all = st.checkbox("Show All SKUs and Their Clusters", value=st.session_state.v2_show_all_clusters)
-        st.session_state.v2_show_all_clusters = show_all
-
-        if show_all:
-            # Determine columns to display based on what's available
-            display_columns = ['sku', 'cluster_name']
-            if 'recommended_model' in st.session_state.v2_clusters.columns:
-                display_columns.append('recommended_model')
-            
-            # Add key metrics if they exist
-            metric_columns = ['mean_sales', 'cv', 'trend_slope', 'seasonality', 'zero_ratio']
-            available_metrics = [col for col in metric_columns if col in st.session_state.v2_clusters.columns]
-            display_columns.extend(available_metrics)
-            
-            # Create a clean dataframe for display
-            sku_clusters = st.session_state.v2_clusters[display_columns].sort_values('cluster_name')
-            
-            # Rename columns for better readability
-            readable_names = {
-                'sku': 'SKU',
-                'cluster_name': 'Cluster',
-                'recommended_model': 'Recommended Model',
-                'mean_sales': 'Avg. Demand',
-                'cv': 'CV',
-                'trend_slope': 'Trend',
-                'seasonality': 'Seasonality',
-                'zero_ratio': 'Zero %'
+    # Create forecast button
+    forecast_button = st.button("Generate Forecast")
+    
+    if forecast_button:
+        with st.spinner("Generating forecast..."):
+            # Set parameters
+            params = {
+                'alpha': alpha,
+                'method': method,
+                'h': horizon
             }
-            sku_clusters = sku_clusters.rename(columns={k: v for k, v in readable_names.items() if k in sku_clusters.columns})
             
-            # Round numeric columns to 2 decimal places
-            numeric_cols = sku_clusters.select_dtypes(include=['float64']).columns
-            for col in numeric_cols:
-                sku_clusters[col] = sku_clusters[col].round(2)
-                
-            # Display detailed dataframe
-            st.dataframe(sku_clusters, use_container_width=True)
-            
-            # Provide download link for CSV
-            csv = sku_clusters.to_csv(index=False).encode('utf-8')
-            
-            st.download_button(
-                label="📥 Download Cluster Data as CSV",
-                data=csv,
-                file_name="sku_cluster_analysis.csv",
-                mime="text/csv",
-                help="Download the complete cluster analysis data as a CSV file"
-            )
-    else:
-        st.warning("Cluster analysis data is not available. Please run the forecasting process first.")
-
-    # Show SKU-wise Model Selection Table
-    st.header("SKU-wise Model Selection")
-
-    # Create a dataframe with SKU and model information
-    model_selection_data = []
-
-    for sku, forecast_data in st.session_state.v2_forecasts.items():
-        model_info = {
-            'SKU': sku,
-            'Selected Model': forecast_data['model_evaluation']['best_model'].upper() if 'model_evaluation' in forecast_data and 'best_model' in forecast_data['model_evaluation'] else forecast_data['model'].upper(),
-            'Cluster': forecast_data['cluster_name']
-        }
-
-        # Add model evaluation metrics if available
-        if 'model_evaluation' in forecast_data and forecast_data['model_evaluation']['metrics']:
-            best_model = forecast_data['model_evaluation']['best_model']
-            if best_model in forecast_data['model_evaluation']['metrics']:
-                metrics = forecast_data['model_evaluation']['metrics'][best_model]
-                model_info['RMSE'] = round(metrics['rmse'], 2)
-                model_info['MAPE (%)'] = round(metrics['mape'], 2) if not np.isnan(metrics['mape']) else None
-
-            # Add reason for selection
-            model_info['Selection Reason'] = "Best performance on test data" if best_model == model_info['Selected Model'].lower() else "Fallback choice"
-
-        model_selection_data.append(model_info)
-
-    # Create and display the dataframe
-    model_selection_df = pd.DataFrame(model_selection_data)
-
-    # Set default filter values
-    selected_model_filter = 'All'
-    selected_cluster_filter = 'All'
-
-    # Add table filters
-    col1, col2 = st.columns(2)
-
-    with col1:
-        # Filter by model type
-        if 'Selected Model' in model_selection_df.columns:
-            unique_models = ['All'] + sorted(model_selection_df['Selected Model'].unique().tolist())
-            selected_model_filter = st.selectbox("Filter by Model Type", options=unique_models)
-
-    with col2:
-        # Filter by cluster
-        if 'Cluster' in model_selection_df.columns:
-            unique_clusters = ['All'] + sorted(model_selection_df['Cluster'].unique().tolist())
-            selected_cluster_filter = st.selectbox("Filter by Cluster", options=unique_clusters)
-
-    # Apply filters
-    filtered_df = model_selection_df.copy()
-
-    if selected_model_filter != 'All':
-        filtered_df = filtered_df[filtered_df['Selected Model'] == selected_model_filter]
-
-    if selected_cluster_filter != 'All':
-        filtered_df = filtered_df[filtered_df['Cluster'] == selected_cluster_filter]
-
-    # Display the filtered table
-    st.dataframe(filtered_df, use_container_width=True)
-
-    # Forecast explorer
-    st.header("Forecast Explorer")
-
-    # Create a SKU selection area
-    # Allow user to select a SKU to view detailed forecast
-    sku_list = list(st.session_state.v2_forecasts.keys())
-
-    # Safely get an index for the selected SKU
-    if st.session_state.v2_selected_sku is None or st.session_state.v2_selected_sku not in sku_list:
-        default_index = 0
-    else:
-        try:
-            default_index = sku_list.index(st.session_state.v2_selected_sku)
-        except (ValueError, IndexError):
-            default_index = 0
-
-    selected_sku = st.selectbox(
-        "Select a SKU to view forecast details",
-        options=sku_list,
-        index=default_index,
-        key="v2_forecast_sku_selector"
-    )
-    st.session_state.v2_selected_sku = selected_sku
-
-    # Show forecast details for selected SKU
-    if selected_sku:
-        forecast_data = st.session_state.v2_forecasts[selected_sku]
-
-        # Tab section for forecast views
-        # Check if this SKU has intermittent demand (display before the tabs)
-        if forecast_data is not None:
-            # Check if we can get the history data (using a safer approach)
-            # Get the time series using the appropriate source from the forecast data
-            if 'train_set' in forecast_data:
-                # Use train set combined with test set if available
-                sku_history = pd.concat([forecast_data['train_set'], forecast_data.get('test_set', pd.Series())])
-            elif 'history' in forecast_data:
-                # Direct history field if available
-                sku_history = forecast_data['history']
-            else:
-                # Get sales data for this SKU
-                sku_data = st.session_state.sales_data[st.session_state.sales_data['sku'] == selected_sku]
-                if not sku_data.empty:
-                    # Process to get time series
-                    sku_data_pivot = sku_data.pivot_table(
-                        index='date', 
-                        values='quantity', 
-                        aggfunc='sum'
-                    )
-                    sku_history = sku_data_pivot['quantity']
-                else:
-                    # Empty series as fallback
-                    sku_history = pd.Series()
-            
-            # Calculate percentage of zero values (only if we have data)
-            if not sku_history.empty:
-                # Include periods with no data as zeros (fill in missing months)
-                # First ensure the index is sorted
-                sku_history = sku_history.sort_index()
-                
-                # Create a continuous date range from min to max with monthly frequency
-                if len(sku_history) > 0:
-                    full_date_range = pd.date_range(
-                        start=sku_history.index.min(),
-                        end=sku_history.index.max(),
-                        freq='MS'  # Month Start frequency
-                    )
-                    
-                    # Reindex with the full range, filling NaN with 0
-                    complete_history = sku_history.reindex(full_date_range, fill_value=0)
-                    
-                    # Now calculate zero percentage including missing months
-                    zero_percentage = ((complete_history == 0).sum() / len(complete_history)) * 100
-                    # Use the user-defined threshold from session state
-                    is_intermittent = zero_percentage >= st.session_state.v2_intermittent_threshold
-                else:
-                    zero_percentage = 0
-                    is_intermittent = False
-            else:
-                zero_percentage = 0
-                is_intermittent = False
-            
-            # Create a container with info about the demand pattern
-            demand_pattern_col1, demand_pattern_col2 = st.columns([3, 1])
-            
-            with demand_pattern_col1:
-                if is_intermittent:
-                    st.info(f"**Intermittent Demand Pattern Detected**: This SKU has {zero_percentage:.1f}% zero values in its history. The Croston method is recommended for forecasting.")
-                else:
-                    st.success(f"**Regular Demand Pattern**: This SKU has only {zero_percentage:.1f}% zero values in its history. Standard forecasting methods are appropriate.")
-            
-            with demand_pattern_col2:
-                # Display a badge for the demand type
-                if is_intermittent:
-                    st.markdown("""
-                    <div style="background-color:#E8F5E9; padding:8px; border-radius:5px; text-align:center;">
-                        <span style="font-weight:bold; color:#2E7D32;">INTERMITTENT DEMAND</span>
-                    </div>
-                    """, unsafe_allow_html=True)
-                else:
-                    st.markdown("""
-                    <div style="background-color:#E3F2FD; padding:8px; border-radius:5px; text-align:center;">
-                        <span style="font-weight:bold; color:#1565C0;">REGULAR DEMAND</span>
-                    </div>
-                    """, unsafe_allow_html=True)
-        
-        forecast_tabs = st.tabs(["Forecast Chart", "Model Comparison", "Forecast Metrics", "Time Series Decomposition"])
-
-        with forecast_tabs[0]:
-            # Forecast visualization section - full width
-            # Get list of models to display
-            # If we have multiple models selected, use them for visualization
-            available_models = []
-            selected_models_for_viz = []
-
-            if 'model_evaluation' in forecast_data and 'all_models_forecasts' in forecast_data['model_evaluation']:
-                # Get all available models from the forecast data
-                available_models = list(forecast_data['model_evaluation']['all_models_forecasts'].keys())
-
-                # Create checkboxes for display options
-                st.subheader("Display Options")
-
-                # Create columns for the checkboxes
-                col_options1, col_options2 = st.columns(2)
-
-                with col_options1:
-                    # Option to show test predictions
-                    show_test_predictions = st.checkbox(
-                        "Show Test Predictions", 
-                        value=False,
-                        help="Display forecast line for test data period"
-                    )
-
-                    # Option to show all models or best model
-                    show_all_models = st.checkbox(
-                        "Show All Selected Models", 
-                        value=False,
-                        help="Show forecasts from all selected models"
-                    )
-
-                with col_options2:
-                    # Custom model selection (only show if not showing all models)
-                    if not show_all_models:
-                        # Get model options capitalized
-                        model_options = [model.upper() for model in available_models]
-
-                        # Ensure best model is included in the options
-                        default_model = forecast_data['model'].upper()
-                        if default_model not in model_options and default_model.lower() in available_models:
-                            model_options.append(default_model)
-
-                        # Get the selected models from sidebar
-                        selected_sidebar_models = []
-                        for m in st.session_state.v2_selected_models:
-                            model_upper = m.upper()
-                            if model_upper in model_options or m.lower() in available_models:
-                                selected_sidebar_models.append(model_upper if model_upper in model_options else m.upper())
-
-                        # If none of the sidebar selected models are available, default to the best model
-                        if not selected_sidebar_models:
-                            selected_sidebar_models = [default_model] if default_model in model_options else []
-
-                        # Create multiselect for custom model selection
-                        custom_models = st.multiselect(
-                            "Select Models to Display",
-                            options=model_options,
-                            default=selected_sidebar_models,
-                            help="Select one or more models to display on chart"
-                        )
-                        # Convert back to lowercase for consistency
-                        custom_models_lower = [model.lower() for model in custom_models]
-                    else:
-                        custom_models_lower = []
-
-                # Determine which models to display based on selections
-                if show_all_models:
-                    # Use ALL models that were selected in the sidebar AND are available in the forecast data
-                    selected_models_for_viz = []
-                    for model in st.session_state.v2_selected_models:
-                        model_lower = model.lower()
-                        # Check if this model exists in the forecast data
-                        if model_lower in available_models:
-                            selected_models_for_viz.append(model_lower)
-                elif custom_models_lower:
-                    # Use custom selection from multiselect
-                    selected_models_for_viz = custom_models_lower
-                else:
-                    # Default to the primary model if nothing is explicitly selected
-                    selected_models_for_viz = [forecast_data['model']]
-
-                # Ensure we have at least one model in the list
-                if not selected_models_for_viz and available_models:
-                    selected_models_for_viz = [available_models[0]]
-
-                # Set test prediction flag based on checkbox
-                forecast_data['show_test_predictions'] = show_test_predictions
-
-            # Add a timeline slider for controlling x-axis date range
-            st.subheader("Chart Timeline Options")
-            
-            # Determine the min and max dates for the slider
-            min_date = st.session_state.sales_data[st.session_state.sales_data['sku'] == selected_sku]['date'].min()
-            
-            # Get the max date (either from forecast or sales data)
-            if 'forecast' in forecast_data and forecast_data['forecast'] is not None and len(forecast_data['forecast']) > 0:
-                # Convert to Python's native datetime to avoid Timestamp type issues
-                max_date = forecast_data['forecast'].index.max().to_pydatetime()
-            else:
-                max_date = st.session_state.sales_data[st.session_state.sales_data['sku'] == selected_sku]['date'].max()
-            
-            # Convert min_date to Python datetime to ensure consistent types
-            min_date = pd.to_datetime(min_date).to_pydatetime()
-            max_date = pd.to_datetime(max_date).to_pydatetime()
-            
-            # Create a date range slider
-            date_range = st.slider(
-                "Select date range to display",
-                min_value=min_date,
-                max_value=max_date,
-                value=(min_date, max_date),  # Default to full range
-                format="MMM YYYY",  # Format for displaying dates
-                key=f"date_slider_{selected_sku}"
+            # Generate forecast
+            forecast, lower_bound, upper_bound = croston_optimized(
+                resampled_data,
+                parameters=params
             )
             
-            # Unpack the selected date range
-            start_date, end_date = date_range
+            # Store forecast data for comparison
+            if 'forecasts' not in st.session_state:
+                st.session_state.forecasts = {}
             
-            # Display forecast chart with selected models (FULL WIDTH)
-            forecast_fig = plot_forecast(
-                st.session_state.sales_data, 
-                forecast_data, 
-                selected_sku, 
-                selected_models_for_viz,
-                x_axis_range=[start_date, end_date]  # Pass date range to plot function
+            model_name = 'Croston' if method == 'original' else 'SBA-Croston'
+            st.session_state.forecasts[model_name] = forecast
+            
+            # Save to database
+            forecast_data = {
+                'forecast': forecast.to_dict(),
+                'lower_bound': lower_bound.to_dict(),
+                'upper_bound': upper_bound.to_dict()
+            }
+            
+            metadata = {
+                'sku': selected_sku,
+                'frequency': frequency,
+                'parameters': params,
+                'seasonal_period': seasonal_period,
+                'is_intermittent': is_intermittent
+            }
+            
+            forecast_id = save_forecast_result(
+                selected_sku,
+                model_name,
+                forecast_data,
+                metadata
             )
-            st.plotly_chart(forecast_fig, use_container_width=True)
-
-            # Add a note about model selection
-            if selected_models_for_viz:
-                st.info(f"Displaying forecasts for models: {', '.join([m.upper() for m in selected_models_for_viz])}")
-
-            # Debug information to help troubleshoot
-            with st.expander("Debug Information", expanded=False):
-                st.write("Selected Models:", selected_models_for_viz)
-                st.write("Available Models:", available_models if 'available_models' in locals() else "Not available")
-                st.write("Model Evaluation:", "Available" if 'model_evaluation' in forecast_data else "Not available")
-                if 'model_evaluation' in forecast_data and 'all_models_forecasts' in forecast_data['model_evaluation']:
-                    st.write("Models with forecasts:", list(forecast_data['model_evaluation']['all_models_forecasts'].keys()))
-
-            # Show training/test split information if available
-            if 'train_set' in forecast_data and 'test_set' in forecast_data:
-                train_count = len(forecast_data['train_set'])
-                test_count = len(forecast_data['test_set'])
-                total_points = train_count + test_count
-                train_pct = int((train_count / total_points) * 100)
-                test_pct = int((test_count / total_points) * 100)
-
-                st.caption(f"Data split: {train_count} training points ({train_pct}%) and {test_count} test points ({test_pct}%)")
-
-            # Add Forecast Details as expandable section (collapsed by default)
-            with st.expander("Forecast Details", expanded=False):
-                if selected_sku and selected_sku in st.session_state.v2_forecasts:
-                    # Basic metrics at the top
-                    col1, col2, col3 = st.columns(3)
-
-                    with col1:
-                        st.markdown(f"**SKU:** {selected_sku}")
-
-                    with col2:
-                        st.markdown(f"**Cluster:** {forecast_data['cluster_name']}")
-
-                    with col3:
-                        st.markdown(f"**Model Used:** {forecast_data['model'].upper()}")
-
-                    # Show accuracy metric if available
-                    if 'model_evaluation' in forecast_data and 'metrics' in forecast_data['model_evaluation']:
-                        best_model = forecast_data['model_evaluation']['best_model']
-                        if best_model in forecast_data['model_evaluation']['metrics']:
-                            metrics = forecast_data['model_evaluation']['metrics'][best_model]
-                            if 'mape' in metrics and not np.isnan(metrics['mape']):
-                                st.metric("Forecast Accuracy", f"{(100-metrics['mape']):.1f}%", help="Based on test data evaluation")
-
-                    # Forecast confidence
-                    confidence_color = "green" if forecast_data['model'] != 'moving_average' else "orange"
-                    confidence_text = "High" if forecast_data['model'] != 'moving_average' else "Medium"
-                    st.markdown(f"**Forecast Confidence:** <span style='color:{confidence_color}'>{confidence_text}</span>", unsafe_allow_html=True)
-
-                    # Create basic forecast table - without confidence intervals as requested
-                    forecast_table = pd.DataFrame({
-                        'Date': forecast_data['forecast'].index,
-                        'Forecast': forecast_data['forecast'].values.round(0).astype(int)
-                    })
-
-                    # If we have model evaluation data for multiple models, show them side by side in the table
-                    if 'model_evaluation' in forecast_data and 'all_models_forecasts' in forecast_data['model_evaluation']:
-                        model_forecasts = forecast_data['model_evaluation']['all_models_forecasts']
-
-                        # Show models explicitly selected by the user
-                        if show_all_models:
-                            # Use ALL models from sidebar that are available in the forecasts
-                            models_to_display = []
-                            for model in st.session_state.v2_selected_models:
-                                model_lower = model.lower()
-                                if model_lower in model_forecasts:
-                                    models_to_display.append(model_lower)
-                        elif custom_models_lower:
-                            # Use custom selection from multiselect
-                            models_to_display = [m for m in custom_models_lower 
-                                              if m in model_forecasts]
-                        else:
-                            # If no models selected, use the best model (from model_evaluation)
-                            if 'model_evaluation' in forecast_data and 'best_model' in forecast_data['model_evaluation']:
-                                models_to_display = [forecast_data['model_evaluation']['best_model']]
-                            else:
-                                models_to_display = [forecast_data['model']]
-
-                        # Add each selected model's forecast as a column - ensuring each value is properly obtained
-                        for model in models_to_display:
-                            if model in model_forecasts:
-                                model_forecast = model_forecasts[model]
-
-                                # Add each selected model's forecast as a column
-                                forecast_values = []
-                                for date in forecast_table['Date']:
-                                    try:
-                                        date_obj = pd.to_datetime(date)
-                                        # First check if the exact date is in the model forecast index
-                                        if date_obj in model_forecast.index:
-                                            forecast_val = model_forecast[date_obj]
-                                        # If not, try to get closest date if it's a forecast model with different index
-                                        else:
-                                            # Print debugging information
-                                            closest_dates = model_forecast.index[model_forecast.index <= date_obj]
-                                            if len(closest_dates) > 0:
-                                                closest_date = closest_dates[-1]  # Get the most recent date before this one
-                                                forecast_val = model_forecast[closest_date]
-                                            else:
-                                                forecast_val = np.nan
-
-                                        # Handle NaN values before conversion to int
-                                        if pd.isna(forecast_val) or np.isnan(forecast_val):
-                                            forecast_values.append(0)
-                                        else:
-                                            # Double-check to ensure we're not trying to convert NaN
-                                            try:
-                                                forecast_values.append(int(round(forecast_val)))
-                                            except (ValueError, TypeError):
-                                                # If conversion fails for any reason, use 0
-                                                forecast_values.append(0)
-                                    except Exception as e:
-                                        # Catch any unexpected errors
-                                        print(f"Error processing forecast date {date} for model {model}: {str(e)}")
-                                        forecast_values.append(0)
-
-                                # Add the values to the forecast table with proper NaN handling
-                                forecast_table[f'{model.upper()} Forecast'] = forecast_values
-
-                                # Ensure there are no NaN values in the table
-                                forecast_table.fillna(0, inplace=True)
-
-                    # Format the date column to be more readable
-                    forecast_table['Date'] = forecast_table['Date'].dt.strftime('%Y-%m-%d')
-
-                    # Display the enhanced table with styling
-                    st.subheader("Forecast Data Table")
-                    st.dataframe(
-                        forecast_table.style.highlight_max(subset=['Forecast'], color='#d6eaf8')
-                                         .highlight_min(subset=['Forecast'], color='#fadbd8')
-                                         .format({'Range (±)': '{} units'}),
-                        use_container_width=True,
-                        height=min(35 * (len(forecast_table) + 1), 400)  # Dynamically size table height with scrolling
-                    )
-        with forecast_tabs[1]:
-            # Model comparison visualization
-            if 'model_evaluation' in forecast_data and forecast_data['model_evaluation']['metrics']:
-                # Visual comparison of models
-                st.subheader("Model Performance Comparison")
-
-                # Use plot_model_comparison with correct parameters
-                model_comparison_fig = plot_model_comparison(selected_sku, forecast_data)
-                st.plotly_chart(model_comparison_fig, use_container_width=True)
-
-                # Add explanation of the evaluation process
-                st.info("The system evaluates each selected forecasting model on historical test data. " +
-                       "The model with the lowest error metrics is automatically selected as the best model.")
-
-                # Show training and test data details if available
-                if 'train_set' in forecast_data and 'test_set' in forecast_data:
-                    st.subheader("Training and Test Data")
-
-                    col1, col2 = st.columns(2)
-
-                    with col1:
-                        train_start = forecast_data['train_set'].index.min().strftime('%Y-%m-%d')
-                        train_end = forecast_data['train_set'].index.max().strftime('%Y-%m-%d')
-                        train_count = len(forecast_data['train_set'])
-
-                        st.metric("Training Period", f"{train_start} to {train_end}")
-                        st.metric("Training Data Points", train_count)
-
-                    with col2:
-                        test_start = forecast_data['test_set'].index.min().strftime('%Y-%m-%d')
-                        test_end = forecast_data['test_set'].index.max().strftime('%Y-%m-%d')
-                        test_count = len(forecast_data['test_set'])
-
-                        st.metric("Test Period", f"{test_start} to {test_end}")
-                        st.metric("Test Data Points", test_count)
-
-        with forecast_tabs[2]:
-            # Detailed metrics and accuracy information
-            if 'model_evaluation' in forecast_data and forecast_data['model_evaluation']['metrics']:
-                st.subheader("Model Evaluation Results")
-                
-                # Create table of model evaluation metrics
-                metrics_data = []
-                # First get models from all_models_forecasts to make sure we don't miss any
-                all_forecast_models = []
-                if 'all_models_forecasts' in forecast_data['model_evaluation']:
-                    all_forecast_models = list(forecast_data['model_evaluation']['all_models_forecasts'].keys())
-                
-                # Add models that have metrics
-                for model_name, metrics in forecast_data['model_evaluation']['metrics'].items():
-                    metrics_data.append({
-                        'Model': model_name.upper(),
-                        'RMSE': round(metrics['rmse'], 2),
-                        'MAPE (%)': round(metrics['mape'], 2) if not np.isnan(metrics['mape']) else "N/A",
-                        'MAE': round(metrics['mae'], 2),
-                        'Best Model': '✓' if model_name == forecast_data['model_evaluation']['best_model'] else ''
-                    })
-                
-                # Add any models that have forecasts but no metrics (like Croston if it's missing)
-                metrics_model_names = [m['Model'].lower() for m in metrics_data]
-                for model_name in all_forecast_models:
-                    if model_name.lower() not in metrics_model_names:
-                        # Include the model with placeholder metrics to ensure it appears in the table
-                        metrics_data.append({
-                            'Model': model_name.upper(),
-                            'RMSE': "N/A",
-                            'MAPE (%)': "N/A",
-                            'MAE': "N/A",
-                            'Best Model': '✓' if model_name == forecast_data['model_evaluation']['best_model'] else ''
-                        })
-
-                # Create DataFrame and display
-                metrics_df = pd.DataFrame(metrics_data)
-                
-                # Custom sorting that handles "N/A" values
-                # First convert the RMSE column to numeric where possible
-                # Create a helper column for sorting
-                metrics_df['RMSE_sort'] = pd.to_numeric(metrics_df['RMSE'], errors='coerce')
-                
-                # Sort by the helper column (NaN values will be at the end)
-                metrics_df = metrics_df.sort_values('RMSE_sort')
-                
-                # Drop the helper column before display
-                metrics_df = metrics_df.drop(columns=['RMSE_sort'])
-                
-                # Display the sorted metrics
-                st.dataframe(metrics_df, use_container_width=True, height=350)
-
-                # Add explanation about metrics
-                st.markdown("""
-                **Metrics Explanation:**
-                * **RMSE (Root Mean Square Error)**: Measures the square root of the average squared difference between predicted and actual values. Lower values are better.
-                * **MAPE (Mean Absolute Percentage Error)**: Measures the average percentage difference between predicted and actual values. Lower values are better.
-                * **MAE (Mean Absolute Error)**: Measures the average absolute difference between predicted and actual values. Lower values are better.
-                """)
-
-                # Add explanation about model selection
-                st.info("The system selected the model with the lowest RMSE as the best model for forecasting this SKU.")
-                
-                # Add a note about N/A values in the metrics
-                if any(m == "N/A" for m in metrics_df['RMSE']):
-                    st.info("**Note:** 'N/A' metrics indicate specialized models like Croston which are evaluated differently. For intermittent demand patterns, Croston forecasts are often more reliable despite lacking conventional error metrics.")
-                
-        with forecast_tabs[3]:
-            # Time Series Decomposition Analysis
-            st.subheader("Time Series Decomposition")
-            st.markdown("""
-            This analysis breaks down the sales time series into its core components:
-            - **Trend**: The long-term progression of the series (increasing or decreasing)
-            - **Seasonal**: Repeating patterns or cycles
-            - **Residual**: The random variation remaining after trend and seasonal components are removed
-            """)
             
-            # Get the historical data for this SKU from the dataframe
-            sku_data = st.session_state.sales_data[st.session_state.sales_data['sku'] == selected_sku]
+            # Plot forecast
+            forecast_plot = plot_forecast(
+                resampled_data,
+                forecast,
+                upper_bound,
+                lower_bound,
+                model_name,
+                selected_sku
+            )
             
-            if not sku_data.empty:
-                # Prepare time series for decomposition by pivoting
-                sku_data_pivot = sku_data.pivot_table(
-                    index='date', 
-                    values='quantity', 
-                    aggfunc='sum'
+            st.plotly_chart(forecast_plot, use_container_width=True)
+            
+            # Display forecast details
+            st.subheader("Forecast Details")
+            
+            # Confidence interval explanation
+            ci_explanation = """
+            **Understanding Confidence Intervals:**
+            - The shaded area represents the 95% prediction interval.
+            - Wider intervals indicate higher uncertainty in the forecast.
+            - For intermittent demand, these intervals help account for the irregular pattern of demand.
+            """
+            st.info(ci_explanation)
+            
+            # Format forecast as table
+            forecast_df = pd.DataFrame({
+                'Date': forecast.index,
+                'Forecast': forecast.values,
+                'Lower Bound': lower_bound.values,
+                'Upper Bound': upper_bound.values
+            })
+            
+            st.write(forecast_df)
+            
+            # Compare with previous forecasts
+            if len(st.session_state.forecasts) > 1:
+                st.subheader("Model Comparison")
+                
+                comparison_plot = plot_model_comparison(
+                    resampled_data,
+                    st.session_state.forecasts,
+                    selected_sku
                 )
                 
-                # Check if we have at least 2 seasons of data (needed for decomposition)
-                time_series = sku_data_pivot['quantity']
-                
-                if len(time_series) >= 4:  # Need at least 4 data points
-                    try:
-                        # Create decomposition model options
-                        st.write("### Decomposition Settings")
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            model_type = st.selectbox(
-                                "Decomposition Model",
-                                ["additive", "multiplicative"],
-                                index=0,
-                                help="Additive: Components are added together. Multiplicative: Components are multiplied together."
-                            )
-                            
-                        with col2:
-                            # Automatically detect the optimal seasonal period
-                            detected_period = detect_seasonal_period(time_series)
-                            
-                            # Show detected period in text
-                            st.info(f"📊 **Detected optimal seasonal period: {detected_period}**")
-                            
-                            # Allow user to override with slider
-                            period = st.slider(
-                                "Seasonal Period",
-                                min_value=2,
-                                max_value=min(24, len(time_series) // 2),
-                                value=detected_period,
-                                help="Number of time steps in a seasonal cycle (e.g., 12 for monthly data with yearly seasonality)"
-                            )
-                        
-                        # Perform the decomposition
-                        decomposition = seasonal_decompose(
-                            time_series, 
-                            model=model_type, 
-                            period=period
-                        )
-                        
-                        # Create a single stacked figure with subplots
-                        import plotly.graph_objects as go
-                        from plotly.subplots import make_subplots
-                        
-                        # Create subplot structure with 4 rows and 1 column - ultra compact
-                        fig = make_subplots(
-                            rows=4, 
-                            cols=1, 
-                            shared_xaxes=True,  # Common x-axis
-                            vertical_spacing=0.01,  # Ultra-minimal spacing between plots
-                            subplot_titles=(
-                                f"Original Series", 
-                                f"Trend", 
-                                f"Seasonal", 
-                                f"Residual"
-                            )
-                        )
-                        
-                        # Ensure we use the complete data range up to September 2024
-                        # Determine the date range
-                        min_date = time_series.index.min()
-                        max_date = time_series.index.max()
-                        
-                        # Add traces for each component
-                        # Original Data
-                        fig.add_trace(
-                            go.Scatter(
-                                x=time_series.index, 
-                                y=time_series.values, 
-                                name="Sales", 
-                                line=dict(color='#1f77b4', width=1.5)
-                            ),
-                            row=1, col=1
-                        )
-                        
-                        # Trend Component
-                        fig.add_trace(
-                            go.Scatter(
-                                x=decomposition.trend.index, 
-                                y=decomposition.trend.values, 
-                                name="Trend", 
-                                line=dict(color='#1f77b4', width=1.5)
-                            ),
-                            row=2, col=1
-                        )
-                        
-                        # Seasonal Component
-                        fig.add_trace(
-                            go.Scatter(
-                                x=decomposition.seasonal.index, 
-                                y=decomposition.seasonal.values, 
-                                name="Seasonality", 
-                                line=dict(color='#1f77b4', width=1.5)
-                            ),
-                            row=3, col=1
-                        )
-                        
-                        # Residual Component
-                        fig.add_trace(
-                            go.Scatter(
-                                x=decomposition.resid.index, 
-                                y=decomposition.resid.values, 
-                                name="Residuals", 
-                                line=dict(color='#1f77b4', width=1.5)
-                            ),
-                            row=4, col=1
-                        )
-                        
-                        # Set x-axis range to ensure we display all data through September 2024
-                        fig.update_xaxes(range=[min_date, max_date])
-                        
-                        # Update layout for ultra-compact display
-                        fig.update_layout(
-                            height=500,  # Further reduced total height
-                            template="plotly_white",
-                            title=f"Time Series Decomposition - {selected_sku}",
-                            showlegend=False,
-                            margin=dict(t=20, l=30, r=5, b=5),  # Ultra-tight margins
-                            plot_bgcolor='rgba(0,0,0,0)',
-                            paper_bgcolor='rgba(0,0,0,0)'
-                        )
-                        
-                        # Ultra-compact y-axis titles
-                        # Make each subplot more compact by reducing tick labels and titles
-                        fig.update_yaxes(
-                            title_text="Sales", 
-                            row=1, 
-                            col=1, 
-                            title_standoff=0, 
-                            tickfont=dict(size=10),
-                            title_font=dict(size=10)  # Changed from titlefont to title_font
-                        )
-                        fig.update_yaxes(
-                            title_text="Trend", 
-                            row=2, 
-                            col=1, 
-                            title_standoff=0, 
-                            tickfont=dict(size=10),
-                            title_font=dict(size=10)  # Changed from titlefont to title_font
-                        )
-                        fig.update_yaxes(
-                            title_text="Season", 
-                            row=3, 
-                            col=1, 
-                            title_standoff=0, 
-                            tickfont=dict(size=10),
-                            title_font=dict(size=10)  # Changed from titlefont to title_font
-                        )
-                        fig.update_yaxes(
-                            title_text="Resid", 
-                            row=4, 
-                            col=1, 
-                            title_standoff=0, 
-                            tickfont=dict(size=10),
-                            title_font=dict(size=10)  # Changed from titlefont to title_font
-                        )
-                        
-                        # Only show x-axis title on the bottom subplot, make more compact
-                        fig.update_xaxes(title_text="", row=1, col=1, showticklabels=False)
-                        fig.update_xaxes(title_text="", row=2, col=1, showticklabels=False)
-                        fig.update_xaxes(title_text="", row=3, col=1, showticklabels=False)
-                        fig.update_xaxes(
-                            title_text="Date", 
-                            row=4, 
-                            col=1, 
-                            tickfont=dict(size=10),
-                            title_font=dict(size=10)  # Changed from titlefont to title_font
-                        )
-                        
-                        # Move subplot titles to the left and make more compact
-                        for i, annotation in enumerate(fig['layout']['annotations']):
-                            annotation['x'] = 0  # Set x position to far left 
-                            annotation['xanchor'] = 'left'  # Anchor to left
-                            annotation['font'] = dict(size=10)  # Smaller font size
-                            annotation['y'] = annotation['y'] - 0.03  # Move closer to plot
-                        
-                        # Display the stacked figure with minimal whitespace
-                        st.markdown("##### Decomposed Time Series Components")
-                        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-                        
-                        # Add interpretation guidelines
-                        with st.expander("How to Interpret These Charts", expanded=False):
-                            st.markdown("""
-                            ### Interpreting Time Series Decomposition
-                            
-                            **Original Data**: The raw sales values over time.
-                            
-                            **Trend Component**: 
-                            - Upward trend: Long-term growth in sales
-                            - Downward trend: Long-term decline in sales
-                            - Flat trend: Stable sales over time
-                            
-                            **Seasonal Component**:
-                            - Repeating patterns indicate predictable seasonal fluctuations
-                            - Higher peaks indicate stronger seasonality
-                            - The pattern repeats every period (e.g., every 12 months)
-                            
-                            **Residual Component**:
-                            - Random variation that couldn't be captured by trend or seasonality
-                            - Large spikes indicate unusual events or outliers
-                            - Ideally should look random with no clear pattern
-                            
-                            **What This Means for Forecasting**:
-                            - Strong trend → Focus on trend-based models (ARIMA, Regression)
-                            - Strong seasonality → Use seasonal models (SARIMA, Prophet)
-                            - High residuals → Consider adding external variables or events
-                            - Multiplicative patterns → Sales variation increases with volume
-                            - Additive patterns → Sales variation is consistent regardless of volume
-                            """)
-                    
-                    except Exception as e:
-                        st.error(f"Error performing decomposition: {str(e)}")
-                        st.info("Tip: Try adjusting the period parameter or switching between additive and multiplicative models.")
-                else:
-                    st.warning(f"Not enough data points for decomposition. Need at least 4, but found {len(time_series)}.")
-            else:
-                st.warning(f"No data available for SKU {selected_sku}")
-
-    # Forecast export
-    st.header("Export Forecasts")
-
-    # Prepare forecast data for export
-    if st.button("Prepare Forecast Export", key="v2_prepare_forecast_export"):
-        with st.spinner("Preparing forecast data..."):
-            # Create a DataFrame with all forecasts
-            export_data = []
-
-            for sku, forecast_data in st.session_state.v2_forecasts.items():
-                for date, value in forecast_data['forecast'].items():
-                    export_data.append({
-                        'sku': sku,
-                        'date': date,
-                        'forecast': round(value),
-                        'model': forecast_data['model'],
-                        'cluster': forecast_data['cluster_name']
-                    })
-
-            export_df = pd.DataFrame(export_data)
-
-            # Display export preview
-            st.subheader("Export Preview")
-            st.dataframe(export_df.head(10), use_container_width=True)
-
-            # Convert to Excel for download
-            excel_buffer = io.BytesIO()
-            export_df.to_excel(excel_buffer, index=False, engine='xlsxwriter')
-            excel_buffer.seek(0)
-
-            # Create download button
-            st.download_button(
-                label="Download Forecast as Excel",
-                data=excel_buffer,
-                file_name=f"v2_forecasts_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                mime="application/vnd.ms-excel"
+                st.plotly_chart(comparison_plot, use_container_width=True)
+            
+            # Show parameter importance
+            st.subheader("Parameter Importance")
+            
+            # Create simple metrics from the forecast
+            simple_metrics = {
+                'mae': np.mean(np.abs(resampled_data['quantity'].iloc[-min(6, len(resampled_data)):].values - 
+                                      forecast.iloc[:min(6, len(forecast))].values)),
+                'forecast_mean': float(forecast.mean())
+            }
+            
+            importance_plot = plot_parameter_importance(
+                params,
+                simple_metrics,
+                'Croston'
             )
-
-    # Add a large, clear section break to separate the forecast data table
-    st.markdown("---")
-    st.markdown("## Comprehensive Forecast Data Table")
-    st.info("📊 This table shows historical and forecasted values with dates as columns. The table includes actual sales data and forecasts for each SKU/model combination.")
-
-    # Prepare comprehensive data table
-    if st.session_state.v2_forecasts:
-        # Create a dataframe to store all SKUs data with reoriented structure
-        all_sku_data = []
-
-        # Get historical dates (use the first forecast as reference for dates)
-        first_sku = list(st.session_state.v2_forecasts.keys())[0]
-        first_forecast = st.session_state.v2_forecasts[first_sku]  # Define first_forecast here
-
-        # Use sales data for historical dates instead of relying on train_set
-        if 'sales_data' in st.session_state and st.session_state.sales_data is not None:
-            # Identify unique dates in historical data
-            historical_dates = pd.to_datetime(sorted(st.session_state.sales_data['date'].unique()))
-
-            # Show all historical data points as requested by the user
-            # Commented out the limit to show all historical dates
-            # if len(historical_dates) > 6:
-            #     historical_dates = historical_dates[-6:]
-
-            # Format dates for column names
-            historical_cols = [date.strftime('%-d %b %Y') for date in historical_dates]
-
-            # Get forecast dates from first SKU (for column headers)
-            forecast_dates = first_forecast['forecast'].index
-            forecast_date_cols = [date.strftime('%-d %b %Y') for date in forecast_dates]
-
-            # Add SKU selector for the table
-            all_skus = sorted(list(st.session_state.v2_forecasts.keys()))
-
-            # Add multi-select for table SKUs with clearer labeling
-            st.subheader("Select Data for Table View")
-            table_skus = st.multiselect(
-                "Choose SKUs to Include",
-                options=all_skus,
-                default=all_skus[:min(5, len(all_skus))],  # Default to first 5 SKUs or less
-                key="v2_table_skus",
-                help="Select one or more SKUs to include in the table below"
-            )
-
-            # If no SKUs selected, default to showing all (up to a reasonable limit)
-            if not table_skus:
-                table_skus = all_skus[:min(5, len(all_skus))]
-                st.info(f"Showing first {len(table_skus)} SKUs by default. Select specific SKUs above if needed.")
-
-            # Process each selected SKU
-            for sku in table_skus:
-                forecast_data_for_sku = st.session_state.v2_forecasts[sku]
-
-                # Get all models for this SKU based on what was selected in the sidebar
-                # Only include models that are in selected_models from the sidebar
-                models_to_include = []
-
-                # Get available models for this SKU
-                available_models = []
-                if 'model_evaluation' in forecast_data_for_sku and 'all_models_forecasts' in forecast_data_for_sku['model_evaluation']:
-                    # Add available models to the list
-                    available_models = list(forecast_data_for_sku['model_evaluation']['all_models_forecasts'].keys())
-
-                # Only include models that were selected in the sidebar
-                for model in st.session_state.v2_selected_models:
-                    model_lower = model.lower()
-                    # Include the model if it was selected and is available
-                    if model_lower in available_models:
-                        models_to_include.append(model_lower)
-
-                # Get actual sales data for this SKU
-                sku_sales = st.session_state.sales_data[st.session_state.sales_data['sku'] == sku].copy()
-                sku_sales.set_index('date', inplace=True)
-
-                # For each model, create a row in the table
-                for model in models_to_include:
-                    # Find the model with lowest MAPE for this SKU
-                    best_mape_model = None
-                    lowest_mape = float('inf')
-                    
-                    # Check all models for this SKU and find the one with lowest MAPE
-                    if 'model_evaluation' in forecast_data_for_sku and 'metrics' in forecast_data_for_sku['model_evaluation']:
-                        for model_name, metrics in forecast_data_for_sku['model_evaluation']['metrics'].items():
-                            if 'mape' in metrics and not np.isnan(metrics['mape']):
-                                if metrics['mape'] < lowest_mape:
-                                    lowest_mape = metrics['mape']
-                                    best_mape_model = model_name
-                    
-                    # Mark if this is the best model (lowest MAPE)
-                    is_best_model = (best_mape_model is not None and model.lower() == best_mape_model)
-
-                    # Create base row info
-                    row = {
-                        'sku_code': sku,
-                        'sku_name': sku,  # Using SKU as name, replace with actual name if available
-                        'model': model.upper(),
-                        'best_model': '✓' if is_best_model else ''
-                    }
-                    
-                    # Add MAPE and MAE metrics if available
-                    if ('model_evaluation' in forecast_data_for_sku and 
-                        'metrics' in forecast_data_for_sku['model_evaluation'] and 
-                        model.lower() in forecast_data_for_sku['model_evaluation']['metrics']):
-                        metrics = forecast_data_for_sku['model_evaluation']['metrics'][model.lower()]
-                        
-                        # Add MAPE with proper handling of NaN values
-                        if 'mape' in metrics:
-                            row['MAPE (%)'] = f"{metrics['mape']:.2f}%" if not np.isnan(metrics['mape']) else "N/A"
-                        
-                        # Add MAE 
-                        if 'mae' in metrics:
-                            row['MAE'] = f"{metrics['mae']:.2f}" if not np.isnan(metrics['mae']) else "N/A"
-
-                    # Get model forecast data
-                    if model.lower() == forecast_data_for_sku['model']:
-                        # Use the primary model forecast
-                        model_forecast = forecast_data_for_sku['forecast']
-                    elif ('model_evaluation' in forecast_data_for_sku and 
-                          'all_models_forecasts' in forecast_data_for_sku['model_evaluation'] and 
-                          model.lower() in forecast_data_for_sku['model_evaluation']['all_models_forecasts']):
-                        # Get the specific model forecast data
-                        model_forecast = forecast_data_for_sku['model_evaluation']['all_models_forecasts'][model.lower()]
-                    else:
-                        # If the model isn't available, use an empty Series
-                        model_forecast = pd.Series()
-
-                    # Add historical/actual values (no prefix, just the date)
-                    for date, col_name in zip(historical_dates, historical_cols):
-                        # Remove "Actual:" prefix but track these columns separately for styling
-                        actual_col_name = col_name  # Just use the date as column name
-                        if date in sku_sales.index:
-                            row[actual_col_name] = int(sku_sales.loc[date, 'quantity']) if not pd.isna(sku_sales.loc[date, 'quantity']) else 0
-                        else:
-                            row[actual_col_name] = 0
-
-                    # Add forecast values (no prefix, just the date) - ensuring dates match
-                    for date, col_name in zip(forecast_dates, forecast_date_cols):
-                        forecast_col_name = col_name  # Just use the date as column name
-
-                        # Check if this forecast exists in all_models_forecasts
-                        model_forecast_series = None
-
-                        if ('model_evaluation' in forecast_data_for_sku and 
-                            'all_models_forecasts' in forecast_data_for_sku['model_evaluation'] and 
-                            model.lower() in forecast_data_for_sku['model_evaluation']['all_models_forecasts']):
-                            model_forecast_series = forecast_data_for_sku['model_evaluation']['all_models_forecasts'][model.lower()]
-
-                        # Now check if date exists in the model's forecast
-                        try:
-                            if model_forecast_series is not None and date in model_forecast_series.index:
-                                forecast_value = model_forecast_series[date]
-                                try:
-                                    # Check if value is NaN before conversion
-                                    if not pd.isna(forecast_value) and not np.isnan(forecast_value):
-                                        row[forecast_col_name] = int(round(forecast_value))
-                                    else:
-                                        # Handle NaN values
-                                        print(f"Warning: NaN value detected for {model} at {date}")
-                                        row[forecast_col_name] = 0
-                                except Exception as e:
-                                    # Log the error with details
-                                    print(f"Error converting forecast value for {model} at {date}: {str(e)}")
-                                    row[forecast_col_name] = 0
-                            else:
-                                # If we can't find the forecast, set to 0
-                                print(f"No forecast found for {model} at {date}")
-                                row[forecast_col_name] = 0
-                        except Exception as e:
-                            # Catch any unexpected errors and use a safe fallback
-                            print(f"Error processing forecast for {model} at {date}: {str(e)}")
-                            row[forecast_col_name] = 0
-
-                    all_sku_data.append(row)
-
-            # Create DataFrame from all data
-            if all_sku_data:
-                all_sku_df = pd.DataFrame(all_sku_data)
-
-                # Identify column groups for styling
-                all_cols = all_sku_df.columns.tolist()
-                info_cols = ['sku_code', 'sku_name', 'model', 'best_model']
-                
-                # Add metrics columns for styling
-                metrics_cols = ['MAPE (%)', 'MAE']
-                
-                # Since we removed prefixes, we need a different way to identify historical vs forecast columns
-                # Use the fact that historical columns come from historical_cols and forecast columns from forecast_date_cols
-                actual_cols = historical_cols
-                forecast_cols = forecast_date_cols
-
-                # Define a function for styling the dataframe
-                def highlight_data_columns(df):
-                    # Create a DataFrame of styles
-                    styles = pd.DataFrame('', index=df.index, columns=df.columns)
-
-                    # Apply background colors to different column types
-                    for col in info_cols:
-                        styles[col] = 'background-color: #F5F5F5; font-weight: 500'  # Light gray for info columns
-                        
-                    for col in metrics_cols:
-                        if col in df.columns:
-                            styles[col] = 'background-color: #E8F5E9; font-weight: 500'  # Light green for metrics columns
-
-                    for col in actual_cols:
-                        styles[col] = 'background-color: #E3F2FD'  # Lighter blue for actual values
-
-                    for col in forecast_cols:
-                        styles[col] = 'background-color: #FFF8E1'  # Lighter yellow for forecast values
-                        
-                    # Check for intermittent demand SKUs
-                    # Determine which column contains SKU information
-                    sku_column = None
-                    possible_sku_cols = ['sku', 'SKU', 'sku_code', 'SKU_code']
-                    for col in possible_sku_cols:
-                        if col in df.columns:
-                            sku_column = col
-                            break
-                    
-                    # If no SKU column is found, we can't apply SKU-specific styling
-                    if sku_column is None:
-                        return styles
-                            
-                    for i, sku_name in enumerate(df[sku_column]):
-                        # Get SKU from the dataframe
-                        sku = sku_name
-                        
-                        # Check if this SKU has intermittent demand
-                        is_intermittent = False
-                        if sku in st.session_state.v2_forecasts:
-                            forecast_data = st.session_state.v2_forecasts[sku]
-                            
-                            # Get the history data using the same approach as above
-                            if 'train_set' in forecast_data:
-                                # Use train set combined with test set if available
-                                history = pd.concat([forecast_data['train_set'], forecast_data.get('test_set', pd.Series())])
-                            elif 'history' in forecast_data:
-                                # Direct history field if available
-                                history = forecast_data['history']
-                            else:
-                                # Get history from sales data
-                                sku_data = st.session_state.sales_data[st.session_state.sales_data['sku'] == sku]
-                                if not sku_data.empty:
-                                    # Process to get time series
-                                    sku_data_pivot = sku_data.pivot_table(
-                                        index='date', 
-                                        values='quantity', 
-                                        aggfunc='sum'
-                                    )
-                                    history = sku_data_pivot['quantity']
-                                else:
-                                    # Empty series as fallback
-                                    history = pd.Series()
-                            
-                            # Calculate percentage of zero values (only if we have data)
-                            if not history.empty:
-                                zero_percentage = (history == 0).mean() * 100
-                                is_intermittent = zero_percentage > 40
-                            
-                            # If intermittent and Croston is available in models
-                            if is_intermittent:
-                                # Mark the SKU row with green left border to indicate intermittent
-                                # Use the same sku_column we identified above
-                                styles.iloc[i, df.columns.get_loc(sku_column)] += '; border-left: 4px solid #4CAF50'
-                                
-                                # Check if any column contains "CROSTON" (case insensitive)
-                                for col in df.columns:
-                                    if 'CROSTON' in col.upper():
-                                        # Highlight Croston method with a special background
-                                        styles.iloc[i, df.columns.get_loc(col)] = 'background-color: #E8F5E9; font-weight: bold'
-                                
-                                # Add intermittent demand indicator to notes column if it exists
-                                if 'notes' in df.columns:
-                                    curr_note = df.iloc[i, df.columns.get_loc('notes')]
-                                    if pd.isna(curr_note) or curr_note == '':
-                                        df.iloc[i, df.columns.get_loc('notes')] = "Intermittent demand detected"
-                                    else:
-                                        df.iloc[i, df.columns.get_loc('notes')] += "; Intermittent demand detected"
-
-                    # Highlight best model rows
-                    # Ensure the best_model column exists
-                    best_model_col = None
-                    for col in ['best_model', 'Best Model', 'best']:
-                        if col in df.columns:
-                            best_model_col = col
-                            break
-                    
-                    # Skip this step if there's no best model column
-                    if best_model_col is not None:
-                        for i, val in enumerate(df[best_model_col]):
-                            if val == '✓':
-                                for col in df.columns:
-                                    styles.iloc[i, df.columns.get_loc(col)] += '; font-weight: bold'
-
-                    # Add text alignment
-                    for col in all_cols:
-                        if col in info_cols:
-                            styles[col] += '; text-align: left'
-                        else:
-                            styles[col] += '; text-align: right'
-
-                    return styles
-
-                # Add column group headers using expander
-                forecast_explanation = """
-                - **SKU Info**: Basic product information
-                - **Green Border**: Indicates an SKU with intermittent demand pattern (>40% zero values)
-                - **Metrics**: Performance indicators (MAPE & MAE) shown with green background
-                - **Actual Values**: Historical sales shown with blue background
-                - **Forecast Values**: Predicted sales shown with yellow background
-                - **✓**: Indicates the model with the lowest MAPE (%) for each SKU
-                - **MAPE (%)**: Mean Absolute Percentage Error - lower is better
-                - **MAE**: Mean Absolute Error - lower is better
-                - **Croston Method**: Highlighted in green for intermittent demand SKUs
-                """
-                with st.expander("Understanding the Table", expanded=False):
-                    st.markdown(forecast_explanation)
-
-                # Use styling to highlight data column types with frozen columns till model name
-                st.dataframe(
-                    all_sku_df.style.apply(highlight_data_columns, axis=None),
-                    use_container_width=True,
-                    height=600,  # Increased height for better visibility
-                    column_config={
-                        # Configure the info columns (SKU code, SKU name, model, best model)
-                        "sku_code": st.column_config.TextColumn(
-                            "SKU Code",
-                            width="medium",
-                            help="Unique identifier for the SKU"
-                        ),
-                        "sku_name": st.column_config.TextColumn(
-                            "SKU Name",
-                            width="medium",
-                            help="Name of the SKU"
-                        ),
-                        "model": st.column_config.TextColumn(
-                            "Model",
-                            width="medium",
-                            help="Forecasting model used"
-                        ),
-                        "best_model": st.column_config.TextColumn(
-                            "Best",
-                            width="small",
-                            help="Check mark indicates model with lowest MAPE (%)"
-                        )
-                    },
-                    hide_index=True
-                )
-
-                # Create Excel file with nice formatting for download
-                excel_buffer = io.BytesIO()
-                with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
-                    all_sku_df.to_excel(writer, sheet_name='Forecast Data', index=False)
-
-                    # Get the xlsxwriter workbook and worksheet objects
-                    workbook = writer.book
-                    worksheet = writer.sheets['Forecast Data']
-
-                    # Add formats
-                    header_format = workbook.add_format({
-                        'bold': True,
-                        'text_wrap': True,
-                        'valign': 'top',
-                        'fg_color': '#D7E4BC',
-                        'border': 1
-                    })
-
-                    info_format = workbook.add_format({
-                        'bg_color': '#F5F5F5',
-                        'border': 1
-                    })
-                    
-                    metrics_format = workbook.add_format({
-                        'bg_color': '#E8F5E9',
-                        'border': 1,
-                        'num_format': '0.00'
-                    })
-
-                    actual_format = workbook.add_format({
-                        'bg_color': '#E3F2FD',
-                        'border': 1,
-                        'num_format': '#,##0'
-                    })
-
-                    forecast_format = workbook.add_format({
-                        'bg_color': '#FFF8E1',
-                        'border': 1,
-                        'num_format': '#,##0'
-                    })
-
-                    # Apply formats to the header
-                    for col_num, value in enumerate(all_sku_df.columns.values):
-                        worksheet.write(0, col_num, value, header_format)
-
-                    # Set column formats based on data type
-                    for i, col in enumerate(all_sku_df.columns):
-                        col_idx = all_sku_df.columns.get_loc(col)
-                        if col in info_cols:
-                            worksheet.set_column(col_idx, col_idx, 15, info_format)
-                        elif col in metrics_cols:
-                            worksheet.set_column(col_idx, col_idx, 12, metrics_format)
-                        elif col in actual_cols:
-                            worksheet.set_column(col_idx, col_idx, 12, actual_format)
-                        elif col in forecast_cols:
-                            worksheet.set_column(col_idx, col_idx, 12, forecast_format)
-
-                excel_buffer.seek(0)
-
-                # Provide download buttons for the table in multiple formats
-                col1, col2 = st.columns(2)
-                with col1:
-                    # Excel download
-                    st.download_button(
-                        label="📊 Download as Excel",
-                        data=excel_buffer,
-                        file_name=f"v2_sku_forecast_data_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                        mime="application/vnd.ms-excel",
-                        help="Download a formatted Excel spreadsheet with the table data"
-                    )
-
-                with col2:
-                    # CSV download
-                    csv_buffer = io.BytesIO()
-                    all_sku_df.to_csv(csv_buffer, index=False)
-                    csv_buffer.seek(0)
-
-                    st.download_button(
-                        label="📄 Download as CSV",
-                        data=csv_buffer,
-                        file_name=f"v2_sku_forecast_data_{datetime.now().strftime('%Y%m%d')}.csv",
-                        mime="text/csv",
-                        help="Download a CSV file with the table data"
-                    )
-            else:
-                st.warning("No data available for the selected SKUs.")
-        else:
-            st.warning("No sales data available to construct the comprehensive data table. Please upload sales data first.")
-    else:
-        st.warning("No forecast data available. Please run a forecast first.")
-
-else:
-    # When no forecast has been run yet, but data is available
-    st.header("Sales Data Analysis")
-
-    # Show instructions
-    st.info("👈 Please configure and run the forecast analysis using the sidebar to get detailed forecasts.")
-
-    # Allow SKU selection in main area
-    if 'sales_data' in st.session_state and st.session_state.sales_data is not None:
-        # Get list of SKUs from sales data
-        all_skus = sorted(st.session_state.sales_data['sku'].unique().tolist())
-
-        # Add a prominent SKU selector
-        col1, col2 = st.columns([3, 1])
-
-        with col1:
-            # Select SKU to display
-            # Safely calculate the default index
-            if st.session_state.v2_selected_sku is None or st.session_state.v2_selected_sku not in all_skus:
-                default_index = 0
-            else:
-                try:
-                    default_index = all_skus.index(st.session_state.v2_selected_sku)
-                except (ValueError, IndexError):
-                    default_index = 0
-
-            selected_sku_preview = st.selectbox(
-                "Select a SKU to view historical sales data",
-                options=all_skus,
-                index=default_index,
-                key="v2_selected_sku_preview"
-            )
-
-            # Update session state
-            st.session_state.v2_selected_sku = selected_sku_preview
-
-        with col2:
-            # Show basic summary for the selected SKU
-            sku_data = st.session_state.sales_data[st.session_state.sales_data['sku'] == selected_sku_preview]
-
-            if not sku_data.empty:
-                data_points = len(sku_data)
-                avg_sales = round(sku_data['quantity'].mean(), 2)
-                st.metric("Data Points", data_points)
-                st.metric("Avg. Monthly Sales", avg_sales)
-
-        # Show historical data chart for selected SKU
-        if st.session_state.v2_selected_sku:
-            st.subheader(f"Historical Sales for {st.session_state.v2_selected_sku}")
-
-            # Filter data for the selected SKU
-            sku_data = st.session_state.sales_data[st.session_state.sales_data['sku'] == st.session_state.v2_selected_sku]
-
-            # Create a simple plotly chart for historical data
-            if not sku_data.empty:
-                import plotly.express as px
-
-                # Ensure data is sorted by date
-                sku_data = sku_data.sort_values('date')
-
-                # Create the chart
-                fig = px.line(
-                    sku_data, 
-                    x='date', 
-                    y='quantity',
-                    title=f'Historical Sales for {st.session_state.v2_selected_sku}',
-                    labels={'quantity': 'Units Sold', 'date': 'Date'}
-                )
-
-                # Update layout
-                fig.update_layout(
-                    xaxis_title='Date',
-                    yaxis_title='Units Sold',
-                    template='plotly_white'
-                )
-
-                # Display the chart
-                st.plotly_chart(fig, use_container_width=True)
-
-                # Show a small table with yearly or quarterly totals
-                st.subheader("Sales Summary")
-
-                # Add year and quarter columns
-                sku_data['year'] = sku_data['date'].dt.year
-                sku_data['quarter'] = sku_data['date'].dt.quarter
-
-                # Create summary tables
-                yearly_summary = sku_data.groupby('year')['quantity'].sum().reset_index()
-                yearly_summary.columns = ['Year', 'Total Sales']
-
-                quarterly_summary = sku_data.groupby(['year', 'quarter'])['quantity'].sum().reset_index()
-                quarterly_summary.columns = ['Year', 'Quarter', 'Total Sales']
-                quarterly_summary['Period'] = quarterly_summary['Year'].astype(str) + '-Q' + quarterly_summary['Quarter'].astype(str)
-                quarterly_summary = quarterly_summary[['Period', 'Total Sales']]
-
-                # Show summary tables in columns
-                col1, col2 = st.columns(2)
-
-                with col1:
-                    st.write("Yearly Summary")
-                    st.dataframe(yearly_summary, use_container_width=True)
-
-                with col2:
-                    st.write("Quarterly Summary")
-                    st.dataframe(quarterly_summary, use_container_width=True)
-
-    # Show a preview of the overall sales data
-    st.subheader("Sales Data Preview")
-    st.dataframe(st.session_state.sales_data.head(10), use_container_width=True)
-
-    # Show summary statistics
-    st.subheader("Sales Data Summary")
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.metric("Total SKUs", len(st.session_state.sales_data['sku'].unique()))
-
-    with col2:
-        st.metric("Date Range", f"{st.session_state.sales_data['date'].min().strftime('%b %Y')} - {st.session_state.sales_data['date'].max().strftime('%b %Y')}")
-
-    with col3:
-        st.metric("Total Records", len(st.session_state.sales_data))
+            st.plotly_chart(importance_plot, use_container_width=True)
+            
+            # Success message
+            st.success(f"Forecast generated successfully! Forecast ID: {forecast_id}")
+
+except Exception as e:
+    st.error(f"An error occurred: {str(e)}")
+    st.exception(e)
