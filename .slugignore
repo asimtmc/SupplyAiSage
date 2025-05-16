@@ -1,0 +1,67 @@
+# Directories to exclude
+__pycache__/
+models_cache/
+.git/
+.github/
+test/
+tests/
+docs/
+attached_assets/
+bin/
+
+# Files to exclude
+*.pyc
+*.pyo
+*.pyd
+.Python
+.pytest_cache
+*.so
+.coverage
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+.ipynb_checkpoints
+*.ipynb
+Pipfile
+Pipfile.lock
+poetry.lock
+.venv
+venv/
+ENV/
+env/
+*.yml
+*.yaml
+*.jpg
+*.jpeg
+*.png
+*.heic
+
+# Large data files
+*.zip
+*.gz
+*.tar
+*.rar
+*.7z
+*.pdf
+*.mp4
+*.mov
+*.mkv
+*.bin
+*.weights
+*.h5
+*.onnx
+*.pt
+*.pth
+
+# Tensorflow specific 
+*saved_model.pb
+*variables/
+*variables.data-*
+*variables.index
+
+# Keep only necessary model files and data
+*/temp/*
+*/tmp/*
+*/cache/*
+*/.git/*

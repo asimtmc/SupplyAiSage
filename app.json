@@ -3,11 +3,6 @@
   "description": "Advanced AI-powered supply chain forecasting and analysis tool",
   "repository": "https://github.com/yourusername/supply-chain-forecasting",
   "keywords": ["python", "streamlit", "supply-chain", "forecast", "inventory"],
-  "buildpacks": [
-    {
-      "url": "heroku/python"
-    }
-  ],
   "stack": "heroku-24",
   "formation": {
     "web": {
@@ -19,6 +14,22 @@
     "DISABLE_UV_LOCKING": {
       "description": "Disable UV lockfile requirement",
       "value": "true"
+    },
+    "DISABLE_COLLECTSTATIC": {
+      "description": "Disable collectstatic during build",
+      "value": "1"
+    },
+    "TF_CPP_MIN_LOG_LEVEL": {
+      "description": "Suppress TensorFlow warnings",
+      "value": "2"
     }
-  }
+  },
+  "buildpacks": [
+    {
+      "url": "https://github.com/heroku/heroku-buildpack-apt"
+    },
+    {
+      "url": "heroku/python"
+    }
+  ]
 }

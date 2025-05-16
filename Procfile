@@ -1,1 +1,1 @@
-web: uv sync --no-lockfile && python heroku_startup.py && streamlit run app.py --server.port=$PORT --server.address=0.0.0.0
+web: uv sync --no-lockfile && python heroku_startup.py && streamlit run app.py --server.port=$PORT --server.address=0.0.0.0 --server.maxUploadSize=50
