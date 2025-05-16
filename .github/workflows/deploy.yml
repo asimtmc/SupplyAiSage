@@ -16,8 +16,8 @@ jobs:
           python-version: '3.12'
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          if [ -f requirements-deploy.txt ]; then pip install -r requirements-deploy.txt; fi
+          python -m pip install --upgrade pip uv
+          uv pip install -r requirements-deploy.txt
       - name: Run tests
         run: |
           # Add tests here when they're implemented
@@ -29,3 +29,5 @@ jobs:
           heroku_app_name: ${{ secrets.HEROKU_APP_NAME }}
           heroku_email: ${{ secrets.HEROKU_EMAIL }}
           usedocker: false
+          stack: "heroku-24"
+          buildpack: "heroku/python"

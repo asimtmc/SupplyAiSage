@@ -8,12 +8,7 @@
       "url": "heroku/python"
     }
   ],
-  "env": {
-    "PYTHON_VERSION": {
-      "description": "Python version to use",
-      "value": "3.12.0"
-    }
-  },
+  "stack": "heroku-24",
   "formation": {
     "web": {
       "quantity": 1,
