@@ -1,0 +1,25 @@
+# Disable all pages except the Croston forecasting page
+[global]
+disableWatchdogWarning = true
+showSidebarNavigation = false
+
+[pages]
+# Only enable our specific page
+"14_V2_Demand_Forecasting_Croston" = true
+
+# Disable all other pages
+"01_Demand_Forecasting" = false
+"02_Production_Planning" = false
+"03_Material_Procurement" = false
+"04_KPI_Dashboard" = false
+"05_What_If_Scenarios" = false
+"06_File_Management" = false
+"07_Advanced_Demand_Forecasting" = false
+"08_Database_Diagnostics" = false
+"09_New_Demand_Forecasting" = false
+"10_Enhanced_Demand_Forecasting" = false
+"11_V2_Demand_Forecasting" = false
+"12_Hyperparameter_Tuning" = false
+"13_Enhanced_Hyperparameter_Tuning" = false
+"15_Database_Viewer" = false
+"15_Transition_Management" = false
