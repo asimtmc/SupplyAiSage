@@ -12,6 +12,15 @@ def load_sample_data():
         if os.path.exists(sample_path):
             data = pd.read_excel(sample_path)
             
+            # Map the custom Excel file format to standard columns if needed
+            if 'FG Code' in data.columns and 'QTY_MONTH' in data.columns:
+                # Map necessary columns to standard format
+                data.rename(columns={
+                    'FG Code': 'sku',
+                    'QTY_MONTH': 'quantity',
+                    'YR_MONTH_NR': 'date'
+                }, inplace=True)
+            
             # Process data if needed - check date column format, etc.
             if 'date' in data.columns:
                 if not pd.api.types.is_datetime64_any_dtype(data['date']):

@@ -122,10 +122,22 @@ with tabs[0]:
             else:
                 col3.metric("Date Range", "N/A")
             
-            # Show distribution of quantity
+            # Show distribution of quantity 
             st.write("### Quantity Distribution")
-            fig = px.histogram(data, x='quantity', nbins=20, title="Distribution of Demand Quantities")
-            st.plotly_chart(fig, use_container_width=True)
+            if 'quantity' in data.columns:
+                fig = px.histogram(data, x='quantity', nbins=20, title="Distribution of Demand Quantities")
+                st.plotly_chart(fig, use_container_width=True)
+            elif 'QTY_MONTH' in data.columns:
+                fig = px.histogram(data, x='QTY_MONTH', nbins=20, title="Distribution of Demand Quantities")
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                # Find any numeric column for histogram
+                numeric_cols = data.select_dtypes(include=['number']).columns
+                if len(numeric_cols) > 0:
+                    fig = px.histogram(data, x=numeric_cols[0], nbins=20, title=f"Distribution of {numeric_cols[0]}")
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("No suitable numeric columns found for histogram visualization.")
         else:
             st.info("No data available. Please load sample data or upload your own file.")
 

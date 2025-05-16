@@ -17,9 +17,43 @@ def process_sales_data(data, date_col='date', sku_col='sku', quantity_col='quant
     # Make a copy to avoid modifying the original
     df = data.copy()
     
+    # Map columns if using the Sales History Excel format
+    if 'FG Code' in df.columns and 'QTY_MONTH' in df.columns:
+        column_mapping = {
+            'FG Code': 'sku',
+            'QTY_MONTH': 'quantity',
+            'YR_MONTH_NR': 'date'
+        }
+        
+        # Rename columns to standard format
+        for old_col, new_col in column_mapping.items():
+            if old_col in df.columns:
+                df.rename(columns={old_col: new_col}, inplace=True)
+                
+        # Update column references
+        if date_col != 'date' and date_col == 'YR_MONTH_NR':
+            date_col = 'date'
+        if sku_col != 'sku' and sku_col == 'FG Code':
+            sku_col = 'sku'
+        if quantity_col != 'quantity' and quantity_col == 'QTY_MONTH':
+            quantity_col = 'quantity'
+    
+    # Check if required columns exist
+    if date_col not in df.columns:
+        raise ValueError(f"Date column '{date_col}' not found. Available columns: {list(df.columns)}")
+    if sku_col not in df.columns:
+        raise ValueError(f"SKU column '{sku_col}' not found. Available columns: {list(df.columns)}")
+    if quantity_col not in df.columns:
+        raise ValueError(f"Quantity column '{quantity_col}' not found. Available columns: {list(df.columns)}")
+    
     # Ensure date column is datetime
     if not pd.api.types.is_datetime64_any_dtype(df[date_col]):
-        df[date_col] = pd.to_datetime(df[date_col])
+        df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
+        
+    # Handle any date parsing errors
+    if df[date_col].isna().any():
+        print(f"Warning: Some dates could not be parsed. {df[date_col].isna().sum()} rows affected.")
+        df = df.dropna(subset=[date_col])
     
     # Ensure quantity column is numeric
     df[quantity_col] = pd.to_numeric(df[quantity_col], errors='coerce')
