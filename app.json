@@ -14,5 +14,11 @@
       "quantity": 1,
       "size": "standard-1x"
     }
+  },
+  "env": {
+    "DISABLE_UV_LOCKING": {
+      "description": "Disable UV lockfile requirement",
+      "value": "true"
+    }
   }
 }

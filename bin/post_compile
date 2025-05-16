@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+
+echo "-----> Running post-compile hook"
+
+# Execute initialization script
+python heroku_startup.py
+
+echo "-----> Post-compile hook complete"

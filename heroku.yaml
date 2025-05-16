@@ -1,0 +1,6 @@
+build:
+  packages:
+    - python
+  config:
+    BUILDPACK_XTRACE: true
+    UV_DEPS_FLAGS: "--locked=false"
